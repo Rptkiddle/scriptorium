@@ -96,3 +96,15 @@ def test_tag_tool_passes_add_and_remove_to_the_writer(fake):
         (keys, add, remove, source)) or {"updated": {}, "failed": {}}
     _call("hub_item_tags", {"item_keys": ["ITEM0001"], "add": ["x"], "run": "ingestion/t"})
     assert calls == [(["ITEM0001"], ["x"], [], "ingestion/t")]
+
+
+def test_collection_and_note_tools_pass_their_arguments_to_the_writer(fake):
+    calls = []
+    fake.writer.edit_collections = lambda keys, add, remove, source=None: calls.append(
+        ("collections", keys, add, remove, source)) or {"updated": {}, "failed": {}}
+    fake.writer.create_note = lambda parent, note, source=None: calls.append(
+        ("note", parent, note, source)) or {"created": "NOTE0001"}
+    _call("hub_item_collections", {"item_keys": ["ITEM0001"], "remove": ["COLL0001"]})
+    _call("hub_note_create", {"parent_key": "ITEM0001", "note": "text", "run": "ingestion/t"})
+    assert calls == [("collections", ["ITEM0001"], [], ["COLL0001"], None),
+                     ("note", "ITEM0001", "text", "ingestion/t")]
