@@ -331,8 +331,9 @@ def hub_item_type(item_keys: list[str], item_type: str, dry_run: bool = False,
     lacks (e.g. a book's "series editor") becomes the new type's main role
     or "contributor". dry_run=True lists the fields that would go to Extra
     without changing anything. Returns {"updated": {item key:
-    {"itemType", "movedToExtra": {field: value}}}, "failed": {item key:
-    error}, "dryRun"}. `run` names the calling run in the write log."""
+    {"itemType": its type afterwards (unchanged in a dry run),
+    "movedToExtra": {field: value}}}, "failed": {item key: error},
+    "dryRun"}. `run` names the calling run in the write log."""
     d = current()
     return d.writer.change_type(item_keys, item_type, dry_run=dry_run, source=run or None)
 
