@@ -10,6 +10,7 @@ computer to communicate with Zotero" enabled (Settings -> Advanced).
 """
 
 import functools
+import html
 import re
 import threading
 from dataclasses import asdict, dataclass, field
@@ -376,7 +377,7 @@ class ZoteroReader:
                     "path": self._resolve_pdf(data)[1],
                 }
             elif entry["item_type"] == "note":
-                text = re.sub(r"<[^>]+>", " ", data.get("note", ""))
+                text = html.unescape(re.sub(r"<[^>]+>", " ", data.get("note", "")))
                 entry["snippet"] = " ".join(text.split())[:300]
             elif entry["item_type"] == "annotation":
                 entry |= {
