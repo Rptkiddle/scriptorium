@@ -108,3 +108,21 @@ def test_collection_and_note_tools_pass_their_arguments_to_the_writer(fake):
     _call("hub_note_create", {"parent_key": "ITEM0001", "note": "text", "run": "ingestion/t"})
     assert calls == [("collections", ["ITEM0001"], [], ["COLL0001"], None),
                      ("note", "ITEM0001", "text", "ingestion/t")]
+
+
+def test_update_refuses_an_item_type_change(fake):
+    fake.writer.update_item = lambda *a, **k: pytest.fail("the writer must not be called")
+    with pytest.raises(ToolError, match="does not change itemType.*hub_item_type"):
+        _call("hub_item_update", {"item_key": "ITEM0001",
+                                  "patch": {"itemType": "conferencePaper"}})
+
+
+def test_trash_pages(fake):
+    fake.reader.trash = lambda: [{"key": f"K{i}"} for i in range(5)]
+    first = _call("hub_trash", {"limit": 2})
+    assert first["total"] == 5 and first["next_offset"] == 2
+    assert [i["key"] for i in first["items"]] == ["K0", "K1"]
+    last = _call("hub_trash", {"limit": 2, "offset": 4})
+    assert last["next_offset"] is None and [i["key"] for i in last["items"]] == ["K4"]
+    with pytest.raises(ToolError, match="limit must be"):
+        _call("hub_trash", {"limit": 0})

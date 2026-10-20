@@ -17,6 +17,10 @@
  *   items/collections    {keys, add?, remove?} -> {updated: {key: [collection keys]}, failed}
  *                        (add or remove single entries; the rest of each list stays)
  *   notes/create         {parentKey, note} -> {created, parentKey}
+ *   items/type           {keys, itemType, dryRun?} -> {updated: {key: {itemType,
+ *                        movedToExtra}}, failed, dryRun}   (fields the new type
+ *                        lacks are appended to Extra as "field: value" lines)
+ *   items/restore        {keys} -> {restored: [key], failed}   (out of the trash)
  *   items/delete         {key} -> {deleted}   (moves to trash)
  *   attachments/link     {parentKey, path, title?} -> {created: [key]}
  *   collections/create   {name, parentKey?} -> {created: [key]}
@@ -143,6 +147,59 @@ function registerEndpoints(version) {
       }
     }
     return { updated: updated, failed: failed };
+  });
+
+  endpoint("/scriptorium/items/type", async function (data) {
+    var typeID = Zotero.ItemTypes.getID(data.itemType);
+    if (!typeID) throw new Error("unknown item type " + data.itemType);
+    var updated = {};
+    var failed = {};
+    var keys = data.keys || [];
+    for (var i = 0; i < keys.length; i++) {
+      try {
+        var item = byKey(keys[i]);
+        if (!item.isRegularItem()) throw new Error(keys[i] + " is a " + item.itemType);
+        await item.loadAllData();
+        // Zotero's setType maps fields to their counterparts in the new type
+        // and clears the rest; those are kept as "field: value" lines in Extra.
+        var moved = {};
+        (item.getFieldsNotInType(typeID, true) || []).forEach(function (fieldID) {
+          moved[Zotero.ItemFields.getName(fieldID)] = item.getField(fieldID);
+        });
+        if (!data.dryRun && item.itemTypeID != typeID) {
+          var lines = Object.keys(moved).map(function (f) { return f + ": " + moved[f]; });
+          var extra = item.getField("extra");
+          item.setType(typeID);
+          if (lines.length) item.setField("extra", (extra ? extra + "\n" : "") + lines.join("\n"));
+          await item.saveTx();
+        }
+        updated[item.key] = { itemType: item.itemType, movedToExtra: moved };
+      } catch (e) {
+        Zotero.logError(e);
+        failed[keys[i]] = String(e);
+      }
+    }
+    return { updated: updated, failed: failed, dryRun: !!data.dryRun };
+  });
+
+  endpoint("/scriptorium/items/restore", async function (data) {
+    var restored = [];
+    var failed = {};
+    var keys = data.keys || [];
+    for (var i = 0; i < keys.length; i++) {
+      try {
+        var item = byKey(keys[i]);
+        if (item.deleted) {
+          item.deleted = false;
+          await item.saveTx();
+        }
+        restored.push(item.key);
+      } catch (e) {
+        Zotero.logError(e);
+        failed[keys[i]] = String(e);
+      }
+    }
+    return { restored: restored, failed: failed };
   });
 
   endpoint("/scriptorium/notes/create", async function (data) {

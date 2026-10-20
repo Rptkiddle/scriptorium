@@ -253,6 +253,34 @@ class ZoteroWriter:
             request={"parent_key": parent_key, "note": html_note}, source=source,
         )
 
+    def change_type(self, item_keys: list[str], item_type: str, dry_run: bool = False,
+                    source: str | None = None) -> dict:
+        """Change items' type (e.g. journalArticle -> conferencePaper). Zotero
+        moves each field to its counterpart in the new type; fields with no
+        place there are appended to Extra as "field: value" lines, so nothing
+        is lost. dry_run reports those fields without changing anything."""
+        keys = _clean_list(item_keys, "item key")
+        if not keys:
+            raise ZoteroWriteError("give at least one item key")
+        if not isinstance(item_type, str) or not item_type.strip():
+            raise ZoteroWriteError("give the new item type, e.g. 'conferencePaper'")
+        item_type = item_type.strip()
+        before = None if dry_run else {key: self._before(key) for key in keys}
+        return self._call(
+            "type change (dry run)" if dry_run else "type change",
+            self._bridge.change_type, keys, item_type, dry_run,
+            request={"keys": keys, "item_type": item_type, "dry_run": dry_run},
+            before=before, source=source,
+        )
+
+    def restore_items(self, item_keys: list[str], source: str | None = None) -> dict:
+        """Take items out of Zotero's trash."""
+        keys = _clean_list(item_keys, "item key")
+        if not keys:
+            raise ZoteroWriteError("give at least one item key")
+        return self._call("restore", self._bridge.restore_items, keys,
+                          request={"keys": keys}, source=source)
+
     def delete_item(self, item_key: str, source: str | None = None) -> dict:
         """Move an item (of any type, including notes/annotations) to trash."""
         return self._call(

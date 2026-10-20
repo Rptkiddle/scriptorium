@@ -419,6 +419,22 @@ class ZoteroReader:
         ]
 
     @_locked
+    def trash(self) -> list[dict]:
+        """Items in Zotero's trash: key, type, title (a note's opening text),
+        parent key for child items, date modified."""
+        self.check_available()
+        out = []
+        for i in self._zot.everything(self._zot.trash()):
+            data = i["data"]
+            title = data.get("title") or " ".join(
+                html.unescape(re.sub(r"<[^>]+>", " ", data.get("note", ""))).split())[:120]
+            out.append({
+                "key": data["key"], "item_type": data.get("itemType", ""), "title": title,
+                "parent": data.get("parentItem", ""), "date_modified": data.get("dateModified", ""),
+            })
+        return out
+
+    @_locked
     def tags(self, contains: str = "") -> list[str]:
         """All tags in the library, optionally substring-filtered."""
         self.check_available()

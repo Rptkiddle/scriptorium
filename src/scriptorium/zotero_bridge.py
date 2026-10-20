@@ -82,6 +82,12 @@ class ZoteroBridge:
     def edit_collections(self, keys: list[str], add: list[str], remove: list[str]) -> dict:
         return self._post("items/collections", {"keys": keys, "add": add, "remove": remove})
 
+    def change_type(self, keys: list[str], item_type: str, dry_run: bool) -> dict:
+        return self._post("items/type", {"keys": keys, "itemType": item_type, "dryRun": dry_run})
+
+    def restore_items(self, keys: list[str]) -> dict:
+        return self._post("items/restore", {"keys": keys})
+
     def create_note(self, parent_key: str, note: str) -> dict:
         return self._post("notes/create", {"parentKey": parent_key, "note": note})
 
