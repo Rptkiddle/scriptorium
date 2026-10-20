@@ -280,6 +280,9 @@ def hub_item_update(item_key: str, patch: dict, run: str = "") -> dict:
     note's own key with {"note": "<html>"}. Applied directly in the local
     library via the bridge plugin. `run` names the calling run in the write
     log."""
+    if "itemType" in patch:
+        raise ToolError("hub_item_update does not change itemType: use hub_item_type,"
+                        " which keeps fields the new type lacks in Extra.")
     lists = sorted({"tags", "collections"} & set(patch))
     if lists:
         raise ToolError(
@@ -314,6 +317,52 @@ def hub_item_collections(item_keys: list[str], add: list[str] | None = None,
     log."""
     d = current()
     return d.writer.edit_collections(item_keys, add or [], remove or [], source=run or None)
+
+
+@mcp.tool()
+def hub_item_type(item_keys: list[str], item_type: str, dry_run: bool = False,
+                  run: str = "") -> dict:
+    """Change the item type of one or more items (item keys), e.g. from
+    "journalArticle" to "conferencePaper" (Zotero's type names). Zotero moves
+    each field to its counterpart in the new type (a journal's
+    publicationTitle becomes a paper's proceedingsTitle); fields the new type
+    has no place for (e.g. ISSN, issue) are appended to Extra as
+    "field: value" lines, so nothing is lost. An author role the new type
+    lacks (e.g. a book's "series editor") becomes the new type's main role
+    or "contributor". dry_run=True lists the fields that would go to Extra
+    without changing anything. Returns {"updated": {item key:
+    {"itemType": its type afterwards (unchanged in a dry run),
+    "movedToExtra": {field: value}}}, "failed": {item key: error},
+    "dryRun"}. `run` names the calling run in the write log."""
+    d = current()
+    return d.writer.change_type(item_keys, item_type, dry_run=dry_run, source=run or None)
+
+
+@mcp.tool()
+def hub_trash(limit: int = 60, offset: int = 0) -> dict:
+    """List what is in Zotero's trash, most recently trashed first: key,
+    item type, title (a note's opening text), parent key for child items,
+    date modified. Returns
+    {"total", "offset", "next_offset", "items"}; while "next_offset" is not
+    null, call again with offset=next_offset. Restore items with
+    hub_item_restore. Emptying the trash deletes permanently and is left to
+    the user in Zotero. Requires the Zotero app to be running."""
+    if not 1 <= limit <= LIST_LIMIT_MAX:
+        raise ToolError(f"limit must be 1-{LIST_LIMIT_MAX}")
+    items = current().reader.trash()
+    page = items[offset:offset + limit]
+    more = offset + len(page) < len(items)
+    return {"total": len(items), "offset": offset,
+            "next_offset": offset + len(page) if more else None, "items": page}
+
+
+@mcp.tool()
+def hub_item_restore(item_keys: list[str], run: str = "") -> dict:
+    """Take one or more items out of Zotero's trash (keys from hub_trash).
+    Returns {"restored": [item keys], "failed": {item key: error}}. `run`
+    names the calling run in the write log."""
+    d = current()
+    return d.writer.restore_items(item_keys, source=run or None)
 
 
 @mcp.tool()

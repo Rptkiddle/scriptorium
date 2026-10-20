@@ -38,6 +38,13 @@ class _FakeBridge:
     def create_note(self, parent_key, note):
         return {"created": "NOTE0001", "parentKey": parent_key}
 
+    def change_type(self, keys, item_type, dry_run):
+        return {"updated": {k: {"itemType": item_type, "movedToExtra": {"ISSN": "1"}}
+                            for k in keys}, "failed": {}, "dryRun": dry_run}
+
+    def restore_items(self, keys):
+        return {"restored": keys, "failed": {}}
+
 
 class _FakeReader:
     def item_raw(self, key):
@@ -224,3 +231,26 @@ def test_note_text_becomes_html_paragraphs(tmp_path):
     assert given["request"]["note"] == "<p>Already <b>HTML</b></p>"
     with pytest.raises(ZoteroWriteError, match="cannot be empty"):
         w.create_note("ITEM0001", "  ")
+
+
+def test_type_change_logs_full_before_state_and_dry_run_reads_nothing(tmp_path):
+    w = _writer(tmp_path)
+    w.change_type(["ITEM0001"], "conferencePaper", dry_run=True)
+    w.change_type(["ITEM0001"], " conferencePaper ", source="ingestion/t")
+    dry, real = _log(tmp_path)
+    assert dry["operation"] == "type change (dry run)" and dry["before"] is None
+    assert real["operation"] == "type change" and real["source"] == "ingestion/t"
+    assert real["request"] == {"keys": ["ITEM0001"], "item_type": "conferencePaper",
+                               "dry_run": False}
+    assert real["before"]["ITEM0001"]["title"] == "Old title"
+    with pytest.raises(ZoteroWriteError, match="new item type"):
+        w.change_type(["ITEM0001"], " ")
+
+
+def test_restore_is_logged(tmp_path):
+    w = _writer(tmp_path)
+    assert w.restore_items(["ITEM0001"])["restored"] == ["ITEM0001"]
+    (entry,) = _log(tmp_path)
+    assert entry["operation"] == "restore" and entry["request"] == {"keys": ["ITEM0001"]}
+    with pytest.raises(ZoteroWriteError, match="at least one item key"):
+        w.restore_items([])

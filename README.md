@@ -88,6 +88,8 @@ launchd ──► launcher.py ──► surveillance_cycle.py ──► claude -
 | Write | `hub_item_create`, `hub_item_update`, `hub_item_delete` | Create, patch, trash items |
 | | `hub_item_tags`, `hub_item_collections` | Add or remove single tags or folders, keeping the rest |
 | | `hub_note_create` | Add a note to an item |
+| | `hub_item_type` | Change item type; fields the new type lacks go to Extra |
+| | `hub_trash`, `hub_item_restore` | List the trash, take items out of it |
 | | `hub_collection_create`, `_rename`, `_move`, `_delete` | Folder changes |
 | | `hub_attachment_link` | Attach a PDF as a linked file and index it |
 | Index | `hub_index`, `hub_sync`, `hub_sync_cancel`, `hub_status` | Index items, reconcile with Zotero, stop a sync, report health |

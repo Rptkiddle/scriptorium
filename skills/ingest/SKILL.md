@@ -37,7 +37,7 @@ folder (`<rundir>`, named `<YYYY-MM-DD-HHMMSS>`). Keep the run's working
 files (entries, verification notes) in `<rundir>/work/`, and pass
 `run: "ingestion/<run name>"` to every hub write tool (`hub_item_create`,
 `hub_collection_create`, `hub_attachment_link`, `hub_item_update`,
-`hub_item_tags`, `hub_item_collections`, `hub_note_create`,
+`hub_item_tags`, `hub_item_collections`, `hub_note_create`, `hub_item_type`,
 `hub_item_delete`), so the write log attributes each change to this run.
 
 ## Common rules
@@ -58,7 +58,8 @@ files (entries, verification notes) in `<rundir>/work/`, and pass
   with no exact match, check the candidates it lists. Likely duplicates go
   to the user in one batch — never silently skip or create over one.
 - **Item JSON is complete at creation:** correct `itemType` (preprints
-  must be created as `preprint` — the type cannot be changed after), full
+  must be created as `preprint`; `hub_item_type` can change it later, but
+  moves fields the new type lacks into Extra), full
   creator list, date, DOI, `abstractNote`, venue fields. If external
   sources show a published version superseding a preprint (or vice versa),
   flag it and let the user choose the version.

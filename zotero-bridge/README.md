@@ -29,6 +29,8 @@ All accept JSON over POST under `/scriptorium/`:
 | `items/tags` | `{keys, add?, remove?}` | `{updated: {key: [tags]}, failed}` (other tags kept; 0.1.6+) |
 | `items/collections` | `{keys, add?, remove?}` | `{updated: {key: [collection keys]}, failed}` (other collections kept; 0.1.6+) |
 | `notes/create` | `{parentKey, note}` | `{created, parentKey}` (child note; 0.1.6+) |
+| `items/type` | `{keys, itemType, dryRun?}` | `{updated: {key: {itemType, movedToExtra}}, failed, dryRun}` (fields the new type lacks go to Extra; 0.1.7+) |
+| `items/restore` | `{keys}` | `{restored: [keys], failed}` (out of the trash; 0.1.7+) |
 | `items/delete` | `{key}` | `{deleted}` (moves to trash) |
 | `attachments/link` | `{parentKey, path, title?}` | `{created: [key], file}` |
 | `collections/create` | `{name, parentKey?}` | `{created: [key]}` |
