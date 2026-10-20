@@ -36,6 +36,7 @@ DEFAULTS: dict = {
         # Linked-file attachments live here; must match Zotero's Linked
         # Attachment Base Directory (Settings -> Advanced -> Files and Folders).
         "linked_attachments_dir": "~/Desktop/libr/Papers",
+        "bibtex_format": "biblatex",  # default format of hub_bibtex
     },
     "surveillance": {
         # Master switch: saving reconciles the nightly LaunchAgent, so the
@@ -175,6 +176,9 @@ def save_settings(config: Config, incoming: dict) -> dict:
     secrets = secret_keys()
     kinds = {(section, f["key"]): f["kind"]
              for section, spec in SCHEMA.items() for f in spec["fields"]}
+    choices = {(section, f["key"]): f["options"]
+               for section, spec in SCHEMA.items() for f in spec["fields"]
+               if f["kind"] == "choice"}
     current = load_settings(config)
     for section, values in current.items():
         if not isinstance(incoming.get(section), dict):
@@ -200,6 +204,9 @@ def save_settings(config: Config, incoming: dict) -> dict:
             elif key.startswith("model_"):
                 if value not in MODELS:
                     raise ValueError(f"{section}.{key} must be one of {MODELS}")
+            elif (section, key) in choices:
+                if value not in choices[(section, key)]:
+                    raise ValueError(f"{section}.{key} must be one of {choices[(section, key)]}")
             elif kinds.get((section, key)) in ("text", "textarea") and not isinstance(value, str):
                 raise ValueError(f"{section}.{key} must be text")
             values[key] = value
@@ -221,7 +228,7 @@ def save_settings(config: Config, incoming: dict) -> dict:
 # key, in display order; the settings page renders its rows from this and
 # the dashboard renders its settings reference from the same data, so a
 # new setting needs exactly two entries repo-wide: DEFAULTS and here.
-# kind: onoff | int | model | text | textarea.
+# kind: onoff | int | model | text | textarea | secret | choice (with "options").
 SCHEMA: dict = {
     "general": {
         "title": "Hub",
@@ -255,6 +262,10 @@ SCHEMA: dict = {
              "label": "Linked attachments folder",
              "doc": ("Where PDFs live; must equal Zotero's Linked Attachment"
                      " Base Directory (Settings > Advanced > Files and Folders)")},
+            {"key": "bibtex_format", "kind": "choice", "options": ["biblatex", "bibtex"],
+             "label": "BibTeX export format",
+             "doc": ("Default format of hub_bibtex: biblatex (\\addbibresource)"
+                     " or bibtex (\\bibliography)")},
         ],
     },
     "surveillance": {

@@ -111,6 +111,10 @@ def _control(section: str, f: dict) -> str:
         return f'<input type="number" {key} min="{lo}" max="{hi}">'
     if f["kind"] == "model":
         return f'<select class="model" {key}></select>'
+    if f["kind"] == "choice":
+        options = "".join(f'<option value="{escape(o)}">{escape(o)}</option>'
+                          for o in f["options"])
+        return f'<select {key}>{options}</select>'
     if f["kind"] == "secret":
         return (f'<span style="display:flex;gap:.4rem">'
                 f'<input type="password" class="wide" {key} autocomplete="off">'

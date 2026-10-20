@@ -15,7 +15,8 @@ from scriptorium import __version__
 from scriptorium.daemon import current, log
 from scriptorium.search import LIST_LIMIT_MAX, SEARCH_K_MAX
 from scriptorium.service import ingest_items
-from scriptorium.zotero import ZoteroUnavailableError
+from scriptorium.settings import load_settings
+from scriptorium.zotero import BIB_FORMATS, ZoteroUnavailableError, strip_bib_fields
 
 mcp = FastMCP("scriptorium")
 
@@ -50,7 +51,7 @@ _ITEM_FILTERS = """Filters (all optional; any other key is an error): {"creators
     varies); resolve folder names with hub_facets(field, contains=...,
     scope="items") first. "Journal articles" can mean item_types
     ["journalArticle"] or categories ["Journals"] (the Journals folder); the
-    counts differ. Check the year range with hub_facets("years",
+    counts can differ. Check the year range with hub_facets("years",
     scope="items") before filtering by year: a filter outside the library's
     stock returns nothing, without error."""
 
@@ -363,6 +364,45 @@ def hub_item_restore(item_keys: list[str], run: str = "") -> dict:
     names the calling run in the write log."""
     d = current()
     return d.writer.restore_items(item_keys, source=run or None)
+
+
+BIB_MAX, BIB_MAX_ABSTRACTS = 50, 15
+
+
+@mcp.tool()
+def hub_bibtex(keys: list[str], format: str = "", abstracts: bool = False) -> dict:
+    """BibTeX or BibLaTeX entries for library items, for a manuscript's .bib
+    file: give citation keys (or item keys), up to 50 per call (15 with
+    abstracts). Entries come from Zotero's own exporter, keyed by citation
+    key. Removed from every entry: the local PDF path (file), the library
+    tags (keywords) and, unless abstracts=True, the abstract. format:
+    "biblatex" or "bibtex"; empty = the default on the settings page.
+    Returns {"format", "entries", "bibtex", "missing"}: "missing" lists keys
+    not in the library. Write the text to the .bib file yourself."""
+    d = current()
+    fmt = format or load_settings(d.cfg)["zotero"]["bibtex_format"]
+    if fmt not in BIB_FORMATS:
+        raise ToolError(f"format must be one of {', '.join(BIB_FORMATS)}")
+    keys = list(dict.fromkeys(keys))
+    cap = BIB_MAX_ABSTRACTS if abstracts else BIB_MAX
+    if not 1 <= len(keys) <= cap:
+        raise ToolError(f"give 1-{cap} keys per call{'' if abstracts else ' (15 with abstracts)'}")
+    item_keys, missing = [], []
+    for key in keys:
+        payload = d.hub.catalogue_lookup(key)
+        if payload is None:
+            missing.append(key)
+        else:
+            item_keys.append(payload["item_key"])
+    text = ""
+    if item_keys:
+        try:
+            text = d.reader.export_bib(item_keys, fmt)
+        except ZoteroUnavailableError as exc:
+            raise ToolError(str(exc)) from exc
+        text = strip_bib_fields(text, {"file", "keywords"} | (set() if abstracts else {"abstract"}))
+    return {"format": fmt, "entries": text.count("\n@") + text.startswith("@"),
+            "bibtex": text, "missing": missing}
 
 
 @mcp.tool()

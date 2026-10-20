@@ -13,6 +13,8 @@ import functools
 import html
 import re
 import threading
+import urllib.parse
+import urllib.request
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -160,6 +162,52 @@ def _locked(method):
             return method(self, *args, **kwargs)
 
     return wrapper
+
+
+# Zotero's local API; it also exports BibTeX/BibLaTeX with the items' citation keys.
+LOCAL_API = "http://localhost:23119/api/users/0"
+BIB_FORMATS = ("biblatex", "bibtex")
+_BIB_FIELD = re.compile(r"^\t([A-Za-z_-]+) = ", re.MULTILINE)
+
+
+def _bib_value_end(text: str, i: int) -> int:
+    """End of the field value starting at i (braces counted, escapes
+    skipped), including its trailing comma and newline."""
+    if text[i:i + 1] == "{":
+        depth = 0
+        while i < len(text):
+            if text[i] == "\\":
+                i += 2
+                continue
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    i += 1
+                    break
+            i += 1
+    else:
+        while i < len(text) and text[i] not in ",\n":
+            i += 1
+    if text[i:i + 1] == ",":
+        i += 1
+    if text[i:i + 1] == "\n":
+        i += 1
+    return i
+
+
+def strip_bib_fields(text: str, fields: set[str]) -> str:
+    """Zotero's BibTeX/BibLaTeX export without the named fields. Values may
+    hold nested braces and line breaks, so each is measured by its braces."""
+    out, pos = [], 0
+    for m in _BIB_FIELD.finditer(text):
+        if m.start() < pos or m.group(1).lower() not in fields:
+            continue
+        out.append(text[pos:m.start()])
+        pos = _bib_value_end(text, m.end())
+    out.append(text[pos:])
+    return "".join(out)
 
 
 class ZoteroReader:
@@ -417,6 +465,20 @@ class ZoteroReader:
             for i in items
             if i["data"].get("itemType") not in _NON_PAPER_TYPES
         ]
+
+    def export_bib(self, item_keys: list[str], fmt: str) -> str:
+        """Zotero's own BibTeX or BibLaTeX export of the given items, read
+        from the local API in requests of up to 50 keys."""
+        if fmt not in BIB_FORMATS:
+            raise ValueError(f"format must be one of {BIB_FORMATS}")
+        self.check_available()
+        parts = []
+        for i in range(0, len(item_keys), 50):
+            query = urllib.parse.urlencode(
+                {"itemKey": ",".join(item_keys[i:i + 50]), "format": fmt})
+            with urllib.request.urlopen(f"{LOCAL_API}/items?{query}", timeout=60) as r:
+                parts.append(r.read().decode().strip())
+        return "\n\n".join(p for p in parts if p) + "\n"
 
     @_locked
     def trash(self) -> list[dict]:

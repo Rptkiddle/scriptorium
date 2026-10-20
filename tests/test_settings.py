@@ -8,7 +8,7 @@ from scriptorium.settings import (
     save_settings, secret_keys,
 )
 
-KINDS = {"onoff", "int", "model", "text", "textarea", "secret"}
+KINDS = {"onoff", "int", "model", "text", "textarea", "secret", "choice"}
 
 
 def _config(tmp_path):
@@ -25,6 +25,8 @@ def test_schema_and_defaults_agree():
             assert f["kind"] in KINDS, f
             if f["kind"] in ("int", "onoff"):
                 assert f["key"] in _INT_BOUNDS, f
+            if f["kind"] == "choice":
+                assert DEFAULTS[section][f["key"]] in f["options"], f
     assert set(SCHEMA) == set(DEFAULTS)
 
 
@@ -71,3 +73,10 @@ def test_mask_never_returns_secret(tmp_path):
     assert masked["discovery"]["s2_api_key"] == "__set__"
     assert "real-value" not in str(masked)
     assert mask_settings(DEFAULTS)["discovery"]["s2_api_key"] == ""
+
+
+def test_choice_values_are_checked(tmp_path):
+    cfg = Config(index_dir=tmp_path)
+    assert save_settings(cfg, {"zotero": {"bibtex_format": "bibtex"}})["zotero"]["bibtex_format"] == "bibtex"
+    with pytest.raises(ValueError, match="must be one of"):
+        save_settings(cfg, {"zotero": {"bibtex_format": "ris"}})
