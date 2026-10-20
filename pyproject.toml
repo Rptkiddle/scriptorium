@@ -1,0 +1,35 @@
+[project]
+name = "scriptorium"
+version = "0.1.0"
+description = "Local literature hub: Zotero-grounded full-text retrieval for Claude Code sessions"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "paper-qa==2026.3.18",
+    "paper-qa-pymupdf==2026.3.18",
+    "pyzotero>=1.13",
+    "fastmcp>=2",
+    "sentence-transformers>=3",
+    "torch>=2",
+    "qdrant-client>=1.12",
+    "typer>=0.12",
+]
+
+[project.optional-dependencies]
+menubar = ["rumps>=0.4"]
+
+[project.scripts]
+scriptorium = "scriptorium.cli:app"
+scriptorium-menubar = "scriptorium.menubar:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/scriptorium"]

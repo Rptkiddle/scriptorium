@@ -1,0 +1,8 @@
+{
+  "name": "scriptorium",
+  "displayName": "Scriptorium",
+  "description": "Local literature hub over a Zotero library: full-text semantic search served by a local daemon (hub_* MCP tools), plus the spoke skills — search (spot searches and lookups), interrogate (citation-grounded answers), discover (systematic literature search), ingest (verified additions), retrieve (PDF acquisition), and surveil (daily venue monitoring).",
+  "author": { "name": "Rupert Kiddle", "email": "r.t.kiddle@vu.nl" },
+  "repository": "https://github.com/Rptkiddle/scriptorium",
+  "keywords": ["zotero", "literature", "research", "rag", "academic"]
+}

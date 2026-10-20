@@ -1,0 +1,11 @@
+{
+  "name": "scriptorium",
+  "owner": { "name": "Rupert Kiddle" },
+  "plugins": [
+    {
+      "name": "scriptorium",
+      "source": "./",
+      "description": "Local literature hub over a Zotero library (daemon + hub_* MCP tools) with search, interrogate, ingest, retrieve, and surveil skills."
+    }
+  ]
+}

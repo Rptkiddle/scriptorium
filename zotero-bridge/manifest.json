@@ -1,0 +1,16 @@
+{
+  "manifest_version": 2,
+  "name": "Scriptorium Bridge",
+  "version": "0.1.5",
+  "description": "Local HTTP write endpoints for the scriptorium hub: create items, link attachments, and manage collections without the web API round-trip.",
+  "author": "Rupert Kiddle",
+  "homepage_url": "https://github.com/Rptkiddle/scriptorium",
+  "applications": {
+    "zotero": {
+      "id": "scriptorium-bridge@scriptorium.local",
+      "update_url": "https://raw.githubusercontent.com/Rptkiddle/scriptorium/main/zotero-bridge/updates.json",
+      "strict_min_version": "7.0",
+      "strict_max_version": "10.*"
+    }
+  }
+}

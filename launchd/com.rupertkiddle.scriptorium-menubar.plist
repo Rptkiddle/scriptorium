@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.rupertkiddle.scriptorium-menubar</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/rupertkiddle/Applications/Scriptorium.app/Contents/MacOS/Scriptorium</string>
+        <string>menubar</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Restart after a crash, but not after Quit (a normal exit). -->
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/rupertkiddle/Library/Logs/scriptorium/menubar.err.log</string>
+</dict>
+</plist>

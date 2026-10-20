@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="40" viewBox="0 0 900 40">
+<g id="sdiv-rule">
+<path d="M 24 20 L 400 20" stroke="#b8321f" stroke-width="2.4" stroke-linecap="round"/>
+<path d="M 500 20 L 876 20" stroke="#b8321f" stroke-width="2.4" stroke-linecap="round"/>
+<path d="M 400 20 C 418 20 426 10 436 10 C 444 10 444 20 436 20" fill="none" stroke="#3f8f7a" stroke-width="2.4" stroke-linecap="round"/>
+<path d="M 500 20 C 482 20 474 30 464 30 C 456 30 456 20 464 20" fill="none" stroke="#3f8f7a" stroke-width="2.4" stroke-linecap="round"/>
+<path d="M 450 9 L 462 20 L 450 31 L 438 20 Z" fill="#d4a62a" stroke="#8a6a12" stroke-width="2" stroke-linejoin="round"/>
+<path d="M 450 15 L 455.5 20 L 450 25 L 444.5 20 Z" fill="#b8321f"/>
+<circle cx="416" cy="16" r="2.6" fill="#b8321f"/>
+<circle cx="484" cy="24" r="2.6" fill="#b8321f"/>
+<circle cx="24" cy="20" r="3" fill="#d4a62a" stroke="#8a6a12" stroke-width="1"/>
+<circle cx="876" cy="20" r="3" fill="#d4a62a" stroke="#8a6a12" stroke-width="1"/>
+</g>
+</svg>
