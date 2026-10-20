@@ -53,6 +53,56 @@ def _unescape_entities(value):
     return value
 
 
+def _clean_list(values, what: str) -> list[str]:
+    """A list of names or keys: entities unescaped, whitespace stripped,
+    duplicates dropped, order kept. A bare string or an empty entry is refused."""
+    if isinstance(values, str):
+        raise ZoteroWriteError(f"give the {what}s as a list, e.g. [{values!r}]")
+    out = []
+    for value in values or ():
+        if not isinstance(value, str) or not value.strip():
+            raise ZoteroWriteError(f"each {what} must be a non-empty string")
+        value = _unescape_entities(value).strip()
+        if value not in out:
+            out.append(value)
+    return out
+
+
+def _list_edit(item_keys, add, remove, what: str) -> tuple[list[str], list[str], list[str]]:
+    """Checked arguments for an add/remove edit of a list field."""
+    keys = _clean_list(item_keys, "item key")
+    add, remove = _clean_list(add, what), _clean_list(remove, what)
+    if not keys:
+        raise ZoteroWriteError("give at least one item key")
+    if not add and not remove:
+        raise ZoteroWriteError(f"give at least one {what} to add or remove")
+    both = sorted(set(add) & set(remove))
+    if both:
+        raise ZoteroWriteError(f"{what}s both added and removed: {', '.join(both)}")
+    return keys, add, remove
+
+
+# Tags a Zotero note uses; other angle-bracket text ("<line>") is plain text.
+_HTML_TAG = re.compile(
+    r"</?(p|br|div|span|b|i|u|s|em|strong|a|ul|ol|li|h[1-6]|blockquote|pre|code|sub|sup"
+    r"|table|tr|td|th)\b[^>]*>", re.IGNORECASE)
+
+
+def _note_html(note: str) -> str:
+    """A note's HTML: kept as given when it already holds HTML tags;
+    otherwise each blank-line-separated paragraph becomes <p>, with line
+    breaks inside it kept."""
+    if not isinstance(note, str) or not note.strip():
+        raise ZoteroWriteError("a note cannot be empty")
+    if _HTML_TAG.search(note):
+        return note
+    paragraphs = re.split(r"\n\s*\n", note.strip())
+    return "".join(
+        "<p>" + "<br>".join(html.escape(line) for line in p.splitlines()) + "</p>"
+        for p in paragraphs
+    )
+
+
 _UNAVAILABLE = (
     "Zotero writes need the Zotero app running with the Scriptorium Bridge"
     " plugin installed (zotero-bridge/ in the scriptorium repo)."
@@ -161,6 +211,46 @@ class ZoteroWriter:
             f"update of {item_key}", self._bridge.update_item, item_key, patch,
             request={"key": item_key, "patch": patch},
             before=self._before(item_key), source=source,
+        )
+
+    def _list_before(self, keys: list[str], field: str) -> dict:
+        """Each item's list field before a list edit, for the write log."""
+        before = {}
+        for key in keys:
+            data = self._before(key)
+            before[key] = data if "unavailable" in data else data.get(field, [])
+        return before
+
+    def edit_tags(self, item_keys: list[str], add: list[str] = (), remove: list[str] = (),
+                  source: str | None = None) -> dict:
+        """Add and/or remove tags on items; each item's other tags stay as
+        they are. Returns {"updated": {key: tags after}, "failed": {key: error}}."""
+        keys, add, remove = _list_edit(item_keys, add, remove, "tag")
+        return self._call(
+            "tag edit", self._bridge.edit_tags, keys, add, remove,
+            request={"keys": keys, "add": add, "remove": remove},
+            before=self._list_before(keys, "tags"), source=source,
+        )
+
+    def edit_collections(self, item_keys: list[str], add: list[str] = (),
+                         remove: list[str] = (), source: str | None = None) -> dict:
+        """Add items to and/or remove them from collections; each item's other
+        collections stay as they are. An unknown collection key changes
+        nothing. Returns {"updated": {key: collection keys after}, "failed"}."""
+        keys, add, remove = _list_edit(item_keys, add, remove, "collection key")
+        return self._call(
+            "collection edit", self._bridge.edit_collections, keys, add, remove,
+            request={"keys": keys, "add": add, "remove": remove},
+            before=self._list_before(keys, "collections"), source=source,
+        )
+
+    def create_note(self, parent_key: str, note: str, source: str | None = None) -> dict:
+        """Add a child note to a regular item. Plain text is converted to
+        HTML paragraphs (blank lines separate paragraphs); HTML is kept."""
+        html_note = _note_html(note)
+        return self._call(
+            "note create", self._bridge.create_note, parent_key, html_note,
+            request={"parent_key": parent_key, "note": html_note}, source=source,
         )
 
     def delete_item(self, item_key: str, source: str | None = None) -> dict:

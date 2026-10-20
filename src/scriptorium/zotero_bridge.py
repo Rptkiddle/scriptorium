@@ -45,8 +45,10 @@ class ZoteroBridge:
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 return json.loads(r.read())
         except urllib.error.HTTPError as exc:
-            if exc.code == 404:  # Zotero up, plugin missing
-                raise BridgeUnavailable("bridge endpoints not registered") from exc
+            if exc.code == 404:  # Zotero up, plugin missing or too old
+                raise BridgeUnavailable(
+                    f"bridge endpoint {path} not registered (plugin missing, or older"
+                    " than this hub needs)") from exc
             try:
                 message = json.loads(exc.read()).get("error", str(exc))
             except Exception:  # noqa: BLE001 — any unparseable body
@@ -73,6 +75,15 @@ class ZoteroBridge:
 
     def update_item(self, key: str, patch: dict) -> dict:
         return self._post("items/update", {"key": key, "patch": patch})
+
+    def edit_tags(self, keys: list[str], add: list[str], remove: list[str]) -> dict:
+        return self._post("items/tags", {"keys": keys, "add": add, "remove": remove})
+
+    def edit_collections(self, keys: list[str], add: list[str], remove: list[str]) -> dict:
+        return self._post("items/collections", {"keys": keys, "add": add, "remove": remove})
+
+    def create_note(self, parent_key: str, note: str) -> dict:
+        return self._post("notes/create", {"parentKey": parent_key, "note": note})
 
     def delete_item(self, key: str) -> dict:
         return self._post("items/delete", {"key": key})

@@ -272,12 +272,59 @@ def hub_item_create(items: list[dict], collection_key: str = "", run: str = "") 
 
 @mcp.tool()
 def hub_item_update(item_key: str, patch: dict, run: str = "") -> dict:
-    """Apply a field patch to an existing item (e.g. {"abstractNote": ...,
-    "tags": [{"tag": "x"}], "collections": [keys]}). Applied directly in
-    the local library via the bridge plugin. `run` names the calling run in
-    the write log."""
+    """Set field values on an existing item, e.g. {"abstractNote": "...",
+    "extra": "..."}; fields not in the patch are left as they are. Tags and
+    collections (folders) are refused here: change them with hub_item_tags
+    and hub_item_collections, which add or remove single entries. Notes are
+    child items: add one with hub_note_create, edit one by patching the
+    note's own key with {"note": "<html>"}. Applied directly in the local
+    library via the bridge plugin. `run` names the calling run in the write
+    log."""
+    lists = sorted({"tags", "collections"} & set(patch))
+    if lists:
+        raise ToolError(
+            f"hub_item_update does not change {' or '.join(lists)}: a patch would"
+            " replace the item's whole list. Use hub_item_tags / hub_item_collections,"
+            " which add or remove single entries and keep the rest.")
     d = current()
     return d.writer.update_item(item_key, patch, source=run or None)
+
+
+@mcp.tool()
+def hub_item_tags(item_keys: list[str], add: list[str] | None = None,
+                  remove: list[str] | None = None, run: str = "") -> dict:
+    """Add and/or remove tags on one or more items (item keys, not citation
+    keys). Each item's other tags stay as they are; adding a tag an item
+    already has, or removing one it lacks, changes nothing. Returns
+    {"updated": {item key: its tags afterwards}, "failed": {item key: error}}.
+    Existing tags: hub_tags. `run` names the calling run in the write log."""
+    d = current()
+    return d.writer.edit_tags(item_keys, add or [], remove or [], source=run or None)
+
+
+@mcp.tool()
+def hub_item_collections(item_keys: list[str], add: list[str] | None = None,
+                         remove: list[str] | None = None, run: str = "") -> dict:
+    """Add one or more items to collections (folders) and/or remove them
+    from collections, by collection key (from hub_collections). Each item's
+    other collections stay as they are; the collections themselves are not
+    changed. An unknown collection key is an error and changes nothing.
+    Returns {"updated": {item key: its collection keys afterwards},
+    "failed": {item key: error}}. `run` names the calling run in the write
+    log."""
+    d = current()
+    return d.writer.edit_collections(item_keys, add or [], remove or [], source=run or None)
+
+
+@mcp.tool()
+def hub_note_create(parent_key: str, note: str, run: str = "") -> dict:
+    """Add a note to an item (by item key). `note` is plain text (blank
+    lines separate paragraphs) or HTML. Returns the new note's key. List an
+    item's notes with hub_children; edit one with hub_item_update on the
+    note's key ({"note": "<html>"}); remove one with hub_item_delete. `run`
+    names the calling run in the write log."""
+    d = current()
+    return d.writer.create_note(parent_key, note, source=run or None)
 
 
 @mcp.tool()

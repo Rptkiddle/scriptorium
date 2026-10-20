@@ -25,7 +25,10 @@ All accept JSON over POST under `/scriptorium/`:
 |---|---|---|
 | `ping` | `{}` | `{bridge, zotero}` versions |
 | `items/create` | `{items: [web-API item JSON], collectionKey?}` | `{created: [keys], citation_keys, failed}` |
-| `items/update` | `{key, patch}` | `{updated, version}` |
+| `items/update` | `{key, patch}` | `{updated, version}` (list fields in the patch replace the item's lists) |
+| `items/tags` | `{keys, add?, remove?}` | `{updated: {key: [tags]}, failed}` (other tags kept; 0.1.6+) |
+| `items/collections` | `{keys, add?, remove?}` | `{updated: {key: [collection keys]}, failed}` (other collections kept; 0.1.6+) |
+| `notes/create` | `{parentKey, note}` | `{created, parentKey}` (child note; 0.1.6+) |
 | `items/delete` | `{key}` | `{deleted}` (moves to trash) |
 | `attachments/link` | `{parentKey, path, title?}` | `{created: [key], file}` |
 | `collections/create` | `{name, parentKey?}` | `{created: [key]}` |

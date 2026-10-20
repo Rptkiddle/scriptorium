@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Scriptorium Bridge",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Local HTTP write endpoints for the scriptorium hub: create items, link attachments, and manage collections without the web API round-trip.",
   "author": "Rupert Kiddle",
   "homepage_url": "https://github.com/Rptkiddle/scriptorium",

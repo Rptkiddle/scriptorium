@@ -12,6 +12,11 @@
  *   items/create         {items: [web-API item JSON], collectionKey?}
  *                        -> {created: [key], citation_keys: {key: ck}, failed}
  *   items/update         {key, patch} -> {updated, version}
+ *                        (list fields in the patch replace the item's lists)
+ *   items/tags           {keys, add?, remove?} -> {updated: {key: [tags]}, failed}
+ *   items/collections    {keys, add?, remove?} -> {updated: {key: [collection keys]}, failed}
+ *                        (add or remove single entries; the rest of each list stays)
+ *   notes/create         {parentKey, note} -> {created, parentKey}
  *   items/delete         {key} -> {deleted}   (moves to trash)
  *   attachments/link     {parentKey, path, title?} -> {created: [key]}
  *   collections/create   {name, parentKey?} -> {created: [key]}
@@ -47,6 +52,12 @@ function byKey(key) {
   var item = Zotero.Items.getByLibraryAndKey(Zotero.Libraries.userLibraryID, key);
   if (!item) throw new Error("no item with key " + key);
   return item;
+}
+
+function collectionByKey(key) {
+  var collection = Zotero.Collections.getByLibraryAndKey(Zotero.Libraries.userLibraryID, key);
+  if (!collection || collection.deleted) throw new Error("no collection with key " + key);
+  return collection;
 }
 
 function registerEndpoints(version) {
@@ -87,6 +98,65 @@ function registerEndpoints(version) {
     item.fromJSON(json);
     await item.saveTx();
     return { updated: item.key, version: item.version };
+  });
+
+  endpoint("/scriptorium/items/tags", async function (data) {
+    var add = data.add || [];
+    var remove = data.remove || [];
+    var updated = {};
+    var failed = {};
+    var keys = data.keys || [];
+    for (var i = 0; i < keys.length; i++) {
+      try {
+        var item = byKey(keys[i]);
+        add.forEach(function (tag) { item.addTag(tag); });
+        remove.forEach(function (tag) { item.removeTag(tag); });
+        if (item.hasChanged()) await item.saveTx();
+        updated[item.key] = item.getTags().map(function (t) { return t.tag; });
+      } catch (e) {
+        Zotero.logError(e);
+        failed[keys[i]] = String(e);
+      }
+    }
+    return { updated: updated, failed: failed };
+  });
+
+  endpoint("/scriptorium/items/collections", async function (data) {
+    // Resolve every collection first, so an unknown key changes nothing.
+    var addIDs = (data.add || []).map(function (k) { return collectionByKey(k).id; });
+    var removeIDs = (data.remove || []).map(function (k) { return collectionByKey(k).id; });
+    var updated = {};
+    var failed = {};
+    var keys = data.keys || [];
+    for (var i = 0; i < keys.length; i++) {
+      try {
+        var item = byKey(keys[i]);
+        addIDs.forEach(function (id) { item.addToCollection(id); });
+        removeIDs.forEach(function (id) { item.removeFromCollection(id); });
+        if (item.hasChanged()) await item.saveTx();
+        updated[item.key] = item.getCollections().map(function (id) {
+          return Zotero.Collections.get(id).key;
+        });
+      } catch (e) {
+        Zotero.logError(e);
+        failed[keys[i]] = String(e);
+      }
+    }
+    return { updated: updated, failed: failed };
+  });
+
+  endpoint("/scriptorium/notes/create", async function (data) {
+    var parent = byKey(data.parentKey);
+    if (!parent.isRegularItem()) {
+      throw new Error(data.parentKey + " is a " + parent.itemType +
+        "; notes are added to regular items");
+    }
+    var note = new Zotero.Item("note");
+    note.libraryID = parent.libraryID;
+    note.parentID = parent.id;
+    note.setNote(data.note || "");
+    await note.saveTx();
+    return { created: note.key, parentKey: parent.key };
   });
 
   endpoint("/scriptorium/items/delete", async function (data) {
