@@ -327,8 +327,10 @@ def hub_item_type(item_keys: list[str], item_type: str, dry_run: bool = False,
     each field to its counterpart in the new type (a journal's
     publicationTitle becomes a paper's proceedingsTitle); fields the new type
     has no place for (e.g. ISSN, issue) are appended to Extra as
-    "field: value" lines, so nothing is lost. dry_run=True lists those
-    fields without changing anything. Returns {"updated": {item key:
+    "field: value" lines, so nothing is lost. An author role the new type
+    lacks (e.g. a book's "series editor") becomes the new type's main role
+    or "contributor". dry_run=True lists the fields that would go to Extra
+    without changing anything. Returns {"updated": {item key:
     {"itemType", "movedToExtra": {field: value}}}, "failed": {item key:
     error}, "dryRun"}. `run` names the calling run in the write log."""
     d = current()
@@ -337,8 +339,9 @@ def hub_item_type(item_keys: list[str], item_type: str, dry_run: bool = False,
 
 @mcp.tool()
 def hub_trash(limit: int = 60, offset: int = 0) -> dict:
-    """List what is in Zotero's trash: key, item type, title (a note's
-    opening text), parent key for child items, date modified. Returns
+    """List what is in Zotero's trash, most recently trashed first: key,
+    item type, title (a note's opening text), parent key for child items,
+    date modified. Returns
     {"total", "offset", "next_offset", "items"}; while "next_offset" is not
     null, call again with offset=next_offset. Restore items with
     hub_item_restore. Emptying the trash deletes permanently and is left to

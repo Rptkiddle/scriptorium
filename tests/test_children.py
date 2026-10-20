@@ -27,9 +27,9 @@ def test_trash_lists_items_and_notes_with_readable_titles(tmp_path):
     ]
     reader._zot = SimpleNamespace(count_items=lambda: 1, trash=lambda: trashed,
                                   everything=lambda result: result)
-    assert reader.trash() == [
-        {"key": "ITEM0001", "item_type": "preprint", "title": "A preprint", "parent": "",
-         "date_modified": "2026-10-15"},
+    assert reader.trash() == [  # most recently modified first
         {"key": "NOTE0001", "item_type": "note", "title": "Notes & more",
          "parent": "ITEM0002", "date_modified": "2026-10-20"},
+        {"key": "ITEM0001", "item_type": "preprint", "title": "A preprint", "parent": "",
+         "date_modified": "2026-10-15"},
     ]

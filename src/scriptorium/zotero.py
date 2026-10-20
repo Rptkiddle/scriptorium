@@ -420,8 +420,9 @@ class ZoteroReader:
 
     @_locked
     def trash(self) -> list[dict]:
-        """Items in Zotero's trash: key, type, title (a note's opening text),
-        parent key for child items, date modified."""
+        """Items in Zotero's trash, most recently modified (usually: trashed)
+        first: key, type, title (a note's opening text), parent key for child
+        items, date modified."""
         self.check_available()
         out = []
         for i in self._zot.everything(self._zot.trash()):
@@ -432,7 +433,7 @@ class ZoteroReader:
                 "key": data["key"], "item_type": data.get("itemType", ""), "title": title,
                 "parent": data.get("parentItem", ""), "date_modified": data.get("dateModified", ""),
             })
-        return out
+        return sorted(out, key=lambda i: i["date_modified"], reverse=True)
 
     @_locked
     def tags(self, contains: str = "") -> list[str]:
