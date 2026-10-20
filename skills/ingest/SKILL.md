@@ -37,6 +37,7 @@ folder (`<rundir>`, named `<YYYY-MM-DD-HHMMSS>`). Keep the run's working
 files (entries, verification notes) in `<rundir>/work/`, and pass
 `run: "ingestion/<run name>"` to every hub write tool (`hub_item_create`,
 `hub_collection_create`, `hub_attachment_link`, `hub_item_update`,
+`hub_item_tags`, `hub_item_collections`, `hub_note_create`,
 `hub_item_delete`), so the write log attributes each change to this run.
 
 ## Common rules

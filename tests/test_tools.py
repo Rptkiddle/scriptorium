@@ -80,3 +80,31 @@ def test_index_during_a_sync_is_a_tool_error(fake, monkeypatch):
             _call("hub_index", {"item_keys": ["P"]})
     finally:
         fake.write_lock.release()
+
+
+def test_update_refuses_tags_and_collections(fake):
+    fake.writer.update_item = lambda *a, **k: pytest.fail("the writer must not be called")
+    for patch, named in (({"tags": [{"tag": "x"}]}, "tags"),
+                         ({"collections": ["K"], "extra": "y"}, "collections")):
+        with pytest.raises(ToolError, match=f"does not change {named}.*hub_item_tags"):
+            _call("hub_item_update", {"item_key": "ITEM0001", "patch": patch})
+
+
+def test_tag_tool_passes_add_and_remove_to_the_writer(fake):
+    calls = []
+    fake.writer.edit_tags = lambda keys, add, remove, source=None: calls.append(
+        (keys, add, remove, source)) or {"updated": {}, "failed": {}}
+    _call("hub_item_tags", {"item_keys": ["ITEM0001"], "add": ["x"], "run": "ingestion/t"})
+    assert calls == [(["ITEM0001"], ["x"], [], "ingestion/t")]
+
+
+def test_collection_and_note_tools_pass_their_arguments_to_the_writer(fake):
+    calls = []
+    fake.writer.edit_collections = lambda keys, add, remove, source=None: calls.append(
+        ("collections", keys, add, remove, source)) or {"updated": {}, "failed": {}}
+    fake.writer.create_note = lambda parent, note, source=None: calls.append(
+        ("note", parent, note, source)) or {"created": "NOTE0001"}
+    _call("hub_item_collections", {"item_keys": ["ITEM0001"], "remove": ["COLL0001"]})
+    _call("hub_note_create", {"parent_key": "ITEM0001", "note": "text", "run": "ingestion/t"})
+    assert calls == [("collections", ["ITEM0001"], [], ["COLL0001"], None),
+                     ("note", "ITEM0001", "text", "ingestion/t")]

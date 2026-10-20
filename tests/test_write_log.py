@@ -29,10 +29,22 @@ class _FakeBridge:
     def move_collection(self, key, parent_key):
         return {"moved": key, "parentKey": parent_key}
 
+    def edit_tags(self, keys, add, remove):
+        return {"updated": {k: ["kept", *add] for k in keys}, "failed": {}}
+
+    def edit_collections(self, keys, add, remove):
+        return {"updated": {k: ["COLL0001", *add] for k in keys}, "failed": {}}
+
+    def create_note(self, parent_key, note):
+        return {"created": "NOTE0001", "parentKey": parent_key}
+
 
 class _FakeReader:
     def item_raw(self, key):
-        return {"key": key, "title": "Old title"} if key != "GONE" else None
+        if key == "GONE":
+            return None
+        return {"key": key, "title": "Old title", "tags": [{"tag": "kept"}],
+                "collections": ["COLL0001"]}
 
     def citation_keys(self):
         return set()
@@ -162,3 +174,53 @@ def test_move_refuses_a_missing_parent_and_its_own_subtree(tmp_path):
     with pytest.raises(ZoteroWriteError, match="itself or its own"):
         w.move_collection("PARENT01", "CHILD001")
     assert not (tmp_path / WRITE_LOG).exists()
+
+
+def test_tag_edit_logs_each_items_tags_before(tmp_path):
+    w = _writer(tmp_path)
+    result = w.edit_tags(["ITEM0001", "GONE"], add=["new &amp; shiny "], source="ingestion/t")
+    assert result["updated"]["ITEM0001"] == ["kept", "new & shiny"]
+    (entry,) = _log(tmp_path)
+    assert entry["operation"] == "tag edit" and entry["source"] == "ingestion/t"
+    assert entry["request"] == {"keys": ["ITEM0001", "GONE"], "add": ["new & shiny"],
+                                "remove": []}
+    assert entry["before"] == {"ITEM0001": [{"tag": "kept"}],
+                               "GONE": {"unavailable": "item not found"}}
+
+
+def test_collection_edit_logs_each_items_collections_before(tmp_path):
+    w = _writer(tmp_path)
+    w.edit_collections(["ITEM0001"], add=["COLL0002"], remove=["COLL0003"])
+    (entry,) = _log(tmp_path)
+    assert entry["operation"] == "collection edit"
+    assert entry["request"] == {"keys": ["ITEM0001"], "add": ["COLL0002"],
+                                "remove": ["COLL0003"]}
+    assert entry["before"] == {"ITEM0001": ["COLL0001"]}
+
+
+@pytest.mark.parametrize("keys, add, remove, message", [
+    ("ITEM0001", ["x"], [], "as a list"),
+    (["ITEM0001"], "x", [], "as a list"),
+    ([], ["x"], [], "at least one item key"),
+    (["ITEM0001"], [], [], "to add or remove"),
+    (["ITEM0001"], ["x"], ["x"], "both added and removed: x"),
+    (["ITEM0001"], [" "], [], "non-empty string"),
+])
+def test_list_edits_refuse_bad_arguments_without_writing(tmp_path, keys, add, remove, message):
+    w = _writer(tmp_path)
+    with pytest.raises(ZoteroWriteError, match=message):
+        w.edit_tags(keys, add, remove)
+    assert not (tmp_path / WRITE_LOG).exists()
+
+
+def test_note_text_becomes_html_paragraphs(tmp_path):
+    w = _writer(tmp_path)
+    w.create_note("ITEM0001", "First line\nsecond <line>\n\nNext paragraph")
+    w.create_note("ITEM0001", "<p>Already <b>HTML</b></p>")
+    plain, given = _log(tmp_path)
+    assert plain["operation"] == "note create"
+    assert plain["request"]["note"] == (
+        "<p>First line<br>second &lt;line&gt;</p><p>Next paragraph</p>")
+    assert given["request"]["note"] == "<p>Already <b>HTML</b></p>"
+    with pytest.raises(ZoteroWriteError, match="cannot be empty"):
+        w.create_note("ITEM0001", "  ")
