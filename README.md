@@ -40,15 +40,14 @@ I am a PhD candidate and postdoctoral researcher in Communication Science at Vri
 
 **Skills.**
 
-<table>
-<tr><th width="140"></th><th>Skill</th><th>Phase</th><th>What it does</th></tr>
-<tr><td width="140"><img src="docs/assets/dog-search.svg" width="140" alt="search"></td><td><code>/scriptorium:search</code></td><td>1</td><td>Spot searches and lookups; picks the right search tool and resolves filter values first</td></tr>
-<tr><td width="140"><img src="docs/assets/dog-ingest.svg" width="140" alt="ingest"></td><td><code>/scriptorium:ingest</code></td><td>1</td><td>Adds papers with verified metadata, from PDFs in a local path or from DOIs</td></tr>
-<tr><td width="140"><img src="docs/assets/dog-retrieve.svg" width="140" alt="retrieve"></td><td><code>/scriptorium:retrieve</code></td><td>1</td><td>Downloads versions of record from publishers' sites, checks each against its title, and attaches on approval</td></tr>
-<tr><td width="140"><img src="docs/assets/dog-surveil.svg" width="140" alt="surveil"></td><td><code>/scriptorium:surveil</code></td><td>2</td><td>Runs one surveillance cycle: Crossref harvest, filter, appraise, digest, add</td></tr>
-<tr><td width="140"><img src="docs/assets/dog-interrogate.svg" width="140" alt="interrogate"></td><td><code>/scriptorium:interrogate</code></td><td>2</td><td>Answers a question from the full text of the library, citing passages with page ranges</td></tr>
-<tr><td width="140"><img src="docs/assets/dog-discover.svg" width="140" alt="discover"></td><td><code>/scriptorium:discover</code></td><td>2</td><td>Protocol-driven search of Semantic Scholar and OpenAlex, with screening and citation snowballing</td></tr>
-</table>
+| Skill | Phase | What it does |
+|---|---|---|
+| <img src="docs/assets/dog-search.svg" width="140" alt="search"><br>`/scriptorium:search` | 1 | Spot searches and lookups; picks the right search tool and resolves filter values first |
+| <img src="docs/assets/dog-ingest.svg" width="140" alt="ingest"><br>`/scriptorium:ingest` | 1 | Adds papers with verified metadata, from PDFs in a local path or from DOIs |
+| <img src="docs/assets/dog-retrieve.svg" width="140" alt="retrieve"><br>`/scriptorium:retrieve` | 1 | Downloads versions of record from publishers' sites, checks each against its title, and attaches on approval |
+| <img src="docs/assets/dog-surveil.svg" width="140" alt="surveil"><br>`/scriptorium:surveil` | 2 | Runs one surveillance cycle: Crossref harvest, filter, appraise, digest, add |
+| <img src="docs/assets/dog-interrogate.svg" width="140" alt="interrogate"><br>`/scriptorium:interrogate` | 2 | Answers a question from the full text of the library, citing passages with page ranges |
+| <img src="docs/assets/dog-discover.svg" width="140" alt="discover"><br>`/scriptorium:discover` | 2 | Protocol-driven search of Semantic Scholar and OpenAlex, with screening and citation snowballing |
 
 ## Architecture
 
