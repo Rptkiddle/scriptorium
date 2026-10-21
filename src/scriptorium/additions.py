@@ -13,6 +13,7 @@ import time
 
 from scriptorium.apis import CROSSREF, crossref_get, http_session, norm_doi, strip_jats
 from scriptorium.config import Config
+from scriptorium.versions import VersionIndex, is_preprint, record_line, with_line
 from scriptorium.zotero import ZoteroReader, citekeys_of, dois_of
 from scriptorium.zotero_write import ZoteroWriter
 
@@ -128,33 +129,54 @@ def _doi_of(item: dict) -> str:
     return norm_doi(m.group(1)) if m else ""
 
 
-def add_by_doi(config: Config, entries: list[dict], source: str = "additions") -> dict:
+def add_by_doi(config: Config, entries: list[dict], source: str = "additions",
+               dry_run: bool = False) -> dict:
     """Add papers to the library by DOI. `source` names the caller (a run)
     in the write log.
 
     Each entry: {"doi", "collection_key", "tags": [str], "extra": str,
     plus fallback metadata (title, authors, abstract, venue, year) and,
     optionally, item_type and conference_name (see crossref_record_to_item)}.
-    Entries whose DOI is already in the library are skipped. Returns
-    {"created": {doi: {"key", "citation_key"}}, "skipped_existing": [dois],
-    "failed": {doi: reason}, "unverified": {doi: reason}} — "unverified"
-    lists items created from the caller's fallback metadata because the
-    Crossref lookup failed (created, but worth checking).
+    Entries whose DOI the library already answers to (as an item's own DOI,
+    or as a preprint recorded in an item's Extra) are skipped.
+
+    A published paper is kept as its published version only (see versions):
+    - a preprint whose published version (or another preprint of the same
+      paper) is in the library, or among this call's entries, is not
+      created; its identifier is recorded in that item's Extra;
+    - a published paper whose preprint is in the library is created with
+      the preprint recorded in its Extra, and the preprint item is moved to
+      the trash when it has no child items (attachments, notes); otherwise
+      it is kept and flagged.
+
+    Returns {"created": {doi: {"key", "citation_key"}}, "skipped_existing":
+    [dois], "versions": {doi: {...}}, "failed": {doi: reason}, "unverified":
+    {doi: reason}}. "versions" holds every version match: {"case":
+    "recorded" (not created, recorded on matched_key) or "replaces" (created,
+    replacing the preprint matched_key), "matched_key", "matched_title",
+    "how", and for "replaces" "preprint": "trashed" or "kept: ..."}.
+    "unverified" lists items created from the caller's fallback metadata
+    because the Crossref lookup failed (created, but worth checking).
+
+    dry_run=True writes nothing: the result lists the DOIs that would be
+    created under "would_create", and each version match says what would
+    happen ("preprint": "would be trashed" or "would be kept: ...").
     """
     reader = ZoteroReader(config)
     library = reader.library_snapshot()
     lib_dois, taken = dois_of(library), citekeys_of(library)
+    index = VersionIndex(library)
     todo, skipped = [], []
     seen: set[str] = set()
     for e in entries:
         doi = norm_doi(e["doi"])
-        if doi in lib_dois or doi in seen:
+        if doi in lib_dois or doi in seen or index.holder(doi) is not None:
             skipped.append(doi)
             continue
         seen.add(doi)
         todo.append({**e, "doi": doi})
-    result: dict = {"created": {}, "skipped_existing": skipped, "failed": {},
-                    "unverified": {}}
+    result: dict = {"created": {}, "skipped_existing": skipped, "versions": {},
+                    "failed": {}, "unverified": {}}
     if not todo:
         return result
 
@@ -176,14 +198,79 @@ def add_by_doi(config: Config, entries: list[dict], source: str = "additions") -
             result["unverified"][d] = f"crossref: {exc}"[:200]
 
     writer = ZoteroWriter(config, source=source, reader=reader)
-    by_coll: dict[str, list[dict]] = {}
     items_meta: dict[str, dict] = {}
     for e in todo:
         item = crossref_record_to_item(records.get(e["doi"]), e)
         item["tags"] = [{"tag": t} for t in e.get("tags", [])]
         item["extra"] = "\n".join(x for x in (item.get("extra", ""), e.get("extra", "")) if x)
-        by_coll.setdefault(e.get("collection_key", ""), []).append(item)
         items_meta[e["doi"]] = item
+
+    # Published papers first, so a preprint can be recorded on its published
+    # version from the same call. `batch` indexes the items about to be created.
+    batch = VersionIndex()
+    created_from: dict[int, str] = {}  # id(item) -> DOI, for items in this call
+    replaced: dict[str, dict] = {}  # DOI -> the library preprint it replaces
+    for e in sorted(todo, key=lambda e: is_preprint(items_meta[e["doi"]])):
+        doi, item = e["doi"], items_meta[e["doi"]]
+        match = (index.other_version(item, records.get(doi))
+                 or batch.other_version(item, records.get(doi)))
+        if match is None:
+            batch.add(item)
+            created_from[id(item)] = doi
+            continue
+        other = match.item
+        if is_preprint(item):
+            # Not created: recorded on the published version (or on the
+            # preprint already standing for the paper).
+            ident, line = record_line(item)
+            entry = {"case": "recorded", "matched_title": other.get("title", ""),
+                     "how": match.how}
+            if id(other) in created_from:
+                other["extra"] = with_line(other.get("extra", ""), ident, line)
+                entry["matched_doi"] = created_from[id(other)]
+            else:
+                entry["matched_key"] = other["key"]
+                try:
+                    extra = with_line(other.get("extra", ""), ident, line)
+                    if extra != (other.get("extra") or "") and not dry_run:
+                        writer.update_item(other["key"], {"extra": extra})
+                        other["extra"] = extra
+                except Exception as exc:  # noqa: BLE001 — record and continue
+                    result["failed"][doi] = (f"recording on {other['key']} (another"
+                                             f" version) failed: {exc}")
+                    continue
+            result["versions"][doi] = entry
+        else:
+            # Created with the library's preprint recorded on it; the
+            # preprint is trashed once the create has succeeded.
+            ident, line = record_line(other)
+            item["extra"] = with_line(item.get("extra", ""), ident, line)
+            replaced[doi] = other
+            result["versions"][doi] = {"case": "replaces", "matched_key": other["key"],
+                                       "matched_title": other.get("title", ""),
+                                       "how": match.how}
+            batch.add(item)
+            created_from[id(item)] = doi
+
+    if dry_run:
+        result["would_create"] = [e["doi"] for e in todo
+                                  if id(items_meta[e["doi"]]) in created_from]
+        for doi, preprint in replaced.items():
+            children = reader.children(preprint["key"])
+            kinds = sorted({c.get("item_type", "") for c in children})
+            result["versions"][doi]["preprint"] = (
+                f"would be kept: it has {', '.join(kinds)} child items" if children
+                else "would be trashed")
+        for entry in result["versions"].values():
+            if "matched_doi" in entry:
+                entry["matched_key"] = f"(created in this run: {entry.pop('matched_doi')})"
+        return result
+
+    by_coll: dict[str, list[dict]] = {}
+    for e in todo:
+        item = items_meta[e["doi"]]
+        if id(item) in created_from:
+            by_coll.setdefault(e.get("collection_key", ""), []).append(item)
     for coll, items in by_coll.items():
         for i in range(0, len(items), 50):
             chunk = items[i:i + 50]
@@ -213,4 +300,28 @@ def add_by_doi(config: Config, entries: list[dict], source: str = "additions") -
             except Exception as exc:  # noqa: BLE001 — record and continue
                 for item in chunk:
                     result["failed"][_doi_of(item)] = str(exc)
+
+    for doi, entry in list(result["versions"].items()):
+        if "matched_doi" in entry:
+            target_doi = entry.pop("matched_doi")
+            if target := result["created"].get(target_doi):
+                entry["matched_key"] = target["key"]
+            else:
+                del result["versions"][doi]
+                result["failed"][doi] = (f"not created as a preprint of {target_doi},"
+                                         " whose creation failed")
+    for doi, preprint in replaced.items():
+        entry = result["versions"][doi]
+        if doi not in result["created"]:
+            entry["preprint"] = "kept: the published version was not created"
+            continue
+        try:
+            if children := reader.children(preprint["key"]):
+                kinds = sorted({c.get("item_type", "") for c in children})
+                entry["preprint"] = f"kept: it has {', '.join(kinds)} child items"
+            else:
+                writer.delete_item(preprint["key"])
+                entry["preprint"] = "trashed"
+        except Exception as exc:  # noqa: BLE001 — the new item stands; report it
+            entry["preprint"] = f"kept: {type(exc).__name__}: {exc}"[:200]
     return result
