@@ -123,7 +123,10 @@ surveillance add step: it dedupes against the library, fetches the full
 Crossref record per DOI, and creates through the bridge with generated
 citation keys, applying the version rule above. Relay its printed
 summary. In inbox mode, attach each PDF (Step 4) to the key `added.json`
-lists for its DOI.
+lists for its DOI. When the dry run shows that an inbox PDF's paper is a
+preprint of an item already in the library (so nothing will be created for
+it), say so in the duplicate round and ask whether the PDF goes on that
+item or stays in the inbox.
 
 Other sources (no Crossref DOI; metadata assembled by hand): `hub_item_create`
 with the verified JSON and confirmed `collection_key`, one call per paper
