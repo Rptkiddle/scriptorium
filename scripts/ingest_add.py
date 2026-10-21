@@ -59,8 +59,10 @@ def main() -> None:
         print(f"already in library: {doi}")
     for doi, v in result.get("versions", {}).items():
         if v["case"] == "recorded":
+            done = "would not be created, would be recorded" if args.dry_run else \
+                "not created, recorded"
             print(f"preprint of {v['matched_key']} (another version, {v['how']}):"
-                  f" not created, recorded in its Extra: {doi}")
+                  f" {done} in its Extra: {doi}")
         else:
             print(f"replaces preprint {v['matched_key']} ({v['how']}; preprint"
                   f" {v.get('preprint', '')}): {doi}")
