@@ -120,3 +120,26 @@ def test_parse_verdicts_tolerates_wrapping_and_rejects_non_arrays():
     assert parse_verdicts('{"id": "c1"}') is None
     assert parse_verdicts('["c1"]') is None
     assert parse_verdicts("[not json]") is None
+
+
+def test_digest_reports_version_matches_not_as_failures(tmp_path):
+    config = Config(index_dir=tmp_path)
+    run_dir = new_run(config, "surveillance")
+    accepted = [{"doi": d, "title": t, "authors": "Ada", "venue": "V", "why": "fits"}
+                for d, t in (("10.1/pre", "A preprint"), ("10.1/pub", "A published paper"))]
+    (run_dir / "accepted.json").write_text(json.dumps(accepted))
+    (run_dir / "added.json").write_text(json.dumps({
+        "created": {"10.1/pub": {"key": "NEW1", "citation_key": "adaPublished2026"}},
+        "skipped_existing": [], "failed": {}, "unverified": {},
+        "versions": {
+            "10.1/pre": {"case": "recorded", "matched_key": "PUB1", "how": "title + first author",
+                         "matched_title": "A preprint"},
+            "10.1/pub": {"case": "replaces", "matched_key": "PRE1", "how": "crossref has-preprint",
+                         "matched_title": "A published paper",
+                         "preprint": "kept: it has attachment child items"}}}))
+    digest, _ = surveillance_cycle.write_digest(run_dir)
+    text = digest.read_text()
+    assert "ADD FAILED" not in text
+    assert "(preprint of PUB1, already in library; recorded there)" in text
+    assert "(replaces preprint PRE1: kept: it has attachment child items)" in text
+    assert "preprint PRE1 kept beside its published version" in text

@@ -23,8 +23,11 @@ def _run(tmp_path, monkeypatch, *extra):
     module = _load()
     sources = []
 
-    def fake_add_by_doi(config, entries, source=""):
+    def fake_add_by_doi(config, entries, source="", dry_run=False):
         sources.append(source)
+        if dry_run:
+            return {"created": {}, "would_create": ["10.1/a"], "skipped_existing": [],
+                    "versions": {}, "failed": {}}
         return {"created": {"10.1/a": {"key": "K", "citation_key": "c"}},
                 "skipped_existing": [], "failed": {}}
 
@@ -51,3 +54,11 @@ def test_leaves_the_skills_open_run_for_the_skill_to_close(tmp_path, monkeypatch
     assert sources == ["ingestion/2026-10-09-1500"]
     assert (run_dir / "added.json").is_file()
     assert read_manifest(run_dir)["status"] == "running"
+
+
+def test_dry_run_saves_its_result_and_leaves_the_run_open(tmp_path, monkeypatch):
+    _run(tmp_path, monkeypatch, "--dry-run")
+    (run_dir,) = (tmp_path / "ingestion" / "runs").iterdir()
+    assert json.loads((run_dir / "work" / "dry_run.json").read_text())["would_create"] == ["10.1/a"]
+    assert not (run_dir / "added.json").exists()
+    assert json.loads((run_dir / "run.json").read_text())["status"] == "running"

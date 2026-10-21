@@ -90,6 +90,7 @@ def add_run(config, run_dir: Path, by: str = "self") -> dict:
 
 def add_summary(result: dict) -> str:
     return (f"added {len(result['created'])}, already-present {len(result['skipped_existing'])},"
+            f" other-version {len(result.get('versions', {}))},"
             f" failed {len(result['failed'])}"
             + (f" — failures: {result['failed']}" if result["failed"] else "")
             + (f" — created from fallback metadata (Crossref lookup failed):"
@@ -164,6 +165,7 @@ def write_digest(run_dir: Path, by: str = "self") -> tuple[Path, str]:
     errors = [v for v in harvested.get("venues", []) if "error" in v]
 
     created = (added or {}).get("created", {})
+    versions = (added or {}).get("versions", {})
     key_of = {doi: c for doi, c in created.items()}
 
     summary = f"{n_cand} candidates from {n_venues} venues, {len(accepted)} accepted"
@@ -180,8 +182,15 @@ def write_digest(run_dir: Path, by: str = "self") -> tuple[Path, str]:
         for a in sorted(accepted, key=lambda a: a["venue"]):
             doi = a["doi"].lower()
             tag = ""
+            version = versions.get(doi, {})
             if doi in key_of:
                 tag = f" `[{key_of[doi]['citation_key']}]`"
+                if version:
+                    tag += (f" (replaces preprint {version['matched_key']}:"
+                            f" {version.get('preprint', '')})")
+            elif version:
+                tag = (f" (preprint of {version['matched_key']}, already in library;"
+                       " recorded there)")
             elif added is not None and doi in added.get("skipped_existing", []):
                 tag = " (already in library)"
             elif added is not None:
@@ -198,6 +207,10 @@ def write_digest(run_dir: Path, by: str = "self") -> tuple[Path, str]:
                   for r in retried]
 
     attention = [f"- venue error — {v['venue']}: {v['error']}" for v in errors]
+    attention += [f"- preprint {v['matched_key']} kept beside its published version"
+                  f" ({v['preprint'].removeprefix('kept: ')}); trash it or keep it"
+                  for doi, v in versions.items()
+                  if doi in created and v.get("preprint", "").startswith("kept")]
     if added and added.get("failed"):
         attention += [f"- add failed — {doi}: {reason[:100]}"
                       for doi, reason in added["failed"].items()]
