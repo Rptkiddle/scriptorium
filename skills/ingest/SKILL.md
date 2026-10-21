@@ -66,9 +66,10 @@ files (entries, verification notes) in `<rundir>/work/`, and pass
   preprint of a paper already in the library is not created but recorded
   on it; a published paper whose preprint is in the library is created,
   and the preprint is moved to the trash unless it has attachments or
-  notes (then it is kept and reported). Before the duplicate round, run it
-  with `--dry-run` (writes nothing) and show each match it lists as what
-  will happen; run it for real only after confirmation. For an
+  notes, or nothing to record it by (then it is kept and reported). Before
+  the duplicate round, run it with `--dry-run` (writes nothing; entries
+  need only `doi` at that point) and show each match it lists as what will
+  happen; run it for real only after confirmation. For an
   item created by hand with `hub_item_create`, apply the same rule from the
   `hub_lookup` title check.
 - **Item JSON is complete at creation:** correct `itemType` (preprints

@@ -221,3 +221,12 @@ def test_a_dry_run_writes_nothing_and_says_what_would_happen(monkeypatch):
     assert result["would_create"] == [pub["DOI"]]
     assert result["versions"][pub["DOI"]]["preprint"] == "would be trashed"
     assert result["versions"][pre["DOI"]]["matched_key"] == "OLD"
+
+
+def test_a_preprint_without_an_identifier_is_kept(monkeypatch):
+    philsci = _item("PHIL", "preprint", "Echo Chambers Revisited", "Trilling",
+                    repository="PhilSci-Archive", url="https://philsci-archive.pitt.edu/1/")
+    rec = _record("10.1000/journal.1", "journal-article", "Echo Chambers Revisited", "Trilling")
+    result = _add(monkeypatch, [philsci], {rec["DOI"]: rec}, [{"doi": rec["DOI"]}])
+    assert [c[0] for c in FakeWriter.calls] == ["create"]
+    assert result["versions"][rec["DOI"]]["preprint"] == "kept: no identifier to record"

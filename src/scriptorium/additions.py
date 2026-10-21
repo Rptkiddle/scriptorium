@@ -146,8 +146,8 @@ def add_by_doi(config: Config, entries: list[dict], source: str = "additions",
       created; its identifier is recorded in that item's Extra;
     - a published paper whose preprint is in the library is created with
       the preprint recorded in its Extra, and the preprint item is moved to
-      the trash when it has no child items (attachments, notes); otherwise
-      it is kept and flagged.
+      the trash when it has no child items (attachments, notes) and an
+      identifier to record; otherwise it is kept and flagged.
 
     Returns {"created": {doi: {"key", "citation_key"}}, "skipped_existing":
     [dois], "versions": {doi: {...}}, "failed": {doi: reason}, "unverified":
@@ -245,10 +245,15 @@ def add_by_doi(config: Config, entries: list[dict], source: str = "additions",
             # preprint is trashed once the create has succeeded.
             ident, line = record_line(other)
             item["extra"] = with_line(item.get("extra", ""), ident, line)
-            replaced[doi] = other
             result["versions"][doi] = {"case": "replaces", "matched_key": other["key"],
                                        "matched_title": other.get("title", ""),
                                        "how": match.how}
+            if ident:
+                replaced[doi] = other
+            else:
+                # Nothing to record it by (PhilSci-Archive items carry no DOI
+                # or arXiv ID), so trashing it would leave no trace.
+                result["versions"][doi]["preprint"] = "kept: no identifier to record"
             batch.add(item)
             created_from[id(item)] = doi
 
