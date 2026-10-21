@@ -26,7 +26,7 @@ import traceback
 from pathlib import Path
 
 from scriptorium import judging
-from scriptorium.additions import add_by_doi
+from scriptorium.additions import add_papers
 from scriptorium.runs import finish, git_state, read_manifest, update_manifest, work_dir
 from scriptorium.settings import load_settings
 from scriptorium.surveillance import (
@@ -63,7 +63,7 @@ def _entries(config, accepts: list[dict]) -> list[dict]:
 def add_run(config, run_dir: Path, by: str = "self") -> dict:
     """Add one run's accepts and maintain its add_pending marker. Each
     attempt is kept as work/add_attempt_N.json (by whom, when, result or
-    error); added.json holds the latest result. Returns the add_by_doi
+    error); added.json holds the latest result. Returns the add_papers
     result (created / skipped_existing / failed)."""
     accepts = json.loads((run_dir / "accepted.json").read_text())
     marker = run_dir / PENDING
@@ -72,7 +72,7 @@ def add_run(config, run_dir: Path, by: str = "self") -> dict:
                "by": by}
     attempt_file = work / f"add_attempt_{len(list(work.glob('add_attempt_*.json'))) + 1}.json"
     try:
-        result = add_by_doi(config, _entries(config, accepts),
+        result = add_papers(config, _entries(config, accepts),
                             source=f"surveillance/{run_dir.name}")
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"[:300]

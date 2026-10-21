@@ -23,7 +23,7 @@ def _run(tmp_path, monkeypatch, *extra):
     module = _load()
     sources = []
 
-    def fake_add_by_doi(config, entries, source="", dry_run=False):
+    def fake_add_papers(config, entries, source="", dry_run=False):
         sources.append(source)
         if dry_run:
             return {"created": {}, "would_create": ["10.1/a"], "skipped_existing": [],
@@ -31,7 +31,7 @@ def _run(tmp_path, monkeypatch, *extra):
         return {"created": {"10.1/a": {"key": "K", "citation_key": "c"}},
                 "skipped_existing": [], "failed": {}}
 
-    monkeypatch.setattr(module, "add_by_doi", fake_add_by_doi)
+    monkeypatch.setattr(module, "add_papers", fake_add_papers)
     monkeypatch.setattr(sys, "argv", ["ingest_add.py", "--entries", str(entries), *extra])
     module.main()
     return sources

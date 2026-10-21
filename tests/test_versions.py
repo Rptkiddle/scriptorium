@@ -3,7 +3,14 @@
 from typing import ClassVar
 
 from scriptorium import additions
-from scriptorium.versions import VersionIndex, record_line, with_line
+from scriptorium.versions import (
+    VersionIndex,
+    pair_action,
+    rank,
+    record_line,
+    version_pairs,
+    with_line,
+)
 
 
 def _item(key, item_type, title, surname, doi="", **extra_fields):
@@ -83,7 +90,7 @@ def test_with_line_appends_once():
     assert with_line("", "doi:10.1000/x", "SocArXiv: 10.1000/x") == "SocArXiv: 10.1000/x"
 
 
-# --- add_by_doi --------------------------------------------------------------
+# --- add_papers --------------------------------------------------------------
 
 class FakeReader:
     library: ClassVar[list] = []
@@ -132,7 +139,7 @@ def _add(monkeypatch, library, records, entries, children=None, dry_run=False):
         raise RuntimeError("not found")
 
     monkeypatch.setattr(additions, "crossref_get", fake_get)
-    return additions.add_by_doi(None, entries, dry_run=dry_run)
+    return additions.add_papers(None, entries, dry_run=dry_run)
 
 
 def _record(doi, kind, title, surname, relation=None, institution=""):
@@ -237,3 +244,89 @@ def test_a_dry_run_with_nothing_to_create_still_lists_would_create(monkeypatch):
     result = _add(monkeypatch, library, {}, [{"doi": "10.31235/osf.io/abcde"}], dry_run=True)
     assert result["would_create"] == []
     assert result["skipped_existing"] == ["10.31235/osf.io/abcde"]
+
+
+# --- entries without a Crossref DOI -------------------------------------------
+
+ARXIV_ITEM = {"itemType": "preprint", "title": "Echo Chambers Revisited",
+              "creators": [{"creatorType": "author", "firstName": "A", "lastName": "Trilling"}],
+              "repository": "arXiv", "archiveID": "arXiv:2603.13270",
+              "DOI": "10.48550/arXiv.2603.13270", "url": "https://arxiv.org/abs/2603.13270"}
+
+
+def test_an_arxiv_item_entry_of_a_library_paper_is_recorded_on_it(monkeypatch):
+    result = _add(monkeypatch, [PUBLISHED], {}, [{"item": ARXIV_ITEM}])
+    assert result["versions"]["arxiv:2603.13270"]["matched_key"] == "PUB1"
+    assert FakeWriter.calls == [("update", "PUB1", {"extra": "arXiv: 2603.13270"})]
+
+
+def test_item_entries_are_created_and_reported_by_their_identifier(monkeypatch):
+    neurips = {"itemType": "conferencePaper", "title": "A NeurIPS Paper",
+               "creators": [{"creatorType": "author", "lastName": "Kroon"}],
+               "proceedingsTitle": "Advances in Neural Information Processing Systems",
+               "url": "https://proceedings.neurips.cc/paper/2024/hash/abc-Abstract.html"}
+    rec = _record("10.1000/journal.2", "journal-article", "Something New", "Welbers")
+    result = _add(monkeypatch, [], {rec["DOI"]: rec},
+                  [{"item": ARXIV_ITEM}, {"item": neurips}, {"doi": rec["DOI"]}])
+    assert set(result["created"]) == {"arxiv:2603.13270", neurips["url"], rec["DOI"]}
+
+
+def test_an_item_entry_whose_url_is_in_the_library_is_skipped(monkeypatch):
+    library = [{**PUBLISHED, "url": "https://proceedings.neurips.cc/paper/2024/hash/abc-Abstract.html"}]
+    entry = {"item": {"itemType": "conferencePaper", "title": "Other words",
+                      "creators": [{"creatorType": "author", "lastName": "Kroon"}],
+                      "url": "http://www.proceedings.neurips.cc/paper/2024/hash/abc-Abstract.html/"}}
+    result = _add(monkeypatch, library, {}, [entry])
+    assert result["skipped_existing"] == [entry["item"]["url"]]
+    assert FakeWriter.calls == []
+
+
+def test_an_item_entry_with_a_field_its_type_lacks_is_refused(monkeypatch):
+    item = {**ARXIV_ITEM, "publicationTitle": "Not for preprints"}
+    result = _add(monkeypatch, [], {}, [{"item": item}])
+    assert "has no field publicationTitle" in result["failed"]["arxiv:2603.13270"]
+    assert FakeWriter.calls == []
+    no_author = {**ARXIV_ITEM, "creators": []}
+    assert "needs a title" in _add(monkeypatch, [], {}, [{"item": no_author}])["failed"][
+        "arxiv:2603.13270"]
+
+
+# --- the library-wide check ---------------------------------------------------
+
+
+def test_pairs_drop_a_preprint_for_its_published_version_and_rank_preprints():
+    arxiv = _item("ARX", "preprint", "Echo Chambers Revisited", "Trilling",
+                  "10.48550/arXiv.2603.13270", archiveID="arXiv:2603.13270")
+    philsci = _item("PHIL", "preprint", "Model Anarchism", "Veit", archiveID="PhilSci:1")
+    arxiv2 = _item("ARX2", "preprint", "Model anarchism", "Veit",
+                   "10.48550/arXiv.2001.00001", archiveID="arXiv:2001.00001")
+    assert [rank(i) for i in (PREPRINT, arxiv, philsci)] == [0, 1, 2]
+    pairs = version_pairs([PUBLISHED, PREPRINT, philsci, arxiv2])
+    assert [(k["key"], d["key"]) for k, d, _ in pairs] == [("PUB1", "PRE1"), ("ARX2", "PHIL")]
+
+
+def test_two_published_items_are_never_paired():
+    extension = _item("CONF", "conferencePaper", "Echo Chambers Revisited", "Trilling")
+    assert version_pairs([PUBLISHED, extension]) == []
+
+
+def test_pair_actions():
+    assert pair_action(PUBLISHED, PREPRINT, []) == {
+        "line": "SocArXiv: 10.31235/osf.io/abcde", "extra": "SocArXiv: 10.31235/osf.io/abcde",
+        "trash": True, "action": "recorded; trashed"}
+    kept = pair_action(PUBLISHED, PREPRINT, [{"item_type": "attachment"}])
+    assert not kept["trash"] and kept["action"].endswith("it has attachment child items")
+    already = pair_action({**PUBLISHED, "extra": "SocArXiv: 10.31235/osf.io/abcde"}, PREPRINT, [])
+    assert already["extra"] is None and already["trash"]
+    philsci = _item("PHIL", "preprint", "Echo Chambers Revisited", "Trilling", archiveID="PhilSci:1")
+    flagged = pair_action(PUBLISHED, philsci, [])
+    assert not flagged["trash"] and flagged["extra"] is None
+    assert flagged["action"].startswith("flagged")
+
+
+def test_an_item_entry_keeps_its_own_tags_and_collections(monkeypatch):
+    item = {**ARXIV_ITEM, "tags": [{"tag": "own-work"}], "collections": ["COLL1"]}
+    _add(monkeypatch, [], {}, [{"item": item, "tags": ["backfill-2020+", "own-work"]}])
+    ((_, (created,)),) = FakeWriter.calls
+    assert created["tags"] == [{"tag": "own-work"}, {"tag": "backfill-2020+"}]
+    assert created["collections"] == ["COLL1"]
