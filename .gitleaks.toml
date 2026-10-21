@@ -1,0 +1,14 @@
+# gitleaks configuration: the default rules, plus one fact about this repo.
+# Citation keys (e.g. "citation_key": "adaPublished2026") are bibliographic
+# identifiers built from author, title and year, not credentials; the
+# generic-api-key rule reads any "...key": "<word>" pair as a possible secret.
+# The allowlist is matched against the detected fragment only, so a real
+# secret elsewhere on the same line is still found.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "citation keys are bibliographic identifiers"
+regexTarget = "match"
+regexes = ['''(?i)citation_?key["']?\s*[:=]\s*["'][A-Za-z0-9_-]+["']''']
