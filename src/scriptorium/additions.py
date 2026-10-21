@@ -142,6 +142,8 @@ def item_from_entry(entry: dict) -> dict:
     field the type cannot hold is refused rather than dropped."""
     data = dict(entry["item"])
     item_type = data.pop("itemType", "")
+    # Kept: tags join the entry's tags, collections join its collection_key.
+    tags, collections = data.pop("tags", None) or [], data.pop("collections", None) or []
     if item_type not in _ALLOWED:
         raise ValueError(f"item type {item_type!r} not supported (use one of"
                          f" {', '.join(sorted(_ALLOWED))})")
@@ -152,7 +154,10 @@ def item_from_entry(entry: dict) -> dict:
     fields = {k: (norm_doi(v) if k == "DOI" else v) for k, v in data.items() if v}
     if not fields.get("title") or not creators:
         raise ValueError("an item entry needs a title and at least one creator")
-    return {"itemType": item_type, "creators": creators, "tags": [], **fields}
+    item = {"itemType": item_type, "creators": creators, "tags": tags, **fields}
+    if collections:
+        item["collections"] = collections
+    return item
 
 
 def entry_id(entry: dict) -> str:
@@ -265,7 +270,8 @@ def add_papers(config: Config, entries: list[dict], source: str = "additions",
     for eid, e in todo:
         item = (crossref_record_to_item(records.get(e["doi"]), e) if e.get("doi")
                 else items_meta[eid])
-        item["tags"] = [{"tag": t} for t in e.get("tags", [])]
+        tags = [*item.get("tags", []), *({"tag": t} for t in e.get("tags", []))]
+        item["tags"] = list({t["tag"]: t for t in tags}.values())
         item["extra"] = "\n".join(x for x in (item.get("extra", ""), e.get("extra", "")) if x)
         items_meta[eid] = item
 

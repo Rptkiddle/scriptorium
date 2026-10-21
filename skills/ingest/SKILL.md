@@ -7,7 +7,7 @@ description: Add papers to the Zotero library through the scriptorium hub, with 
 
 Add items to the Zotero library via the scriptorium hub (daemon at
 `http://localhost:8765`; tools `hub_lookup`, `hub_search_items`, `hub_item`,
-`hub_collections`, `hub_collection_create`, `hub_item_create`,
+`hub_collections`, `hub_collection_create`,
 `hub_attachment_link`, `hub_index`, `hub_status`). Metadata is always
 externally verified before anything is created; PDFs are stored as linked
 files (the hub copies them into the linked-attachments folder). If the
@@ -35,8 +35,8 @@ Every ingest is a run. Before anything else, from the repo
 `uv run python -m scriptorium.runs new ingestion`, which prints the run
 folder (`<rundir>`, named `<YYYY-MM-DD-HHMMSS>`). Keep the run's working
 files (entries, verification notes) in `<rundir>/work/`, and pass
-`run: "ingestion/<run name>"` to every hub write tool (`hub_item_create`,
-`hub_collection_create`, `hub_attachment_link`, `hub_item_update`,
+`run: "ingestion/<run name>"` to every hub write tool
+(`hub_collection_create`, `hub_attachment_link`, `hub_item_update`,
 `hub_item_tags`, `hub_item_collections`, `hub_note_create`, `hub_item_type`,
 `hub_item_delete`), so the write log attributes each change to this run.
 

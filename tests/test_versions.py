@@ -322,3 +322,11 @@ def test_pair_actions():
     flagged = pair_action(PUBLISHED, philsci, [])
     assert not flagged["trash"] and flagged["extra"] is None
     assert flagged["action"].startswith("flagged")
+
+
+def test_an_item_entry_keeps_its_own_tags_and_collections(monkeypatch):
+    item = {**ARXIV_ITEM, "tags": [{"tag": "own-work"}], "collections": ["COLL1"]}
+    _add(monkeypatch, [], {}, [{"item": item, "tags": ["backfill-2020+", "own-work"]}])
+    ((_, (created,)),) = FakeWriter.calls
+    assert created["tags"] == [{"tag": "own-work"}, {"tag": "backfill-2020+"}]
+    assert created["collections"] == ["COLL1"]
