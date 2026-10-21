@@ -5,9 +5,15 @@ results afterwards). Targets are read live from Zotero: regular items other
 than preprints with no PDF attachment, no own-work tag, whose host (the
 publisher folder above their venue folder) has a script route in
 scriptorium.pdf_routes, and a DOI (or, on a route that reads the item's
-URL, a URL). --skip-staged leaves out items whose PDF an earlier run holds
-for attaching. Hosts are taken in turn and paced; a host (publisher and DOI
-prefix) that blocks five times in a row is stopped for the run. Every PDF
+URL, a URL). Earlier runs are read for what they found, and the targets
+are taken in two tiers: first the papers no run has tried, then, only with
+--retry, the papers an earlier run tried and missed (no URL, not found, an
+HTML page, a block), so no miss is ever final. A paper whose PDF an earlier
+run still holds (staged, or in pdfs-review/) is left out. --keys /
+--keys-from limit the run to named items (e.g. the papers an ingest run
+just added), under the same rules, and report what happened to each.
+Hosts are taken in turn and paced; a host (publisher and DOI prefix) that
+blocks five times in a row is stopped for the run. Every PDF
 is checked (a real PDF, above a minimum size, the item's title on its first
 pages) before it counts.
 
@@ -15,12 +21,15 @@ Each run is a retrieval run (<data>/retrieval/runs/<run>/): PDFs that pass
 the check go to pdfs/<item key>.pdf, PDFs whose title check fails to
 pdfs-review/, one line per item to fetch.jsonl, and the counts to
 report.md. Re-running with --run <run folder> skips items already fetched.
-Refuses to start off the VU network.
+Run it from a network with the institution's subscriptions: elsewhere,
+closed content comes back as a web page or a refusal (a miss, which a later
+--retry can take again).
 
 Usage:
-    uv run python scripts/fetch_pdfs.py --plan
+    uv run python scripts/fetch_pdfs.py --plan [--keys KEY ... | --keys-from added.json]
     uv run python scripts/fetch_pdfs.py [--run <run folder>] [--pilot N]
-        [--publisher NAME ...] [--limit N] [--skip-staged <run folder> ...]
+        [--publisher NAME ...] [--limit N] [--retry]
+        [--keys KEY ... | --keys-from <ingestion or surveillance run>/added.json]
 """
 
 import argparse
@@ -44,45 +53,88 @@ from scriptorium.pdf_routes import (
     fetch_pdf,
     host_tree,
     interleave,
-    on_vu_network,
     route_of,
 )
-from scriptorium.runs import finish, new_run
+from scriptorium.runs import arm_dir, finish, new_run
 from scriptorium.zotero import ZoteroReader
 
 KEEP = ("ok", "title_mismatch")  # outcomes a re-run does not repeat
+UNTRIED = ("host_stopped",)  # outcomes of items a run never requested
+TO_FETCH = "to fetch"
 
 
-def select_targets(records, tree, urls=None, staged=frozenset()):
-    """(targets by publisher, counts of everything left out and why).
-    `urls` maps item keys to their URL field, which lets items without a DOI
-    through on a URL resolver; `staged` holds keys whose PDF waits in an
-    earlier run, still to be attached."""
-    urls = urls or {}
-    targets, left_out = defaultdict(list), Counter()
+def earlier_outcomes(runs_dir: Path, current: Path | None = None) -> dict[str, tuple[str, str]]:
+    """Item key -> (finding, run name) from earlier fetch runs. The finding
+    is "staged" (a PDF that passed its check, or awaits review, and whose
+    file is still on disk) or the outcome of a miss (no_url, not_found,
+    html, blocked, ...). Items a run never requested (host_stopped) and
+    staged files since deleted count as untried. `current` (a run being
+    resumed) is not an earlier run. Runs are read oldest first, so the
+    latest finding wins."""
+    found: dict[str, tuple[str, str]] = {}
+    for log_path in sorted(runs_dir.glob("*/fetch.jsonl")):
+        run = log_path.parent
+        if current is not None and run.resolve() == current.resolve():
+            continue
+        for key, e in read_log(log_path).items():
+            outcome = e.get("outcome", "")
+            if outcome in KEEP:
+                folder = "pdfs" if outcome == "ok" else "pdfs-review"
+                if (run / folder / f"{key}.pdf").is_file():
+                    found[key] = ("staged", run.name)
+            elif outcome and outcome not in UNTRIED:
+                found[key] = (outcome, run.name)
+    return found
+
+
+def select_targets(records, tree, urls=None, tried=None, retry=False):
+    """(tier 1, tier 2, counts of everything left out and why, the reason
+    for each item). Tier 1 holds the papers no earlier run tried, tier 2
+    those an earlier run tried and missed; both by publisher. `urls` maps
+    item keys to their URL field, which lets items without a DOI through on
+    a URL resolver; `tried` is earlier_outcomes(). `retry` only words the
+    reasons: whether tier 2 is fetched is the caller's choice."""
+    urls, tried = urls or {}, tried or {}
+    targets, retries = defaultdict(list), defaultdict(list)
+    left_out, reasons = Counter(), {}
     for r in records:
-        if r.item_type == "preprint":
-            left_out["preprint (preprint PDFs are not fetched)"] += 1
-            continue
-        if r.item_key in staged:
-            left_out["PDF staged in an earlier run"] += 1
-            continue
-        if r.pdf_status != "no_pdf":
-            left_out["has a PDF attachment" if r.pdf_status == "ok"
-                     else f"attachment file missing ({r.pdf_status})"] += 1
-            continue
-        if "own-work" in r.tags:
-            left_out["own-work"] += 1
-            continue
         publisher, venue, route = route_of(r, tree)
-        if route.group != "script":
-            left_out[f"group {route.group}" + (f": {publisher}" if publisher else "")] += 1
+        finding, run = tried.get(r.item_key, ("", ""))
+        if r.item_type == "preprint":
+            reason = "preprint (preprint PDFs are not fetched)"
+        elif r.pdf_status != "no_pdf":
+            reason = ("has a PDF attachment" if r.pdf_status == "ok"
+                      else f"attachment file missing ({r.pdf_status})")
+        elif finding == "staged":
+            reason = "PDF staged in an earlier run"
+        elif "own-work" in r.tags:
+            reason = "own-work"
+        elif route.group != "script":
+            reason = f"group {route.group}" + (f": {publisher}" if publisher else "")
+        elif not r.doi and not (route.resolver in URL_RESOLVERS and urls.get(r.item_key)):
+            reason = f"no DOI: {publisher}"
+        elif finding:
+            retries[publisher].append((r, venue, route))
+            reasons[r.item_key] = (f"tried before: {finding} (run {run}); "
+                                   + ("retried in this run" if retry else "held back, use --retry"))
             continue
-        if not r.doi and not (route.resolver in URL_RESOLVERS and urls.get(r.item_key)):
-            left_out[f"no DOI: {publisher}"] += 1
+        else:
+            targets[publisher].append((r, venue, route))
+            reasons[r.item_key] = TO_FETCH
             continue
-        targets[publisher].append((r, venue, route))
-    return targets, left_out
+        left_out[reason] += 1
+        reasons[r.item_key] = reason
+    return targets, retries, left_out, reasons
+
+
+def named_keys(keys: list[str], keys_from: str | None) -> list[str]:
+    """Item keys named with --keys, plus the created items of an ingestion
+    or surveillance run's added.json given with --keys-from."""
+    named = list(keys)
+    if keys_from:
+        added = json.loads(Path(keys_from).expanduser().read_text())
+        named += [c["key"] for c in added.get("created", {}).values()]
+    return list(dict.fromkeys(named))
 
 
 def pilot(targets: dict, n: int, seed: int = 20261015) -> dict:
@@ -103,7 +155,8 @@ def read_log(path: Path) -> dict:
     return last
 
 
-def write_report(run_dir: Path, log: dict, stopped: set, left_out: Counter) -> Counter:
+def write_report(run_dir: Path, log: dict, stopped: set, left_out: Counter,
+                 named: dict | None = None) -> Counter:
     by_pub = defaultdict(Counter)
     for e in log.values():
         by_pub[e["publisher"]][e["outcome"]] += 1
@@ -132,6 +185,10 @@ def write_report(run_dir: Path, log: dict, stopped: set, left_out: Counter) -> C
     if review:
         lines += ["", "## Title check failed (files in pdfs-review/)", ""]
         lines += [f"- {e['key']} {e['title'][:90]} — {e['url']}" for e in review]
+    if named:
+        lines += ["", "## Named items", ""]
+        lines += [f"- {k}: {log[k]['outcome'] if k in log else reason}"
+                  for k, reason in named.items()]
     lines += ["", "## Left out of this run", ""]
     lines += [f"- {k}: {v}" for k, v in sorted(left_out.items())]
     (run_dir / "report.md").write_text("\n".join(lines) + "\n")
@@ -145,36 +202,57 @@ def main() -> None:
     ap.add_argument("--pilot", type=int, default=0, help="about N items spread over the publishers")
     ap.add_argument("--publisher", action="append", default=[], help="only these publisher folders")
     ap.add_argument("--limit", type=int, default=0)
-    ap.add_argument("--skip-staged", action="append", default=[], metavar="RUN",
-                    help="leave out items whose PDF that run already holds (not yet attached)")
+    ap.add_argument("--keys", nargs="+", default=[], metavar="KEY",
+                    help="only these items (Zotero item keys)")
+    ap.add_argument("--keys-from", metavar="ADDED_JSON",
+                    help="only the items an ingestion or surveillance run created (its added.json)")
+    ap.add_argument("--retry", action="store_true",
+                    help="also fetch, after the never-tried ones, items an earlier run tried and missed")
     args = ap.parse_args()
 
     cfg = load_config()
     reader = ZoteroReader(cfg)
     tree = host_tree(reader.collections())
     urls = {d["key"]: d.get("url", "") for d in reader.library_snapshot()}
-    staged = {k for run in args.skip_staged for k, e in read_log(Path(run).expanduser() / "fetch.jsonl").items()
-              if e["outcome"] in KEEP}
-    targets, left_out = select_targets(reader.iter_papers(), tree, urls, staged)
+    tried = earlier_outcomes(arm_dir(cfg, "retrieval") / "runs",
+                             Path(args.run).expanduser() if args.run else None)
+    records = reader.iter_papers()
+    keys = named_keys(args.keys, args.keys_from)
+    if keys:
+        wanted = set(keys)
+        records = [r for r in records if r.item_key in wanted]
+    targets, retries, left_out, reasons = select_targets(records, tree, urls, tried, args.retry)
+    named = {k: reasons.get(k, "not in the library (or not a top-level item)") for k in keys}
     if args.publisher:
         targets = {p: v for p, v in targets.items() if p in args.publisher}
+        retries = {p: v for p, v in retries.items() if p in args.publisher}
     if args.pilot:
-        targets = pilot(targets, args.pilot)
+        targets, retries = pilot(targets, args.pilot), pilot(retries, args.pilot)
 
     if args.plan:
+        print("Never tried (fetched by default):")
         for pub, items in sorted(targets.items(), key=lambda kv: -len(kv[1])):
             print(f"{len(items):6}  {pub}")
-        print(f"{sum(len(v) for v in targets.values()):6}  to fetch")
+        print(f"{sum(len(v) for v in targets.values()):6}  in all")
+        print("Tried before and missed (fetched only with --retry, after the above):")
+        missed: Counter = Counter()
+        last: dict[str, str] = {}
+        for r, _, _ in (x for items in retries.values() for x in items):
+            finding, run = tried[r.item_key]
+            missed[finding] += 1
+            last[finding] = max(last.get(finding, ""), run[:10])
+        for finding, n in missed.most_common():
+            print(f"{n:6}  {finding} (last tried {last[finding]})")
+        print(f"{sum(missed.values()):6}  in all")
+        print("Left out:")
         for k, v in sorted(left_out.items()):
-            print(f"{v:6}  left out: {k}")
+            print(f"{v:6}  {k}")
+        for k, reason in named.items():
+            print(f"  {k}: {reason}")
         return
 
     session = requests.Session()
     session.headers["User-Agent"] = USER_AGENT
-    ip = session.get("https://api.ipify.org", timeout=30).text.strip()
-    print(f"public IP {ip}")
-    if not on_vu_network(ip):
-        raise SystemExit("not on the VU network (145.108.0.0/16): closed content would fail; stopping")
 
     run_dir = Path(args.run).expanduser() if args.run else new_run(cfg, "retrieval", slug="fetch")
     pdf_dir, review_dir = run_dir / "pdfs", run_dir / "pdfs-review"
@@ -182,7 +260,9 @@ def main() -> None:
     review_dir.mkdir(exist_ok=True)
     log_path = run_dir / "fetch.jsonl"
     log = read_log(log_path)
-    queue = [x for x in interleave(targets) if log.get(x[0].item_key, {}).get("outcome") not in KEEP]
+    # Never-tried papers first, so an interrupted run has spent its time on them.
+    tiers = interleave(targets) + (interleave(retries) if args.retry else [])
+    queue = [x for x in tiers if log.get(x[0].item_key, {}).get("outcome") not in KEEP]
     if args.limit:
         queue = queue[: args.limit]
     print(f"run {run_dir}\n{len(queue)} items to fetch")
@@ -224,7 +304,7 @@ def main() -> None:
                 log[rec.item_key] = entry
                 print(f"{i:5}/{len(queue)} {entry['outcome']:15} {publisher[:28]:28} {rec.doi}", flush=True)
     finally:
-        totals = write_report(run_dir, log, stopped, left_out)
+        totals = write_report(run_dir, log, stopped, left_out, named)
         summary = (f"{totals['ok']} PDFs of {len(log)} items; "
                    + ", ".join(f"{k} {v}" for k, v in sorted(totals.items()) if k != "ok"))
         finish(run_dir, "ok" if totals["ok"] == len(log) else "partial", summary,

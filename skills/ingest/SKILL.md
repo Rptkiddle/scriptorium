@@ -145,8 +145,10 @@ The items are immediately usable — proceed straight to attaching.
 
 Reference mode creates items metadata-only: PDF acquisition is a separate
 concern, handled by the `/scriptorium:retrieve` skill (publisher downloads staged
-for a later attach, plus the user's browser for the rest). Simply note in the report that the new items are on
-the `has_pdf: false` list.
+for a later attach, plus the user's browser for the rest). Note in the report
+that the new items are on the `has_pdf: false` list, and that
+`/scriptorium:retrieve` can fetch just these papers with
+`scripts/fetch_pdfs.py --keys-from <rundir>/added.json`.
 
 In inbox and mop-up modes the file is on disk already. Attach with
 `hub_attachment_link(parent_key, pdf_path)` — omit the filename; the hub
