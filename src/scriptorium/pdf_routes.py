@@ -83,6 +83,10 @@ VENUE_ROUTES = {
     # The ALIFE proceedings are on direct.mit.edu only, which refuses scripts.
     "Conference on Artificial Life (ALIFE)": Route("blocked"),
 }
+# A DOI prefix whose registrant serves the PDF wherever the paper is filed:
+# such a paper takes that publisher's route (AIES, under AAAI, holds AAAI's
+# own DOIs and ACM's 10.1145 ones).
+PREFIX_ROUTES = {"10.1145": "ACM"}
 # Resolvers that work from an item's URL, so items without a DOI can be fetched.
 URL_RESOLVERS = {"acl", "neurips", "pmlr"}
 
@@ -105,10 +109,14 @@ def host_tree(collections: list[dict]) -> dict:
 
 def route_of(record, tree: dict) -> tuple[str, str, Route]:
     """(publisher, venue, route) for a paper; the route group is
-    "unrouted" when its venue or publisher has no entry."""
+    "unrouted" when its venue or publisher has no entry. A DOI whose prefix
+    is in PREFIX_ROUTES takes that publisher's route, reported as
+    "<publisher> (by DOI prefix)"."""
     for key in record.collections:
         if key in tree:
             publisher, venue = tree[key]
+            if (owner := PREFIX_ROUTES.get(record.doi.split("/")[0])) and owner != publisher:
+                return f"{owner} (by DOI prefix)", venue, ROUTES[owner]
             route = VENUE_ROUTES.get(venue) or ROUTES.get(publisher) or Route("unrouted")
             return publisher, venue, route
     return "", "", Route("unrouted")

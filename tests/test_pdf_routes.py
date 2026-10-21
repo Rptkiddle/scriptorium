@@ -70,6 +70,13 @@ def test_route_of_uses_venue_overrides_and_flags_unknown_publishers():
     assert route_of(rec([]), tree)[0] == ""
 
 
+def test_an_acm_doi_takes_acms_route_wherever_it_is_filed():
+    tree = host_tree(COLLS)
+    publisher, _, route = route_of(rec(["VENSPR"], doi="10.1145/3600211.3604700"), tree)
+    assert (publisher, route.group) == ("ACM (by DOI prefix)", "blocked")
+    assert route_of(rec(["VENSPR"], doi="10.1609/aies.v7i1.31600"), tree)[0] == "Springer Nature"
+
+
 def test_crossref_links_rank_text_mining_first_and_drop_html():
     message = {"link": [
         {"URL": "https://x/sim.pdf", "content-type": "unspecified",
