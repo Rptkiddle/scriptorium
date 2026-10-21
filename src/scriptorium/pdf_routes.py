@@ -17,10 +17,12 @@ honestly and are paced per web host; a host that blocks is never worked
 around.
 """
 
+import json
 import re
 import time
 import unicodedata
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import requests
@@ -290,6 +292,32 @@ def title_on_first_pages(pdf: bytes, title: str, pages: int = 2) -> bool:
     with pymupdf.open(stream=pdf, filetype="pdf") as doc:
         text = norm_text("".join(doc[i].get_text() for i in range(min(pages, doc.page_count))))
     return any(w in text for w in wants)
+
+
+def first_lines(pdf: bytes, chars: int = 160) -> str:
+    """The start of a PDF's first page on one line, to judge by eye what
+    the file is."""
+    import pymupdf
+
+    with pymupdf.open(stream=pdf, filetype="pdf") as doc:
+        text = doc[0].get_text() if doc.page_count else ""
+    return " ".join(text.split())[:chars]
+
+
+# A fetch run's review decisions on its held PDFs (pdfs-review/): one JSON
+# line per decision, {"key", "decision": "accept" | "reject", "at", "by",
+# "note"}; the latest line per key holds.
+REVIEW_LOG = "review.jsonl"
+
+
+def review_decisions(run_dir: Path) -> dict[str, dict]:
+    path = run_dir / REVIEW_LOG
+    decisions: dict[str, dict] = {}
+    if path.is_file():
+        for line in path.read_text().splitlines():
+            entry = json.loads(line)
+            decisions[entry["key"]] = entry
+    return decisions
 
 
 BLOCK_MARKERS = (b"Just a moment...", b"Access Denied", b"Attention Required", b"captcha")

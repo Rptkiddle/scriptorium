@@ -78,13 +78,32 @@ line per item; `report.md` gives counts per publisher, the title-match
 rate and one sample PDF per publisher for the user to open. A host that
 blocks five times in a row is stopped for the run.
 
-## 3 — Attach (only on the user's go)
+## 3 — Review the held PDFs (any time; no Zotero writes)
+
+```
+uv run python scripts/attach_pdfs.py --run <run folder> --review
+uv run python scripts/attach_pdfs.py --run <run folder> --accept KEY ... [--note TEXT]
+uv run python scripts/attach_pdfs.py --run <run folder> --reject KEY ... [--note TEXT]
+```
+
+`--review` lists the run's PDFs held in `pdfs-review/` by venue: the
+Zotero title beside the start of the PDF's first page, and the decision so
+far. Present one venue group at a time; the user decides by group or by
+paper, and may open samples (`open <file>`). Record each decision with
+`--accept` / `--reject` (the keys of the group; a short `--note` saying
+why). A rejected paper counts for later fetches as tried and missed, so the
+same wrong file is not fetched again unless `--retry`. Files are never
+deleted by these steps; deleting rejected files is the user's call.
+
+## 4 — Attach (only on the user's go)
 
 ```
 uv run python scripts/attach_pdfs.py --run <run folder> [--batch 100] [--pause 20] [--limit N]
 ```
 
-Attaches every PDF in the run's `pdfs/` (not `pdfs-review/`) through
+Attaches every PDF in the run's `pdfs/`, plus the held PDFs accepted in
+review or passed by today's title check (never rejected or undecided ones),
+through
 `hub_attachment_link`, which names the file by citation key, stores it as a
 linked file and indexes the full text. Each item is re-checked live first,
 so nothing is attached twice; a re-run skips items already attached
@@ -92,7 +111,7 @@ so nothing is attached twice; a re-run skips items already attached
 run is an overnight job. The staged files are kept until the user has
 checked the result.
 
-## 4 — The rest
+## 5 — The rest
 
 Papers without a route, behind a block, or held for review stay on the
 `has_pdf: false` list (`hub_list_items` filter). The user may download
@@ -100,7 +119,7 @@ any of them with their own browser into `~/Desktop/to_file/`;
 `/scriptorium:ingest` (mop-up mode) then attaches them. The dashboard's
 missing-PDFs page gives a copyable list of links.
 
-## 5 — Report
+## 6 — Report
 
 One block: run folder, targets, fetched (per publisher), title-match rate,
 held for review, misses by kind (blocked, no URL, not found, HTML page),

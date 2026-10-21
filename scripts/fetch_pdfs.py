@@ -53,6 +53,7 @@ from scriptorium.pdf_routes import (
     fetch_pdf,
     host_tree,
     interleave,
+    review_decisions,
     route_of,
 )
 from scriptorium.runs import arm_dir, finish, new_run
@@ -67,7 +68,8 @@ def earlier_outcomes(runs_dir: Path, current: Path | None = None) -> dict[str, t
     """Item key -> (finding, run name) from earlier fetch runs. The finding
     is "staged" (a PDF that passed its check, or awaits review, and whose
     file is still on disk) or the outcome of a miss (no_url, not_found,
-    html, blocked, ...). Items a run never requested (host_stopped) and
+    html, blocked, ..., or "rejected in review": a held PDF the user
+    rejected, so the same wrong file is not fetched again by default). Items a run never requested (host_stopped) and
     staged files since deleted count as untried. `current` (a run being
     resumed) is not an earlier run. Runs are read oldest first, so the
     latest finding wins."""
@@ -76,9 +78,12 @@ def earlier_outcomes(runs_dir: Path, current: Path | None = None) -> dict[str, t
         run = log_path.parent
         if current is not None and run.resolve() == current.resolve():
             continue
+        decisions = review_decisions(run)
         for key, e in read_log(log_path).items():
             outcome = e.get("outcome", "")
-            if outcome in KEEP:
+            if outcome == "title_mismatch" and decisions.get(key, {}).get("decision") == "reject":
+                found[key] = ("rejected in review", run.name)
+            elif outcome in KEEP:
                 folder = "pdfs" if outcome == "ok" else "pdfs-review"
                 if (run / folder / f"{key}.pdf").is_file():
                     found[key] = ("staged", run.name)
