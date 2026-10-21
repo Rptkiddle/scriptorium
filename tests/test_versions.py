@@ -230,3 +230,10 @@ def test_a_preprint_without_an_identifier_is_kept(monkeypatch):
     result = _add(monkeypatch, [philsci], {rec["DOI"]: rec}, [{"doi": rec["DOI"]}])
     assert [c[0] for c in FakeWriter.calls] == ["create"]
     assert result["versions"][rec["DOI"]]["preprint"] == "kept: no identifier to record"
+
+
+def test_a_dry_run_with_nothing_to_create_still_lists_would_create(monkeypatch):
+    library = [{**PUBLISHED, "extra": "SocArXiv: 10.31235/osf.io/abcde"}]
+    result = _add(monkeypatch, library, {}, [{"doi": "10.31235/osf.io/abcde"}], dry_run=True)
+    assert result["would_create"] == []
+    assert result["skipped_existing"] == ["10.31235/osf.io/abcde"]

@@ -177,6 +177,8 @@ def add_by_doi(config: Config, entries: list[dict], source: str = "additions",
         todo.append({**e, "doi": doi})
     result: dict = {"created": {}, "skipped_existing": skipped, "versions": {},
                     "failed": {}, "unverified": {}}
+    if dry_run:
+        result["would_create"] = []
     if not todo:
         return result
 
