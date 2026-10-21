@@ -91,7 +91,8 @@ Zotero title beside the start of the PDF's first page, and the decision so
 far. Present one venue group at a time; the user decides by group or by
 paper, and may open samples (`open <file>`). Record each decision with
 `--accept` / `--reject` (the keys of the group; a short `--note` saying
-why). A rejected paper counts for later fetches as tried and missed, so the
+why). `--reject` also takes a PDF that passed the title check but should
+not go in (it is then left out of the attach). A rejected paper counts for later fetches as tried and missed, so the
 same wrong file is not fetched again unless `--retry`. Files are never
 deleted by these steps; deleting rejected files is the user's call.
 

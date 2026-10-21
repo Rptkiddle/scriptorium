@@ -84,6 +84,9 @@ VENUE_ROUTES = {
     " (ICWSM Workshops)": Route("script", "icwsm_workshops"),
     # The ALIFE proceedings are on direct.mit.edu only, which refuses scripts.
     "Conference on Artificial Life (ALIFE)": Route("blocked"),
+    # Every BBS DOI (target article and each commentary) serves the whole
+    # published bundle, 53-109 pages; papers are downloaded by hand instead.
+    "Behavioral and Brain Sciences": Route("browser"),
 }
 # A DOI prefix whose registrant serves the PDF wherever the paper is filed:
 # such a paper takes that publisher's route (AIES, under AAAI, holds AAAI's

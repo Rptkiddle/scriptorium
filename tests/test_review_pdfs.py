@@ -61,7 +61,7 @@ def test_decisions_shape_the_attach_queue(run):
 def test_a_decision_on_a_paper_not_held_is_refused(run):
     attach = _script("attach_pdfs")
     held = attach.held_pdfs(run, attach.read_jsonl(run / "fetch.jsonl"))
-    with pytest.raises(SystemExit, match="not held for review"):
+    with pytest.raises(SystemExit, match="no staged PDF"):
         attach.record_decisions(run, held, ["OK1"], "accept", "", "user")
     assert not (run / "review.jsonl").exists()
 
@@ -73,3 +73,11 @@ def test_a_rejected_pdf_counts_for_the_fetch_as_tried_and_missed(run):
     found = fetch.earlier_outcomes(run.parent)
     assert found["REJ"] == ("rejected in review", run.name)
     assert found["UND"] == ("staged", run.name)
+
+
+def test_a_rejected_pdf_that_passed_the_check_is_not_attached(run):
+    attach, fetch = _script("attach_pdfs"), _script("fetch_pdfs")
+    fetched = attach.read_jsonl(run / "fetch.jsonl")
+    attach.record_decisions(run, attach.staged_pdfs(run, fetched), ["OK1"], "reject", "a bundle", "user")
+    assert "OK1" not in [e["key"] for e, _ in attach.attach_queue(run, fetched, done={})]
+    assert fetch.earlier_outcomes(run.parent)["OK1"] == ("rejected in review", run.name)

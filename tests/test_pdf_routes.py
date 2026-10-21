@@ -337,3 +337,7 @@ def test_nature_family_articles_fall_back_to_nature_com(monkeypatch):
         assert pdf_routes.candidate_urls(None, SimpleNamespace(doi=doi), "crossref") == [
             f"https://www.nature.com/articles/{article}.pdf"]
     assert pdf_routes.candidate_urls(None, SimpleNamespace(doi="10.1057/palgrave.x.1"), "crossref") == []
+
+
+def test_behavioral_and_brain_sciences_is_downloaded_by_hand():
+    assert pdf_routes.VENUE_ROUTES["Behavioral and Brain Sciences"].group == "browser"

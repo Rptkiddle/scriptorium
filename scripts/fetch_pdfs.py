@@ -81,7 +81,7 @@ def earlier_outcomes(runs_dir: Path, current: Path | None = None) -> dict[str, t
         decisions = review_decisions(run)
         for key, e in read_log(log_path).items():
             outcome = e.get("outcome", "")
-            if outcome == "title_mismatch" and decisions.get(key, {}).get("decision") == "reject":
+            if outcome in KEEP and decisions.get(key, {}).get("decision") == "reject":
                 found[key] = ("rejected in review", run.name)
             elif outcome in KEEP:
                 folder = "pdfs" if outcome == "ok" else "pdfs-review"
