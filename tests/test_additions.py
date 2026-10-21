@@ -169,7 +169,7 @@ def test_created_keys_pair_with_the_right_dois(monkeypatch):
         {"DOI": d, "title": [d]} for d in ("10.1/a", "10.1/b", "10.1/c")]})
     monkeypatch.setattr(additions, "ZoteroWriter", _FakeWriter)
     monkeypatch.setattr(additions.time, "sleep", lambda s: None)
-    result = additions.add_by_doi(None, [{"doi": d} for d in ("10.1/a", "10.1/b", "10.1/c")])
+    result = additions.add_papers(None, [{"doi": d} for d in ("10.1/a", "10.1/b", "10.1/c")])
     assert result["created"]["10.1/a"]["key"] == "KEY_A"
     assert result["created"]["10.1/a"]["citation_key"] == "ckA"
     assert result["created"]["10.1/c"]["key"] == "KEY_C"

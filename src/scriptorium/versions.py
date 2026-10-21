@@ -4,7 +4,8 @@ A published paper is represented in the library by its published version
 only; the published item records the preprints it stands for as Extra lines
 ("SocArXiv: 10.31235/osf.io/abcde", "arXiv: 2603.13270"), which lookups
 read. These are pure functions over Zotero item data dicts, shared by every
-add path (additions.add_by_doi) and the library-wide check.
+add path (additions.add_papers) and the library-wide check
+(scripts/dedupe_versions.py), so the two apply the same rule.
 
 Two items are versions of one paper when Crossref links them (a preprint
 record's "is-preprint-of", a published record's "has-preprint") or, failing
@@ -120,3 +121,58 @@ def with_line(extra: str, ident: str, line: str) -> str:
     if not line or ident in own or ident in recorded:
         return extra or ""
     return f"{extra}\n{line}" if extra else line
+
+
+def rank(preprint: dict) -> int:
+    """Which of two preprints of one paper is kept (lowest first): one with a
+    preprint server's DOI (SocArXiv, OSF, APSA), then arXiv, then any other
+    (PhilSci-Archive)."""
+    own = own_identifiers(preprint)
+    if any(i.startswith("doi:") for i in own):
+        return 0
+    return 1 if any(i.startswith("arxiv:") for i in own) else 2
+
+
+def version_pairs(items: list[dict]) -> list[tuple[dict, dict, str]]:
+    """(keep, drop, how) for every pair of versions of one paper among
+    `items`: a preprint is dropped for its published version; of two
+    preprints, the lower-ranked one (then the later added) is dropped. Each
+    item is dropped at most once."""
+    index = VersionIndex(items)
+    pairs, dropped = [], set()
+    for item in items:
+        if not is_preprint(item) or item["key"] in dropped:
+            continue
+        match = index.other_version(item)
+        if match is None or match.item["key"] in dropped:
+            continue
+        other = match.item
+        if is_preprint(other):
+            keep, drop = sorted([item, other], key=lambda d: (
+                rank(d), d.get("dateAdded", ""), d["key"]))
+        else:
+            keep, drop = other, item
+        dropped.add(drop["key"])
+        pairs.append((keep, drop, match.how))
+    return pairs
+
+
+def pair_action(keep: dict, drop: dict, children: list[dict]) -> dict:
+    """What the library-wide check does with one pair: record the dropped
+    preprint's identifier in the kept item's Extra, then trash the dropped
+    item unless it has child items (attachments, notes). A dropped item
+    with no identifier to record is left alone and flagged. Folders are not
+    changed. Returns {"line", "extra" (the kept item's new Extra, or None
+    when unchanged), "trash" (bool), "action" (a sentence for the report)}."""
+    ident, line = record_line(drop)
+    if not ident:
+        return {"line": "", "extra": None, "trash": False,
+                "action": "flagged: nothing to record it by; left for you"}
+    extra = with_line(keep.get("extra", ""), ident, line)
+    changed = extra != (keep.get("extra") or "")
+    if children:
+        kinds = ", ".join(sorted({c.get("item_type", "") for c in children}))
+        return {"line": line, "extra": extra if changed else None, "trash": False,
+                "action": f"recorded; kept and flagged: it has {kinds} child items"}
+    return {"line": line, "extra": extra if changed else None, "trash": True,
+            "action": "recorded; trashed"}

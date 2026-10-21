@@ -273,14 +273,14 @@ def test_add_run_records_each_attempt_and_leaves_the_report_alone(tmp_path, monk
                 {"created": {"10.1/a": {"key": "K", "citation_key": "c"}},
                  "skipped_existing": [], "failed": {}}]
 
-    def fake_add_by_doi(config, entries, source=""):
+    def fake_add_papers(config, entries, source=""):
         assert source == "surveillance/2026-10-09-0200"
         outcome = outcomes.pop(0)
         if isinstance(outcome, Exception):
             raise outcome
         return outcome
 
-    monkeypatch.setattr(surveillance_cycle, "add_by_doi", fake_add_by_doi)
+    monkeypatch.setattr(surveillance_cycle, "add_papers", fake_add_papers)
     config = Config(index_dir=tmp_path)
     with pytest.raises(RuntimeError):
         surveillance_cycle.add_run(config, run_dir)
