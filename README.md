@@ -137,7 +137,7 @@ Scripts:
 
 ```sh
 uv run python scripts/surveil.py [--from YYYY-MM-DD]
-uv run python scripts/fetch_pdfs.py --plan | --pilot N | --publisher P
+uv run python scripts/fetch_pdfs.py --plan | --pilot N | --publisher P | --keys-from <run>/added.json [--retry]
 uv run python scripts/attach_pdfs.py --run <fetch run folder>
 uv run python scripts/ingest_add.py --entries <entries.json> [--dry-run]
 uv run python scripts/dedupe_versions.py [--apply <run folder>]

@@ -5,7 +5,7 @@ Zotero (<category> > <publisher> > [✓] <venue>). Each host has a route
 group and a resolver that turns a paper into candidate PDF URLs, in order
 of preference. Groups:
 
-  script    fetched by script from the VU network
+  script    fetched by script (from a network with the institution's subscriptions)
   account   fetched by script once an account or key exists (not yet)
   blocked   the host refuses scripts; left to a publisher request
   browser   downloaded by hand
@@ -17,7 +17,6 @@ honestly and are paced per web host; a host that blocks is never worked
 around.
 """
 
-import ipaddress
 import re
 import time
 import unicodedata
@@ -29,7 +28,6 @@ import requests
 from scriptorium.apis import CROSSREF, MAILTO, OPENALEX, request_json
 
 USER_AGENT = f"scriptorium/0.1 (VU Amsterdam research library tool; mailto:{MAILTO})"
-VU_NETWORK = ipaddress.ip_network("145.108.0.0/16")  # VU-NET (RIPE whois)
 PMC_BUCKET = "https://pmc-oa-opendata.s3.amazonaws.com"
 CATEGORY_KEYS = {"2AJ6WQZ6": "Journals", "GZ4CVXPR": "Proceedings", "3ISRFHE2": "Preprints"}
 SUBSCRIBED = "[✓] "
@@ -85,6 +83,10 @@ VENUE_ROUTES = {
     # The ALIFE proceedings are on direct.mit.edu only, which refuses scripts.
     "Conference on Artificial Life (ALIFE)": Route("blocked"),
 }
+# A DOI prefix whose registrant serves the PDF wherever the paper is filed:
+# such a paper takes that publisher's route (AIES, under AAAI, holds AAAI's
+# own DOIs and ACM's 10.1145 ones).
+PREFIX_ROUTES = {"10.1145": "ACM"}
 # Resolvers that work from an item's URL, so items without a DOI can be fetched.
 URL_RESOLVERS = {"acl", "neurips", "pmlr"}
 
@@ -107,10 +109,14 @@ def host_tree(collections: list[dict]) -> dict:
 
 def route_of(record, tree: dict) -> tuple[str, str, Route]:
     """(publisher, venue, route) for a paper; the route group is
-    "unrouted" when its venue or publisher has no entry."""
+    "unrouted" when its venue or publisher has no entry. A DOI whose prefix
+    is in PREFIX_ROUTES takes that publisher's route, reported as
+    "<publisher> (by DOI prefix)"."""
     for key in record.collections:
         if key in tree:
             publisher, venue = tree[key]
+            if (owner := PREFIX_ROUTES.get(record.doi.split("/")[0])) and owner != publisher:
+                return f"{owner} (by DOI prefix)", venue, ROUTES[owner]
             route = VENUE_ROUTES.get(venue) or ROUTES.get(publisher) or Route("unrouted")
             return publisher, venue, route
     return "", "", Route("unrouted")
@@ -291,7 +297,7 @@ BLOCK_MARKERS = (b"Just a moment...", b"Access Denied", b"Attention Required", b
 
 def classify(status: int, body: bytes) -> str:
     """One response's outcome: pdf; blocked (a bot check, or 429/503);
-    forbidden (a plain 401/403, often content VU does not subscribe to);
+    forbidden (a plain 401/403, often content the network has no subscription to);
     html; not_found; or http_<n>."""
     if status == 200 and body[:5] == b"%PDF-":
         return "pdf"
@@ -371,9 +377,3 @@ def interleave(groups: dict[str, list]) -> list:
                 out.append(q.pop(0))
     return out
 
-
-def on_vu_network(ip: str) -> bool:
-    try:
-        return ipaddress.ip_address(ip) in VU_NETWORK
-    except ValueError:
-        return False

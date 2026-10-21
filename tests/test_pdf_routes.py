@@ -2,6 +2,7 @@
 check, pacing, and the fetch loop's choices. No network."""
 
 import importlib.util
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -17,7 +18,6 @@ from scriptorium.pdf_routes import (
     host_tree,
     interleave,
     ojs_galley_urls,
-    on_vu_network,
     plos_url,
     route_of,
     title_on_first_pages,
@@ -68,6 +68,13 @@ def test_route_of_uses_venue_overrides_and_flags_unknown_publishers():
     assert route_of(rec(["VENTCS"]), tree)[2].group == "account"
     assert route_of(rec(["VENNEW"]), tree)[2].group == "unrouted"
     assert route_of(rec([]), tree)[0] == ""
+
+
+def test_an_acm_doi_takes_acms_route_wherever_it_is_filed():
+    tree = host_tree(COLLS)
+    publisher, _, route = route_of(rec(["VENSPR"], doi="10.1145/3600211.3604700"), tree)
+    assert (publisher, route.group) == ("ACM (by DOI prefix)", "blocked")
+    assert route_of(rec(["VENSPR"], doi="10.1609/aies.v7i1.31600"), tree)[0] == "Springer Nature"
 
 
 def test_crossref_links_rank_text_mining_first_and_drop_html():
@@ -211,11 +218,6 @@ def test_interleave_alternates_hosts():
     assert interleave({"a": ["x", "y"], "b": [1, 2]}) == ["x", 1, "y", 2]
 
 
-def test_vu_network_check():
-    assert on_vu_network("145.108.88.62")
-    assert not on_vu_network("84.1.2.3") and not on_vu_network("not an ip")
-
-
 def _script(name):
     path = Path(__file__).resolve().parents[1] / "scripts" / f"{name}.py"
     spec = importlib.util.spec_from_file_location(name, path)
@@ -233,7 +235,7 @@ def test_select_targets_leaves_out_what_the_run_must_not_touch():
                rec(["VENSPR"], item_key="D", doi=""),
                rec(["VENTCS"], item_key="E"),
                rec(["VENSPR"], item_key="F", pdf_status="linked_missing")]
-    targets, left_out = fetch_pdfs.select_targets(records, tree)
+    targets, _, left_out, _ = fetch_pdfs.select_targets(records, tree)
     assert [r.item_key for r, _, _ in targets["Springer Nature"]] == ["A"]
     assert left_out == {"has a PDF attachment": 1, "own-work": 1, "no DOI: Springer Nature": 1,
                         "group account: IEEE": 1, "attachment file missing (linked_missing)": 1}
@@ -270,18 +272,58 @@ def test_proceedings_resolvers_build_pdf_addresses():
         "https://www.ifaamas.org/Proceedings/aamas2020/pdfs/p1706.pdf")
 
 
-def test_select_targets_leaves_out_preprints_and_staged_and_admits_url_items():
+def test_select_targets_tiers_untried_and_missed_papers():
     fetch_pdfs = _script("fetch_pdfs")
     tree = host_tree(COLLS)
     records = [rec(["VENSPR"], item_key="P", item_type="preprint"),
                rec(["VENSPR"], item_key="S"),
+               rec(["VENSPR"], item_key="M"),
+               rec(["VENSPR"], item_key="A", pdf_status="ok"),
                rec(["VENNIP"], item_key="U", doi=""),
                rec(["VENNIP"], item_key="N", doi="")]
-    targets, left_out = fetch_pdfs.select_targets(
-        records, tree, urls={"U": "https://proceedings.neurips.cc/x"}, staged={"S"})
+    tried = {"S": ("staged", "2026-10-15-1"), "M": ("html", "2026-10-15-1"),
+             "A": ("staged", "2026-10-15-1")}
+    targets, retries, left_out, reasons = fetch_pdfs.select_targets(
+        records, tree, urls={"U": "https://proceedings.neurips.cc/x"}, tried=tried)
     assert [r.item_key for r, _, _ in targets["NeurIPS Foundation"]] == ["U"]
+    assert [r.item_key for r, _, _ in retries["Springer Nature"]] == ["M"]
     assert left_out == {"preprint (preprint PDFs are not fetched)": 1, "PDF staged in an earlier run": 1,
-                        "no DOI: NeurIPS Foundation": 1}
+                        "has a PDF attachment": 1, "no DOI: NeurIPS Foundation": 1}
+    assert reasons["U"] == "to fetch"
+    assert reasons["M"] == "tried before: html (run 2026-10-15-1); held back, use --retry"
+    _, _, _, reasons = fetch_pdfs.select_targets(records, tree, tried=tried, retry=True)
+    assert reasons["M"].endswith("retried in this run")
+
+
+def test_earlier_outcomes_reads_every_other_run(tmp_path):
+    fetch_pdfs = _script("fetch_pdfs")
+
+    def run(name, entries, files=()):
+        d = tmp_path / name
+        (d / "pdfs").mkdir(parents=True)
+        (d / "pdfs-review").mkdir()
+        for f in files:
+            (d / f).write_bytes(b"%PDF-")
+        (d / "fetch.jsonl").write_text("".join(
+            json.dumps({"key": k, "outcome": o}) + "\n" for k, o in entries))
+        return d
+
+    run("2026-10-15-1", [("A", "ok"), ("B", "ok"), ("C", "no_url"), ("D", "title_mismatch")],
+        files=["pdfs/A.pdf", "pdfs-review/D.pdf"])
+    run("2026-10-16-1", [("C", "host_stopped"), ("E", "html")])
+    current = run("2026-10-17-1", [("F", "blocked")])
+    found = fetch_pdfs.earlier_outcomes(tmp_path, current)
+    # B's staged file was deleted; C's later host_stopped never requested it.
+    assert found == {"A": ("staged", "2026-10-15-1"), "C": ("no_url", "2026-10-15-1"),
+                     "D": ("staged", "2026-10-15-1"), "E": ("html", "2026-10-16-1")}
+
+
+def test_named_keys_take_an_added_json(tmp_path):
+    fetch_pdfs = _script("fetch_pdfs")
+    added = tmp_path / "added.json"
+    added.write_text(json.dumps({"created": {"10.1/a": {"key": "K2", "citation_key": "x"},
+                                             "arxiv:1": {"key": "K3", "citation_key": "y"}}}))
+    assert fetch_pdfs.named_keys(["K1", "K2"], str(added)) == ["K1", "K2", "K3"]
 
 
 def test_ijcai_keeps_its_crawl_delay():

@@ -1,6 +1,6 @@
 ---
 name: retrieve
-description: Obtain PDFs for library items that lack one - download the version of record from each publisher's own site (a route per publisher, from the VU network), stage the files in a retrieval run, and attach them to Zotero only when the user says so. No preprint PDFs. Invoke on explicit request (/scriptorium:retrieve (or /retrieve), "get the missing PDFs") or when another spoke reports PDF-less additions and the user asks to fill them.
+description: Obtain PDFs for library items that lack one - download the version of record from each publisher's own site (a route per publisher, from a network with the institution's subscriptions), stage the files in a retrieval run, and attach them to Zotero only when the user says so. No preprint PDFs. Invoke on explicit request (/scriptorium:retrieve (or /retrieve), "get the missing PDFs") or when another spoke reports PDF-less additions and the user asks to fill them.
 ---
 
 # retrieve
@@ -9,8 +9,8 @@ Fill in missing PDFs for existing library items in two separate steps:
 **fetch** downloads and checks files, **attach** puts them into Zotero.
 Fetching never writes to Zotero; attaching happens only on the user's
 explicit go, usually for a whole staged run at once. Both steps read the
-library live, so the Zotero app must be running; fetch also needs the VU
-network, and attach also needs the daemon (with the Bridge plugin loaded in
+library live, so the Zotero app must be running; fetch should run from a
+network with the institution's subscriptions (campus or its VPN), and attach also needs the daemon (with the Bridge plugin loaded in
 Zotero).
 
 ## Rules
@@ -22,35 +22,50 @@ Zotero).
   contact address, never as a browser. When a publisher blocks automated
   access, the block is reported, and the answer is to ask the publisher,
   never to work round it. No bot-evasion tools.
-- **VU network.** `fetch_pdfs.py` refuses to start off the VU network
-  (on campus or the VU VPN); the university's subscriptions depend on it.
+- **Subscribed network.** Run fetch on campus or the institution's VPN:
+  elsewhere, closed content comes back as a web page or a refusal. Such
+  misses are not final (see Fetch).
 - **Download first, attach later.** Never attach as you go.
 
 ## 1 — Plan
 
 ```
-uv run python scripts/fetch_pdfs.py --plan
+uv run python scripts/fetch_pdfs.py --plan [--keys KEY ... | --keys-from <run>/added.json]
 ```
 
-Counts the targets per publisher folder: regular items other than
-preprints, with no PDF and no `own-work` tag, whose publisher folder has a
-route in `scriptorium.pdf_routes` and which have a DOI (or, on routes that
-read the item's URL, a URL). Publishers without a route are listed as
-unrouted; adding a route is a code change. Present the counts and agree
-the scope with the user before fetching.
+Counts the targets: regular items other than preprints, with no PDF and no
+`own-work` tag, whose publisher folder has a route in
+`scriptorium.pdf_routes` and which have a DOI (or, on routes that read the
+item's URL, a URL). Fetch reads every earlier run and sorts the targets
+into two tiers:
+
+- **never tried**, counted per publisher: fetched by default;
+- **tried before and missed** (no URL, not found, a web page, a block),
+  counted per outcome with the date of the last try: fetched only with
+  `--retry`, after the never-tried ones. No miss is final; whether a
+  retry is worth it is the user's call.
+
+A PDF an earlier run still holds (staged or in review) is left out, as are
+publishers without a route (adding one is a code change). Present the
+counts and agree the scope with the user before fetching.
+
+**After an ingest** (or a nightly add): `--keys-from <run>/added.json`
+limits the plan and the fetch to the papers that run created, and reports
+what happens to each (`--keys` names items directly). Named papers follow
+the same tiers.
 
 ## 2 — Fetch
 
 ```
 uv run python scripts/fetch_pdfs.py [--pilot N] [--publisher NAME ...]
-    [--limit N] [--skip-staged <run folder> ...] [--run <run folder>]
+    [--limit N] [--retry] [--keys KEY ... | --keys-from <run>/added.json]
+    [--run <run folder>]
 ```
 
 Start a new publisher or route with `--pilot N` (about N items spread over
 the publishers) and look at the result before a full run. `--publisher`
 limits the run to named publisher folders (exact Zotero folder names).
-`--skip-staged` leaves out items whose PDF an earlier, not yet attached run
-already holds; pass every such run. `--run` resumes a run, skipping items
+`--retry` adds the tried-and-missed tier. `--run` resumes a run, skipping items
 already fetched. Long runs are launched detached (`nohup ... &`) so they
 survive the session; anything that keeps the Mac awake (`caffeinate`) needs
 the user's consent first.
