@@ -341,3 +341,48 @@ def test_nature_family_articles_fall_back_to_nature_com(monkeypatch):
 
 def test_behavioral_and_brain_sciences_is_downloaded_by_hand():
     assert pdf_routes.VENUE_ROUTES["Behavioral and Brain Sciences"].group == "browser"
+
+
+def test_ojs_pages_keep_only_their_own_articles_galleys():
+    html = ('<a href="https://ijoc.org/index.php/ijoc/article/view/20420/4419">PDF</a>'
+            '<a href="https://ijoc.org/index.php/ijoc/article/view/28982/5564">Another article</a>')
+    assert ojs_galley_urls(html, "https://ijoc.org/index.php/ijoc/article/view/20420") == [
+        "https://ijoc.org/index.php/ijoc/article/download/20420/4419"]
+
+
+class FakePage:
+    def __init__(self, url, text):
+        self.url, self.text, self.ok = url, text, True
+
+
+class OjsSession:
+    def __init__(self):
+        self.asked = []
+
+    def get(self, url, timeout=None):
+        self.asked.append(url)
+        page = "https://ijoc.org/index.php/ijoc/article/view/20420"
+        return FakePage(page, '<a href="/index.php/ijoc/article/view/20420/4419">PDF</a>')
+
+
+def test_the_ojs_route_reads_the_items_own_page_when_it_has_no_doi():
+    session = OjsSession()
+    item_page = "https://ijoc.org/index.php/ijoc/article/view/20420"
+    assert pdf_routes.candidate_urls(session, SimpleNamespace(doi=""), "ojs_page", item_page) == [
+        "https://ijoc.org/index.php/ijoc/article/download/20420/4419"]
+    assert session.asked == [item_page]
+    pdf_routes.candidate_urls(session, SimpleNamespace(doi="10.1/x"), "ojs_page", item_page)
+    assert session.asked[-1] == "https://doi.org/10.1/x"
+    assert pdf_routes.candidate_urls(OjsSession(), SimpleNamespace(doi=""), "ojs_page", "") == []
+
+
+def test_internet_policy_review_pdf_address_and_hdsr_block(monkeypatch):
+    assert pdf_routes.policyreview_urls("10.14763/2024.2.1754") == [
+        "https://policyreview.info/pdf/policyreview-2024-2-1754.pdf"]
+    monkeypatch.setattr(pdf_routes, "request_json", lambda *a, **k: {"message": {"link": [
+        {"URL": "https://www.article19.org/report.pdf", "content-type": "application/pdf", "intended-application": "text-mining"},
+        {"URL": "https://policyreview.info/articles/x.pdf", "content-type": "application/pdf", "intended-application": "text-mining"}]}})
+    assert pdf_routes.candidate_urls(None, SimpleNamespace(doi="10.14763/2024.2.1754"), "policyreview") == [
+        "https://policyreview.info/pdf/policyreview-2024-2-1754.pdf",
+        "https://policyreview.info/articles/x.pdf"]
+    assert pdf_routes.VENUE_ROUTES["Harvard Data Science Review"].group == "blocked"

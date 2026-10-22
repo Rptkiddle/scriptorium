@@ -55,7 +55,7 @@ SCRIPT = {
     "DIGSUM (Umeå University)": "crossref", "AI Access Foundation": "crossref",
     "Society for Sociological Science": "crossref", "The Open Journal": "crossref",
     "University of Westminster Press": "crossref", "De Gruyter": "crossref",
-    "USC Annenberg Press": "crossref", "Frontiers": "frontiers",
+    "USC Annenberg Press": "ojs_page", "Frontiers": "frontiers",
     "UK Zhende Publishing": "crossref", "Cogitatio": "ojs_page",
     "National Academy of Sciences": "pmc",
     # Proceedings hosts.
@@ -87,13 +87,17 @@ VENUE_ROUTES = {
     # Every BBS DOI (target article and each commentary) serves the whole
     # published bundle, 53-109 pages; papers are downloaded by hand instead.
     "Behavioral and Brain Sciences": Route("browser"),
+    # HDSR (hdsr.mitpress.mit.edu) answers scripts with a Cloudflare check.
+    "Harvard Data Science Review": Route("blocked"),
+    # Venue-specific: a PDF address built from the DOI (see policyreview_urls).
+    "Internet Policy Review": Route("script", "policyreview"),
 }
 # A DOI prefix whose registrant serves the PDF wherever the paper is filed:
 # such a paper takes that publisher's route (AIES, under AAAI, holds AAAI's
 # own DOIs and ACM's 10.1145 ones).
 PREFIX_ROUTES = {"10.1145": "ACM"}
 # Resolvers that work from an item's URL, so items without a DOI can be fetched.
-URL_RESOLVERS = {"acl", "neurips", "pmlr"}
+URL_RESOLVERS = {"acl", "neurips", "ojs_page", "pmlr"}
 
 PLOS_JOURNALS = {"pone": "plosone", "pcsy": "complexsystems", "pcbi": "ploscompbiol",
                  "pbio": "plosbiology", "pmed": "plosmedicine", "pgen": "plosgenetics"}
@@ -166,14 +170,26 @@ def pmc_pdf_url(session: requests.Session, pmcid: str) -> str | None:
 
 
 def ojs_galley_urls(html: str, base_url: str) -> list[str]:
-    """Candidate PDF downloads on an OJS article page: every galley link
+    """Candidate PDF downloads on an OJS article page: the galley links
     (article/view/<id>/<galley> or article/download/<id>/<galley>) turned
-    into its download form."""
+    into their download form. When the page's own address names its article
+    (article/view/<id>), only that article's galleys are kept: OJS pages
+    also link other articles' files."""
     root = "{0.scheme}://{0.netloc}".format(urlsplit(base_url))
-    found = re.findall(r'href="([^"]*/article/(?:view|download)/\d+/\d+)"', html)
+    page = re.search(r"/article/view/(\d+)", base_url)
+    found = re.findall(r'href="([^"]*/article/(?:view|download)/(\d+)/\d+)"', html)
     urls = [(u if u.startswith("http") else root + u).replace("/article/view/", "/article/download/")
-            for u in found]
+            for u, article in found if page is None or article == page.group(1)]
     return list(dict.fromkeys(urls))
+
+
+def policyreview_urls(doi: str) -> list[str]:
+    """Internet Policy Review: DOI 10.14763/<year>.<issue>.<id> names the PDF
+    policyreview.info/pdf/policyreview-<year>-<issue>-<id>.pdf (every PDF
+    fetched from the site on 2026-10-15 had this address). Venue-specific;
+    the fallback is the journal's own links in Crossref only."""
+    m = re.match(r"10\.14763/(\d{4})\.(\d+)\.(\d+)$", doi)
+    return [f"https://policyreview.info/pdf/policyreview-{m[1]}-{m[2]}-{m[3]}.pdf"] if m else []
 
 
 def acl_url(doi: str, url: str) -> str | None:
@@ -255,8 +271,17 @@ def candidate_urls(session: requests.Session, record, resolver: str, url: str = 
                 return [url] if url else []
         return []
     if resolver == "ojs_page":
-        resp = session.get(f"https://doi.org/{doi}", timeout=60)
+        # The article page: the DOI's landing page, or the item's own address.
+        page = f"https://doi.org/{doi}" if doi else url
+        if not page:
+            return []
+        resp = session.get(page, timeout=60)
         return ojs_galley_urls(resp.text, resp.url) if resp.ok else []
+    if resolver == "policyreview":
+        message = request_json(session, "GET", f"{CROSSREF}/works/{doi}",
+                               params={"mailto": MAILTO}, not_found={}).get("message", {})
+        own = [u for u in crossref_pdf_links(message) if urlsplit(u).netloc.endswith("policyreview.info")]
+        return list(dict.fromkeys(policyreview_urls(doi) + own))
     urls = []
     if resolver == "openalex":
         urls += [loc["pdf_url"] for loc in openalex_locations(session, doi)
