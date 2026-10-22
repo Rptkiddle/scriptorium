@@ -139,23 +139,37 @@ class Daemon:
             try:
                 general = load_settings(self.cfg)["general"]
                 self.sync_wanted.wait(general["auto_sync_interval"])
-                self.sync_wanted.clear()
-                if not general["auto_sync"] or self.write_lock.locked():
-                    continue
-                try:
-                    version = self.reader.library_version()
-                except ZoteroUnavailableError:
-                    continue
-                # != rather than >: a lower Zotero version means its numbering
-                # was reset (Zotero 10 local versions), which also needs a sync.
-                # So does a catalogue built under older version stamps.
-                behind = (version != self.hub.state.library_version
-                          or catalogue_outdated(self.hub.state))
-                paused = self.sync_paused_at is not None and version == self.sync_paused_at
-                if behind and not paused:
-                    self.run_sync()
+                if not self.watch_step(general):
+                    time.sleep(5)
             except Exception:  # noqa: BLE001 — the watcher must never die
                 time.sleep(60)
+
+    def watch_step(self, general: dict) -> bool:
+        """After a wait: False while a sync or ingest holds the write lock (any
+        pending wake-up is kept, so a write made meanwhile is picked up as soon
+        as the lock is free); otherwise one check_and_sync pass, True."""
+        if self.write_lock.locked():
+            return False
+        self.check_and_sync(general)
+        return True
+
+    def check_and_sync(self, general: dict) -> None:
+        """One watcher pass: sync if the index is behind Zotero."""
+        self.sync_wanted.clear()
+        if not general["auto_sync"]:
+            return
+        try:
+            version = self.reader.library_version()
+        except ZoteroUnavailableError:
+            return
+        # != rather than >: a lower Zotero version means its numbering
+        # was reset (Zotero 10 local versions), which also needs a sync.
+        # So does a catalogue built under older version stamps.
+        behind = (version != self.hub.state.library_version
+                  or catalogue_outdated(self.hub.state))
+        paused = self.sync_paused_at is not None and version == self.sync_paused_at
+        if behind and not paused:
+            self.run_sync()
 
 
 _current: Daemon | None = None

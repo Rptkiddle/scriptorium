@@ -149,3 +149,20 @@ def test_a_hub_write_wakes_the_index_sync(tmp_path, monkeypatch):
                                        on_write=lambda: calls.append("woken"))
     writer._call("tag edit", lambda: {"updated": {}})
     assert calls == ["woken"]
+
+
+
+def test_a_wake_up_during_a_running_sync_is_kept_until_it_ends(monkeypatch):
+    synced = []
+    d = SimpleNamespace(sync_wanted=threading.Event(), write_lock=threading.Lock(),
+                        reader=SimpleNamespace(library_version=lambda: 2),
+                        hub=SimpleNamespace(state=SimpleNamespace(library_version=1)),
+                        sync_paused_at=None, run_sync=lambda: synced.append(1))
+    d.check_and_sync = lambda general: daemon.Daemon.check_and_sync(d, general)
+    d.sync_wanted.set()
+    with d.write_lock:
+        assert daemon.Daemon.watch_step(d, {"auto_sync": True}) is False
+    assert d.sync_wanted.is_set() and synced == []
+    monkeypatch.setattr(daemon, "catalogue_outdated", lambda state: False)
+    assert daemon.Daemon.watch_step(d, {"auto_sync": True}) is True
+    assert not d.sync_wanted.is_set() and synced == [1]
