@@ -199,7 +199,10 @@ def hub_lookup(identifiers: list[str]) -> list[dict]:
     (the input is a preprint whose published version is this item, recorded
     in its Extra field), or "title". An unmatched title also lists the
     closest items by topic search as "candidates", which are not matches.
-    For topical searches use hub_search_items."""
+    For topical searches use hub_search_items.
+    It reads the hub's index, which shows a change made with the write
+    tools about half a minute after the write (the write's own result is
+    the confirmation)."""
     d = current()
     return d.search.lookup(identifiers)
 
@@ -212,7 +215,10 @@ def hub_item(key: str) -> dict:
     publisher and venue folders, date added, DOI, identifiers incl.
     recorded preprints) plus, when the Zotero app is running, live children
     (attachments with resolved local file paths, notes, annotations). To find
-    an item by DOI, arXiv ID or title, use hub_lookup."""
+    an item by DOI, arXiv ID or title, use hub_lookup.
+    It reads the hub's index, which shows a change made with the write
+    tools about half a minute after the write (the write's own result is
+    the confirmation)."""
     d = current()
     payload = d.hub.catalogue_lookup(key)
     if payload is None:
@@ -273,7 +279,9 @@ def hub_item_create(items: list[dict], collection_key: str = "", run: str = "") 
     lookups. Writes land in the local library instantly via the bridge
     plugin (which requires Zotero running). Returns created item keys and
     their citation keys. `run` (e.g. "ingestion/2026-10-09-1500") names the
-    calling run in the write log."""
+    calling run in the write log.
+    The result confirms the write: hub_item, hub_lookup and the searches
+    read the hub's index, which shows the change about half a minute later."""
     d = current()
     return d.writer.create_items(items, collection_key=collection_key, source=run or None)
 
@@ -287,7 +295,9 @@ def hub_item_update(item_key: str, patch: dict, run: str = "") -> dict:
     child items: add one with hub_note_create, edit one by patching the
     note's own key with {"note": "<html>"}. Applied directly in the local
     library via the bridge plugin. `run` names the calling run in the write
-    log."""
+    log.
+    The result confirms the write: hub_item, hub_lookup and the searches
+    read the hub's index, which shows the change about half a minute later."""
     if "itemType" in patch:
         raise ToolError("hub_item_update does not change itemType: use hub_item_type,"
                         " which keeps fields the new type lacks in Extra.")
@@ -308,7 +318,9 @@ def hub_item_tags(item_keys: list[str], add: list[str] | None = None,
     keys). Each item's other tags stay as they are; adding a tag an item
     already has, or removing one it lacks, changes nothing. Returns
     {"updated": {item key: its tags afterwards}, "failed": {item key: error}}.
-    Existing tags: hub_tags. `run` names the calling run in the write log."""
+    Existing tags: hub_tags. `run` names the calling run in the write log.
+    The result confirms the write: hub_item, hub_lookup and the searches
+    read the hub's index, which shows the change about half a minute later."""
     d = current()
     return d.writer.edit_tags(item_keys, add or [], remove or [], source=run or None)
 
@@ -322,7 +334,9 @@ def hub_item_collections(item_keys: list[str], add: list[str] | None = None,
     changed. An unknown collection key is an error and changes nothing.
     Returns {"updated": {item key: its collection keys afterwards},
     "failed": {item key: error}}. `run` names the calling run in the write
-    log."""
+    log.
+    The result confirms the write: hub_item, hub_lookup and the searches
+    read the hub's index, which shows the change about half a minute later."""
     d = current()
     return d.writer.edit_collections(item_keys, add or [], remove or [], source=run or None)
 
@@ -341,7 +355,9 @@ def hub_item_type(item_keys: list[str], item_type: str, dry_run: bool = False,
     without changing anything. Returns {"updated": {item key:
     {"itemType": its type afterwards (unchanged in a dry run),
     "movedToExtra": {field: value}}}, "failed": {item key: error},
-    "dryRun"}. `run` names the calling run in the write log."""
+    "dryRun"}. `run` names the calling run in the write log.
+    The result confirms the write: hub_item, hub_lookup and the searches
+    read the hub's index, which shows the change about half a minute later."""
     d = current()
     return d.writer.change_type(item_keys, item_type, dry_run=dry_run, source=run or None)
 
@@ -372,7 +388,9 @@ def hub_trash(limit: int = 60, offset: int = 0, contains: str = "") -> dict:
 def hub_item_restore(item_keys: list[str], run: str = "") -> dict:
     """Take one or more items out of Zotero's trash (keys from hub_trash).
     Returns {"restored": [item keys], "failed": {item key: error}}. `run`
-    names the calling run in the write log."""
+    names the calling run in the write log.
+    The result confirms the write: hub_item, hub_lookup and the searches
+    read the hub's index, which shows the change about half a minute later."""
     d = current()
     return d.writer.restore_items(item_keys, source=run or None)
 
@@ -420,10 +438,12 @@ def hub_bibtex(keys: list[str], format: str = "", abstracts: bool = False) -> di
 @mcp.tool()
 def hub_note_create(parent_key: str, note: str, run: str = "") -> dict:
     """Add a note to an item (by item key). `note` is plain text (blank
-    lines separate paragraphs; stored as HTML paragraphs) or HTML. Returns the new note's key. List an
-    item's notes with hub_children; edit one with hub_item_update on the
+    lines separate paragraphs; stored as HTML paragraphs) or HTML. Returns
+    the new note's key. List an item's notes with hub_children; edit one with hub_item_update on the
     note's key ({"note": "<html>"}); remove one with hub_item_delete. `run`
-    names the calling run in the write log."""
+    names the calling run in the write log.
+    The result confirms the write: hub_item, hub_lookup and the searches
+    read the hub's index, which shows the change about half a minute later."""
     d = current()
     return d.writer.create_note(parent_key, note, source=run or None)
 
@@ -432,7 +452,9 @@ def hub_note_create(parent_key: str, note: str, run: str = "") -> dict:
 def hub_item_delete(item_key: str, run: str = "") -> dict:
     """Move an item to trash — works for any item type, including child
     notes, annotations, and attachments (keys via hub_children). `run` names
-    the calling run in the write log."""
+    the calling run in the write log.
+    The result confirms the write: hub_item, hub_lookup and the searches
+    read the hub's index, which shows the change about half a minute later."""
     d = current()
     return d.writer.delete_item(item_key, source=run or None)
 
