@@ -6,6 +6,7 @@ the message. The one exception is hub_attachment_link: once the file is
 attached, an indexing failure is reported inside its result, so a caller
 never retries and attaches twice."""
 
+import html
 import inspect
 
 from fastmcp import FastMCP
@@ -240,14 +241,20 @@ def hub_children(item_key: str) -> list[dict]:
 
 
 @mcp.tool()
-def hub_collections(collection_key: str = "") -> list[dict]:
+def hub_collections(collection_key: str = "", contains: str = "") -> list[dict]:
     """Without arguments: the full collection tree (key, name, parent key,
-    direct item count). With a collection key: that collection's items.
-    Requires the Zotero app to be running."""
+    direct item count; several hundred folders). contains: only the folders
+    whose name contains this text (case-insensitive), e.g. to find one
+    folder's key. With a collection key: that collection's items. Requires
+    the Zotero app to be running."""
     d = current()
     if collection_key:
         return d.reader.collection_items(collection_key)
-    return d.reader.collections()
+    folders = d.reader.collections()
+    if contains:
+        want = contains.casefold()
+        folders = [f for f in folders if want in html.unescape(f.get("name", "")).casefold()]
+    return folders
 
 
 @mcp.tool()
@@ -340,10 +347,11 @@ def hub_item_type(item_keys: list[str], item_type: str, dry_run: bool = False,
 
 
 @mcp.tool()
-def hub_trash(limit: int = 60, offset: int = 0) -> dict:
+def hub_trash(limit: int = 60, offset: int = 0, contains: str = "") -> dict:
     """List what is in Zotero's trash, most recently trashed first: key,
     item type, title (a note's opening text), parent key for child items,
-    date modified. Returns
+    date modified. contains: only entries whose title contains this text
+    (case-insensitive), e.g. to find one deleted paper. Returns
     {"total", "offset", "next_offset", "items"}; while "next_offset" is not
     null, call again with offset=next_offset. Restore items with
     hub_item_restore. Emptying the trash deletes permanently and is left to
@@ -351,6 +359,9 @@ def hub_trash(limit: int = 60, offset: int = 0) -> dict:
     if not 1 <= limit <= LIST_LIMIT_MAX:
         raise ToolError(f"limit must be 1-{LIST_LIMIT_MAX}")
     items = current().reader.trash()
+    if contains:
+        want = contains.casefold()
+        items = [i for i in items if want in (i.get("title") or "").casefold()]
     page = items[offset:offset + limit]
     more = offset + len(page) < len(items)
     return {"total": len(items), "offset": offset,
@@ -376,7 +387,8 @@ def hub_bibtex(keys: list[str], format: str = "", abstracts: bool = False) -> di
     abstracts). Entries come from Zotero's own exporter, keyed by citation
     key. Removed from every entry: the local PDF path (file), the library
     tags (keywords) and, unless abstracts=True, the abstract. format:
-    "biblatex" or "bibtex"; empty = the default on the settings page.
+    "biblatex" or "bibtex"; empty = the default on the settings page
+    (biblatex unless changed there).
     Returns {"format", "entries", "bibtex", "missing"}: "missing" lists keys
     not in the library. Write the text to the .bib file yourself."""
     d = current()
@@ -408,7 +420,7 @@ def hub_bibtex(keys: list[str], format: str = "", abstracts: bool = False) -> di
 @mcp.tool()
 def hub_note_create(parent_key: str, note: str, run: str = "") -> dict:
     """Add a note to an item (by item key). `note` is plain text (blank
-    lines separate paragraphs) or HTML. Returns the new note's key. List an
+    lines separate paragraphs; stored as HTML paragraphs) or HTML. Returns the new note's key. List an
     item's notes with hub_children; edit one with hub_item_update on the
     note's key ({"note": "<html>"}); remove one with hub_item_delete. `run`
     names the calling run in the write log."""

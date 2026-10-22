@@ -125,9 +125,12 @@ class ZoteroWriter:
     each method can override it per call."""
 
     def __init__(self, config: Config, source: str = "daemon",
-                 reader: ZoteroReader | None = None):
+                 reader: ZoteroReader | None = None, on_write=None):
         self.config = config
         self.source = source
+        # Called after every write that reached Zotero (the daemon uses it to
+        # bring its index up to date at once).
+        self._on_write = on_write
         self._bridge = ZoteroBridge()
         # Reads (citation keys, before-states) go through a ZoteroReader and
         # its lock; the daemon passes its own so one locked client serves
@@ -175,6 +178,8 @@ class ZoteroWriter:
             self._log({**entry, "error": f"{type(exc).__name__}: {exc}"})
             raise ZoteroWriteError(f"{operation} failed: {exc}") from exc
         self._log({**entry, "response": result})
+        if self._on_write is not None:
+            self._on_write()
         return result
 
     def create_items(self, items: list[dict], collection_key: str = "",

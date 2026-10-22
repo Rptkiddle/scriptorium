@@ -40,7 +40,11 @@ class Daemon:
             client_lock=self.client_lock,
         )
         self.reader = ZoteroReader(cfg)
-        self.writer = ZoteroWriter(cfg, reader=self.reader)
+        # A write through the hub wakes the auto-sync watcher, so the index
+        # (which hub_item, hub_lookup and the searches read) catches up at once
+        # instead of at the next timed check.
+        self.sync_wanted = threading.Event()
+        self.writer = ZoteroWriter(cfg, reader=self.reader, on_write=self.sync_wanted.set)
 
         # Live sync progress, readable via /health while a sync runs.
         self.sync_status_lock = threading.Lock()
@@ -129,11 +133,13 @@ class Daemon:
 
     def auto_sync_watcher(self) -> None:
         """Start a sync whenever the index falls behind Zotero (general.auto_sync
-        in settings; the interval is re-read every pass so changes apply live)."""
+        in settings; the interval is re-read every pass so changes apply live).
+        A write through the hub (sync_wanted) starts the check at once."""
         while True:
             try:
                 general = load_settings(self.cfg)["general"]
-                time.sleep(general["auto_sync_interval"])
+                self.sync_wanted.wait(general["auto_sync_interval"])
+                self.sync_wanted.clear()
                 if not general["auto_sync"] or self.write_lock.locked():
                     continue
                 try:

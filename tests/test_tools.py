@@ -126,3 +126,26 @@ def test_trash_pages(fake):
     assert last["next_offset"] is None and [i["key"] for i in last["items"]] == ["K4"]
     with pytest.raises(ToolError, match="limit must be"):
         _call("hub_trash", {"limit": 0})
+
+
+def test_trash_and_folders_filter_by_name(fake):
+    fake.reader.trash = lambda: [{"key": "K1", "title": "Echo chamber metrics"},
+                                 {"key": "K2", "title": "Other"}, {"key": "K3", "title": None}]
+    found = _call("hub_trash", {"contains": "ECHO"})
+    assert found["total"] == 1 and found["items"][0]["key"] == "K1"
+    fake.reader.collections = lambda: [{"key": "C1", "name": "Scratch folder B"},
+                                       {"key": "C2", "name": "Journals &amp; more"}]
+    assert [c["key"] for c in _call("hub_collections", {"contains": "folder b"})] == ["C1"]
+    assert [c["key"] for c in _call("hub_collections", {"contains": "& more"})] == ["C2"]
+    assert len(_call("hub_collections", {})) == 2
+
+
+def test_a_hub_write_wakes_the_index_sync(tmp_path, monkeypatch):
+    from scriptorium import zotero_write
+
+    calls = []
+    monkeypatch.setattr(zotero_write.ZoteroWriter, "_log", lambda self, entry: None)
+    writer = zotero_write.ZoteroWriter(SimpleNamespace(), reader=SimpleNamespace(),
+                                       on_write=lambda: calls.append("woken"))
+    writer._call("tag edit", lambda: {"updated": {}})
+    assert calls == ["woken"]
