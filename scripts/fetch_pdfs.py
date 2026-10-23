@@ -128,7 +128,8 @@ def select_targets(records, tree, urls=None, tried=None, retry=False):
             reasons[r.item_key] = TO_FETCH
             continue
         left_out[reason] += 1
-        reasons[r.item_key] = reason
+        reasons[r.item_key] = (f"PDF staged in run {run}, not yet attached"
+                               if reason == "PDF staged in an earlier run" else reason)
     return targets, retries, left_out, reasons
 
 
@@ -161,7 +162,7 @@ def read_log(path: Path) -> dict:
 
 
 def write_report(run_dir: Path, log: dict, stopped: set, left_out: Counter,
-                 named: dict | None = None) -> Counter:
+                 named: dict | None = None, citekeys: dict | None = None) -> Counter:
     by_pub = defaultdict(Counter)
     for e in log.values():
         by_pub[e["publisher"]][e["outcome"]] += 1
@@ -192,7 +193,8 @@ def write_report(run_dir: Path, log: dict, stopped: set, left_out: Counter,
         lines += [f"- {e['key']} {e['title'][:90]} — {e['url']}" for e in review]
     if named:
         lines += ["", "## Named items", ""]
-        lines += [f"- {k}: {log[k]['outcome'] if k in log else reason}"
+        citekeys = citekeys or {}
+        lines += [f"- {k} ({citekeys.get(k, '')}): {log[k]['outcome'] if k in log else reason}"
                   for k, reason in named.items()]
     lines += ["", "## Left out of this run", ""]
     lines += [f"- {k}: {v}" for k, v in sorted(left_out.items())]
@@ -228,6 +230,7 @@ def main() -> None:
         records = [r for r in records if r.item_key in wanted]
     targets, retries, left_out, reasons = select_targets(records, tree, urls, tried, args.retry)
     named = {k: reasons.get(k, "not in the library (or not a top-level item)") for k in keys}
+    citekeys = {r.item_key: r.citation_key for r in records}
     if args.publisher:
         targets = {p: v for p, v in targets.items() if p in args.publisher}
         retries = {p: v for p, v in retries.items() if p in args.publisher}
@@ -253,7 +256,7 @@ def main() -> None:
         for k, v in sorted(left_out.items()):
             print(f"{v:6}  {k}")
         for k, reason in named.items():
-            print(f"  {k}: {reason}")
+            print(f"  {k} ({citekeys.get(k, '')}): {reason}")
         return
 
     session = requests.Session()
@@ -309,7 +312,7 @@ def main() -> None:
                 log[rec.item_key] = entry
                 print(f"{i:5}/{len(queue)} {entry['outcome']:15} {publisher[:28]:28} {rec.doi}", flush=True)
     finally:
-        totals = write_report(run_dir, log, stopped, left_out, named)
+        totals = write_report(run_dir, log, stopped, left_out, named, citekeys)
         summary = (f"{totals['ok']} PDFs of {len(log)} items; "
                    + ", ".join(f"{k} {v}" for k, v in sorted(totals.items()) if k != "ok"))
         finish(run_dir, "ok" if totals["ok"] == len(log) else "partial", summary,

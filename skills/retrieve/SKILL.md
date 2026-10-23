@@ -10,8 +10,15 @@ Fill in missing PDFs for existing library items in two separate steps:
 Fetching never writes to Zotero; attaching happens only on the user's
 explicit go, usually for a whole staged run at once. Both steps read the
 library live, so the Zotero app must be running; fetch should run from a
-network with the institution's subscriptions (campus or its VPN), and attach also needs the daemon (with the Bridge plugin loaded in
-Zotero).
+network with the institution's subscriptions (campus or its VPN), and
+attach also needs the daemon (with the Bridge plugin loaded in Zotero).
+
+**Where things are.** The scripts run from the code repo
+(`~/Desktop/code/1_SELF/scriptorium/scriptorium`, `uv run python
+scripts/...`). Runs live in the repo's `data/` folder as
+`data/<arm>/runs/<run>/`: a run named `ingestion/2026-10-14-1115` is
+`data/ingestion/runs/2026-10-14-1115/`, with its `added.json`; fetch runs
+are `data/retrieval/runs/<run>/`.
 
 ## Rules
 
@@ -33,11 +40,16 @@ Zotero).
 uv run python scripts/fetch_pdfs.py --plan [--keys KEY ... | --keys-from <run>/added.json]
 ```
 
-Counts the targets: regular items other than preprints, with no PDF and no
-`own-work` tag, whose publisher folder has a route in
-`scriptorium.pdf_routes` and which have a DOI (or, on routes that read the
-item's URL, a URL). Fetch reads every earlier run and sorts the targets
-into two tiers:
+**The plan is the only reliable answer to "what could fetch get?"**: it
+alone reads the earlier fetch runs (staged PDFs, earlier misses, review
+decisions). Run it rather than working the answer out from the hub tools.
+It writes nothing.
+
+Targets are regular items other than preprints, with no PDF and no
+`own-work` tag, in a [✓] venue folder whose publisher (or the venue
+itself) has a **script** route in `scriptorium.pdf_routes`, and with a DOI
+(or, on routes that read the item's URL, a URL). Fetch reads every earlier
+run and sorts the targets into two tiers:
 
 - **never tried**, counted per publisher: fetched by default;
 - **tried before and missed** (no URL, not found, a web page, a block),
@@ -45,14 +57,24 @@ into two tiers:
   `--retry`, after the never-tried ones. No miss is final; whether a
   retry is worth it is the user's call.
 
-A PDF an earlier run still holds (staged or in review) is left out, as are
-publishers without a route (adding one is a code change). Present the
-counts and agree the scope with the user before fetching.
+Left out, with the reason the plan prints:
+
+- `PDF staged in an earlier run` (per paper: which run): downloaded,
+  waiting for the attach;
+- `group blocked: <publisher>`: the publisher refuses scripts (answered by
+  asking the publisher, never by working round it);
+- `group account: <publisher>`: needs an account or API key not set up yet;
+- `group browser: <publisher>`: downloaded by hand only;
+- `group skip`: no PDF to fetch (HTML articles);
+- `group unrouted`: no route yet (adding one is a code change);
+- `no DOI: <publisher>`, `has a PDF attachment`, `preprint`, `own-work`.
+
+Present the counts and agree the scope with the user before fetching.
 
 **After an ingest** (or a nightly add): `--keys-from <run>/added.json`
 limits the plan and the fetch to the papers that run created, and reports
-what happens to each (`--keys` names items directly). Named papers follow
-the same tiers.
+what happens to each, by item key and citation key (`--keys` names items
+directly). Named papers follow the same tiers.
 
 ## 2 — Fetch
 

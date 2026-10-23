@@ -56,9 +56,15 @@ def test_leaves_the_skills_open_run_for_the_skill_to_close(tmp_path, monkeypatch
     assert read_manifest(run_dir)["status"] == "running"
 
 
-def test_dry_run_saves_its_result_and_leaves_the_run_open(tmp_path, monkeypatch):
+def test_a_dry_run_without_a_run_is_a_pure_preview(tmp_path, monkeypatch, capsys):
     _run(tmp_path, monkeypatch, "--dry-run")
-    (run_dir,) = (tmp_path / "ingestion" / "runs").iterdir()
+    assert not (tmp_path / "ingestion").exists()
+    assert "would create 10.1/a" in capsys.readouterr().out
+
+
+def test_a_dry_run_in_a_named_run_saves_its_result(tmp_path, monkeypatch):
+    run_dir = tmp_path / "ingestion" / "runs" / "2026-10-23-1500"
+    (run_dir / "work").mkdir(parents=True)
+    _run(tmp_path, monkeypatch, "--dry-run", "--run", str(run_dir))
     assert json.loads((run_dir / "work" / "dry_run.json").read_text())["would_create"] == ["10.1/a"]
     assert not (run_dir / "added.json").exists()
-    assert json.loads((run_dir / "run.json").read_text())["status"] == "running"
