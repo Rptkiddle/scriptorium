@@ -32,7 +32,8 @@ Track the item key returned by every create — all later calls depend on it.
 
 **A preview only** ("what would happen if I added these?", "don't add
 anything yet"): write the entries (`[{"doi": "..."}, ...]`, or `"item"`
-entries) to a temporary file and run, from the repo,
+entries) to a temporary file (any scratch location, e.g. `/tmp`) and run,
+from the repo,
 `uv run python scripts/ingest_add.py --entries <file> --dry-run` without
 `--run`. It writes nothing anywhere (no run folder) and prints what would
 be created, what is already in the library, and every preprint/published
