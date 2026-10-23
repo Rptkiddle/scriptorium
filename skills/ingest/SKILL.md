@@ -30,7 +30,16 @@ Process papers sequentially but batch the user gates: one duplicate
 confirmation round, one collection confirmation round, one closing report.
 Track the item key returned by every create — all later calls depend on it.
 
-Every ingest is a run. Before anything else, from the repo
+**A preview only** ("what would happen if I added these?", "don't add
+anything yet"): write the entries (`[{"doi": "..."}, ...]`, or `"item"`
+entries) to a temporary file (any scratch location, e.g. `/tmp`) and run,
+from the repo,
+`uv run python scripts/ingest_add.py --entries <file> --dry-run` without
+`--run`. It writes nothing anywhere (no run folder) and prints what would
+be created, what is already in the library, and every preprint/published
+version match. No run is needed for a preview.
+
+Every ingest that adds papers is a run. Before anything else, from the repo
 (`~/Desktop/code/1_SELF/scriptorium/scriptorium`), run
 `uv run python -m scriptorium.runs new ingestion`, which prints the run
 folder (`<rundir>`, named `<YYYY-MM-DD-HHMMSS>`). Keep the run's working
@@ -69,7 +78,9 @@ files (entries, verification notes) in `<rundir>/work/`, and pass
   notes, or nothing to record it by (then it is kept and reported). Before
   the duplicate round, run it with `--dry-run` (writes nothing; entries
   need only `doi` or `item` at that point) and show each match it lists as
-  what will happen; run it for real only after confirmation. The same rule
+  what will happen; run it for real only after confirmation. A DOI that is
+  recorded as a preprint on an item counts as already in the library (the
+  script reports it as "already in library"). The same rule
   is applied across the whole library by `scripts/dedupe_versions.py`
   (a plan first; `--apply <run folder>` only on the user's yes).
 - **Item JSON is complete at creation:** correct `itemType` (preprints

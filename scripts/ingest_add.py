@@ -15,9 +15,12 @@ Crossref records, create through the bridge. Every add belongs to an ingestion r
 and finished with this add's summary. The entries are copied to
 <rundir>/work/entries.json and the result written to <rundir>/added.json;
 every write is attributed to the run in the write log. Prints one line per
-entry (by DOI, else arXiv ID, URL or title) and a summary. --dry-run writes nothing to Zotero: it prints what would
-happen (including preprint/published version matches) and saves it as
-<rundir>/work/dry_run.json, leaving the run open.
+entry (by DOI, else arXiv ID, URL or title) and a summary.
+
+--dry-run writes nothing to Zotero: it prints what would happen (including
+preprint/published version matches). With --run it also saves that as
+<rundir>/work/dry_run.json; without --run it is a pure preview: no run
+folder is created and nothing is saved.
 """
 
 import argparse
@@ -38,17 +41,22 @@ def main() -> None:
     args = ap.parse_args()
 
     config = load_config()
-    own_run = not args.run
-    run_dir = new_run(config, "ingestion") if own_run else Path(args.run).expanduser()
+    # A dry run without --run is a pure preview: no run folder, nothing saved.
+    own_run = not args.run and not args.dry_run
+    run_dir = (Path(args.run).expanduser() if args.run
+               else new_run(config, "ingestion") if own_run else None)
     source_file = Path(args.entries).expanduser()
     entries = json.loads(source_file.read_text())
-    (work_dir(run_dir) / "entries.json").write_text(json.dumps(
-        {"from": str(source_file), "entries": entries}, indent=1, ensure_ascii=False))
+    if run_dir is not None:
+        (work_dir(run_dir) / "entries.json").write_text(json.dumps(
+            {"from": str(source_file), "entries": entries}, indent=1, ensure_ascii=False))
 
-    result = add_papers(config, entries, source=f"ingestion/{run_dir.name}",
+    result = add_papers(config, entries,
+                        source=f"ingestion/{run_dir.name}" if run_dir else "ingestion/preview",
                         dry_run=args.dry_run)
     if args.dry_run:
-        (work_dir(run_dir) / "dry_run.json").write_text(json.dumps(result, indent=1))
+        if run_dir is not None:
+            (work_dir(run_dir) / "dry_run.json").write_text(json.dumps(result, indent=1))
         for doi in result["would_create"]:
             print(f"would create {doi}")
     else:
@@ -76,7 +84,7 @@ def main() -> None:
                f" failed {len(result['failed'])},"
                f" unverified {len(result.get('unverified', {}))}")
     print(f"summary: {summary}")
-    print(f"run folder: {run_dir}")
+    print(f"run folder: {run_dir}" if run_dir else "preview only: nothing saved, no run folder")
     if own_run and not args.dry_run:
         (run_dir / "report.md").write_text(f"# ingestion — {run_dir.name}\n\n{summary}\n")
         finish(run_dir, "partial" if result["failed"] else "ok", summary)

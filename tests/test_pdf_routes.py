@@ -290,6 +290,7 @@ def test_select_targets_tiers_untried_and_missed_papers():
     assert left_out == {"preprint (preprint PDFs are not fetched)": 1, "PDF staged in an earlier run": 1,
                         "has a PDF attachment": 1, "no DOI: NeurIPS Foundation": 1}
     assert reasons["U"] == "to fetch"
+    assert reasons["S"] == "PDF staged in run 2026-10-15-1, not yet attached"
     assert reasons["M"] == "tried before: html (run 2026-10-15-1); held back, use --retry"
     _, _, _, reasons = fetch_pdfs.select_targets(records, tree, tried=tried, retry=True)
     assert reasons["M"].endswith("retried in this run")
