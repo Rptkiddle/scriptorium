@@ -151,3 +151,14 @@ def test_chunk_search_without_a_catalogue_row_still_finds_the_chunk(tmp_path):
     hub.add_paper(record("Z"), [SimpleNamespace(name="z pages 1", text="x")], "h")
     hit = HubSearch(cfg, hub=hub, embedder=Embedder()).search("q")[0]
     assert (hit.item_key, hit.citation_key, hit.name) == ("Z", "Z", "Z pages 1")
+
+
+def test_a_field_refresh_updates_what_filters_read_at_once(tmp_path):
+    cfg = Config(index_dir=tmp_path, embedding_dim=4)
+    hub = HubIndex(cfg, embedder=Embedder())
+    hub.upsert_catalogue([record("A", pdf="no_pdf")], {})
+    search = HubSearch(cfg, hub=hub, embedder=Embedder())
+    assert search.list_items({"has_pdf": True})["total"] == 0
+    assert hub.refresh_catalogue_payloads([record("A", pdf="ok")], {}) == 1
+    assert search.list_items({"has_pdf": True})["total"] == 1
+    assert hub.catalogue_lookup("A")["has_pdf"] is True

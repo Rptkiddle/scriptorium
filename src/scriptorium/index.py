@@ -516,15 +516,17 @@ class HubIndex:
     @staticmethod
     def _write_fields(st: Store, fields: dict, vec: bytes | None, version: int) -> bool:
         """Write one item's stored fields (and its vector, when given).
-        Without a vector only an existing row is rewritten; returns whether
-        a row was written."""
+        Without a vector only an existing row is rewritten (its has_pdf
+        column too, so filters agree with the stored fields at once);
+        returns whether a row was written."""
         columns = (fields["citation_key"], fields["item_type"], fields["year_int"],
                    fields["venue_lc"], fields["added_ts"], fields["title_norm"], dumps(fields))
         key = fields["item_key"]
         if vec is None:
             cur = st.execute(
                 "UPDATE items SET citation_key = ?, item_type = ?, year_int = ?, venue_lc = ?,"
-                " added_ts = ?, title_norm = ?, payload = ? WHERE item_key = ?", (*columns, key))
+                " added_ts = ?, title_norm = ?, payload = ?, has_pdf = ? WHERE item_key = ?",
+                (*columns, int(fields["has_pdf"]), key))
             if cur.rowcount == 0:
                 return False
         else:

@@ -245,8 +245,10 @@ class HubSearch:
             m = self._matrices.get(kind)
             if m is not None and m.generation == current:
                 return m
+            # Chunk results are read back by chunk id; item results by item key
+            # (an item's rowid is not used).
             sql = ("SELECT id, item_key, vec FROM chunks ORDER BY id" if kind == "chunks"
-                   else "SELECT rowid, item_key, vec FROM items ORDER BY item_key")
+                   else "SELECT rowid, item_key, vec FROM items ORDER BY rowid")
             m = VectorMatrix.load(self.store.query(sql), self.config.embedding_dim, current)
             self._matrices[kind] = m
             return m
@@ -354,13 +356,12 @@ class HubSearch:
                   for r in self.store.query(sql, params)]
         return sorted(papers, key=lambda r: r["citation_key"].lower())
 
-    def _payloads(self, item_keys: list[str], extra: str = "") -> dict[str, dict]:
+    def _payloads(self, item_keys: list[str]) -> dict[str, dict]:
         if not item_keys:
             return {}
         marks = ", ".join("?" * len(item_keys))
         return {r["item_key"]: json.loads(r["payload"]) for r in self.store.query(
-            f"SELECT item_key, payload FROM items WHERE item_key IN ({marks}){extra}",
-            item_keys)}
+            f"SELECT item_key, payload FROM items WHERE item_key IN ({marks})", item_keys)}
 
     def search_items(
         self, query: str, k: int = 20, filters: dict | None = None, abstracts: bool = False
