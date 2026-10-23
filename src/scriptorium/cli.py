@@ -58,19 +58,23 @@ def refuse_if_daemon_running(port: int) -> None:
 def status() -> None:
     """Show configuration, index state, and Zotero reachability."""
     cfg = load_config()
-    index_exists = (cfg.index_dir / "qdrant").exists()
+    from scriptorium.store import STORE_FILE
+
+    index_exists = (cfg.index_dir / STORE_FILE).exists()
     index_info: dict = {}
     if index_exists:
-        # Read sync state only — never opens (or waits on) the Qdrant lock.
-        from scriptorium.index import SyncState
+        # SQLite lets this read while the daemon writes.
+        from scriptorium.index import HubIndex
 
-        state = SyncState.load(cfg.index_dir / "state.json")
+        hub = HubIndex(cfg)
+        counts = hub.counts()
         index_info = {
-            "indexed_papers": len(state.items),
-            "indexed_chunks": sum(i.get("chunks", 0) for i in state.items.values()),
-            "library_version_watermark": state.library_version,
-            "failed_items": state.failed,
+            "indexed_papers": counts["papers"],
+            "indexed_chunks": counts["chunks"],
+            "library_version_watermark": counts["library_version"],
+            "failed_items": hub.state.failed,
         }
+        hub.close()
     info = {
         "version": __version__,
         "zotero_local_api": cfg.zotero_local_api,

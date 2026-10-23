@@ -43,8 +43,7 @@ class Config:
         "SCRIPTORIUM_EMBEDDING_MODEL", "Qwen/Qwen3-Embedding-0.6B"
     )
     # Matryoshka truncation: vectors are cut to this many dimensions before
-    # normalisation. Changing it requires migrating or rebuilding the index
-    # (see scripts/migrate_embedding_dim.py).
+    # normalisation. The index records it; changing it requires a rebuild.
     embedding_dim: int = int(os.environ.get("SCRIPTORIUM_EMBEDDING_DIM", "256"))
 
     # Chunking (paperqa defaults)

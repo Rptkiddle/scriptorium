@@ -3,10 +3,11 @@ sync machinery, created once by start() when the daemon runs.
 
 Concurrency: FastMCP runs the synchronous tool handlers in a thread pool,
 so parallel calls are real threads. The embedder serializes model calls
-internally (sub-batch granularity), a shared RLock guards the Qdrant
-client, and write operations (sync/ingest) are additionally serialized by
-one write lock, so at most one write runs at a time while searches
-interleave between embedding batches.
+internally (sub-batch granularity), the store's lock guards its one SQLite
+connection (each call is short), and write operations (sync/ingest) are
+additionally serialized by one write lock, so at most one write runs at a
+time while searches interleave between embedding batches. A search during
+a sync scores the vectors loaded before it; they reload once it is done.
 """
 
 import threading
@@ -29,16 +30,11 @@ def log(message: str) -> None:
 class Daemon:
     def __init__(self, cfg: Config):
         self.cfg = cfg
-        self.client_lock = threading.RLock()
         self.write_lock = threading.Lock()
         self.embedder = Embedder(cfg.embedding_model, cfg.embedding_dim)
-        self.hub = HubIndex(cfg, embedder=self.embedder, client_lock=self.client_lock)
-        self.search = HubSearch(
-            cfg,
-            client_provider=lambda: self.hub.client,
-            embedder=self.embedder,
-            client_lock=self.client_lock,
-        )
+        self.hub = HubIndex(cfg, embedder=self.embedder)
+        self.search = HubSearch(cfg, hub=self.hub, embedder=self.embedder,
+                                writing=self.write_lock.locked)
         self.reader = ZoteroReader(cfg)
         # A write through the hub wakes the auto-sync watcher, so the index
         # (which hub_item, hub_lookup and the searches read) catches up at once
@@ -106,8 +102,9 @@ class Daemon:
         return result
 
     def idle_reaper(self) -> None:
-        """Free the embedding model and the embedded store after idle periods
-        (general.model_idle_minutes / index_idle_minutes; 0 keeps them loaded)."""
+        """Free the embedding model and the in-memory search vectors after
+        idle periods (general.model_idle_minutes / index_idle_minutes; 0
+        keeps them loaded)."""
         while True:
             time.sleep(60)
             try:
@@ -123,11 +120,11 @@ class Daemon:
                 index_idle = general["index_idle_minutes"]
                 if (
                     index_idle
-                    and self.hub.store_open
-                    and now - self.hub.client_last_used > index_idle * 60
+                    and self.search.loaded
+                    and now - self.search.last_used > index_idle * 60
                     and not self.write_lock.locked()
                 ):
-                    self.hub.release_client()
+                    self.search.release()
             except Exception:  # noqa: BLE001 — the reaper must never die
                 pass
 

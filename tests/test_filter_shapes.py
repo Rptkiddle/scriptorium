@@ -26,8 +26,8 @@ def test_wrong_shapes_are_refused_with_the_expected_form(filters, message):
 
 def test_year_text_is_read_as_numbers():
     flt = build_filter({"years": ["2020", 2021], "year_from": "2020"})
-    values = [c.match.any for c in flt.must if c.key == "year_int" and c.match is not None]
-    assert values == [[2020, 2021]]
+    assert "i.year_int IN (?, ?)" in flt.where and "i.year_int >= ?" in flt.where
+    assert flt.params == [2020, 2021, 2020]
 
 
 def test_large_facets_without_contains_show_the_top_values(monkeypatch):

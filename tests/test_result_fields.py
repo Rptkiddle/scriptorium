@@ -2,10 +2,9 @@
 abstracts on request, and the all-of author filter."""
 
 import pytest
-from qdrant_client import QdrantClient
 
 from scriptorium.config import Config
-from scriptorium.index import CATALOGUE, HubIndex, _catalogue_id
+from scriptorium.index import HubIndex
 from scriptorium.names import author_names, authors_from_formatted, creator_keys
 from scriptorium.search import (
     ABSTRACT_CHARS,
@@ -49,25 +48,23 @@ def record(key, people, abstract="", added="2026-10-15T18:36:50Z"):
 @pytest.fixture
 def setup(tmp_path):
     cfg = Config(index_dir=tmp_path, embedding_dim=4)
-    client = QdrantClient(":memory:")
-    hub = HubIndex(cfg, client=client, embedder=StubEmbedder())
+    hub = HubIndex(cfg, embedder=StubEmbedder())
     many = [person(f"Given{i}", f"Author{i}") for i in range(14)]
     hub.upsert_catalogue([
         record("BOTH", [person("Anne", "Kroon"), person("Damian", "Trilling")], abstract="x " * 1500),
         record("ONE", [person("Damian", "Trilling")], abstract="A short abstract."),
         record("MANY", many),
     ], {})
-    return HubSearch(cfg, client=client, embedder=StubEmbedder()), client
+    return HubSearch(cfg, hub=hub, embedder=StubEmbedder()), hub
 
 
 def test_results_carry_first_authors_count_and_date_added(setup):
-    search, client = setup
+    search, hub = setup
     hit = next(h for h in search.search_items("x", k=5) if h["item_key"] == "MANY")
     assert len(hit["authors"]) == AUTHORS_SHOWN and hit["author_count"] == 14
     assert hit["authors"][0] == "Given0 Author0" and hit["date_added"] == "2026-10-15"
     assert "abstract" not in hit
-    stored = client.retrieve(CATALOGUE, ids=[_catalogue_id("MANY")], with_payload=True)[0]
-    assert len(stored.payload["authors"]) == 14  # hub_item shows the full list
+    assert len(hub.catalogue_lookup("MANY")["authors"]) == 14  # hub_item shows the full list
     row = next(i for i in search.list_items(None)["items"] if i["item_key"] == "ONE")
     assert row["authors"] == ["Damian Trilling"] and row["date_added"] == "2026-10-15"
 

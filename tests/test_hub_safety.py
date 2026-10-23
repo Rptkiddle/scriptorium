@@ -158,13 +158,23 @@ def test_sync_removes_chunks_when_attachment_removed(tmp_path):
 
 # -- atomic writes -------------------------------------------------------------
 
-def test_state_save_is_atomic_and_leaves_no_temp(tmp_path):
-    path = tmp_path / "state.json"
-    state = SyncState(library_version=3, items={}, failed={}, catalogue={},
-                      catalogue_pdf={"A": True})
-    state.save(path)
-    assert SyncState.load(path).catalogue_pdf == {"A": True}
-    assert not (tmp_path / "state.json.tmp").exists()
+def test_a_failed_write_leaves_the_index_as_it_was(tmp_path):
+    """add_paper writes chunks and bookkeeping in one transaction: an
+    error midway leaves neither."""
+    from scriptorium.index import HubIndex
+
+    class Embedder:
+        def encode_documents(self, texts):
+            return [[1.0, 0.0, 0.0, 0.0] for _ in texts]
+
+    hub = HubIndex(Config(index_dir=tmp_path, embedding_dim=4), embedder=Embedder())
+    rec = SimpleNamespace(item_key="P", version=1)
+    chunks = [SimpleNamespace(name="p pages 1-2", text="a"),
+              SimpleNamespace(name="p pages 2-3", text=None)]  # NOT NULL fails on insert
+    with pytest.raises(Exception):  # noqa: B017 — any database error
+        hub.add_paper(rec, chunks, "h")
+    assert hub.store.query("SELECT COUNT(*) AS n FROM chunks")[0]["n"] == 0
+    assert hub.state.items == {} and hub.store.query("SELECT * FROM papers") == []
 
 
 def test_settings_save_refuses_to_overwrite_corrupt_file(tmp_path):

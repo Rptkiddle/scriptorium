@@ -26,7 +26,7 @@ DEFAULTS: dict = {
         "menubar_health_interval": 5,  # seconds between /health polls
         "menubar_staleness_interval": 60,  # seconds between Zotero version checks
         "model_idle_minutes": 15,  # unload the embedding model after idle (0 = never)
-        "index_idle_minutes": 15,  # release the Qdrant store after idle (0 = never)
+        "index_idle_minutes": 15,  # release the in-memory search vectors after idle (0 = never)
         "auto_sync": 1,  # sync automatically when the index is behind Zotero
         "auto_sync_interval": 60,  # seconds between the daemon's staleness checks
     },
@@ -245,7 +245,7 @@ SCHEMA: dict = {
              "doc": "Free the embedding model after this long unused; 0 keeps it loaded"},
             {"key": "index_idle_minutes", "kind": "int",
              "label": "Index idle release (min)",
-             "doc": "Close the Qdrant store after this long unused; 0 keeps it open"},
+             "doc": "Free the search vectors held in memory after this long unused; 0 keeps them"},
             {"key": "auto_sync", "kind": "onoff", "label": "Auto-sync",
              "doc": "Sync automatically whenever the index falls behind Zotero"},
             {"key": "auto_sync_interval", "kind": "int",

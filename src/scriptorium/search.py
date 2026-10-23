@@ -7,22 +7,25 @@ scopes retrieval by agentic paper selection instead) restrict the candidate
 pool before similarity ranking. Relevance scoring of retrieved chunks
 (PaperQA2's RCS step, an LLM task) is performed by Claude in-session per the
 scriptorium skill — not here.
+
+Search is exact: the query vector is compared with every admitted vector
+(scriptorium.store.VectorMatrix). The vectors are loaded into memory on
+the first search and released when idle (the daemon's reaper); filters,
+listings, facets and lookups are SQL over the store.
 """
 
-import contextlib
 import datetime
 import json
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from qdrant_client import QdrantClient
-from qdrant_client import models as qm
-
 from scriptorium.config import Config
 from scriptorium.identifiers import classify
-from scriptorium.index import CATALOGUE, COLLECTION, Embedder
+from scriptorium.index import Embedder, HubIndex, check_embedder
 from scriptorium.names import query_key
+from scriptorium.store import FilterSQL, VectorMatrix, any_value
 
 # Claude Code saves an MCP reply longer than 50,000 characters (or 25,000
 # tokens; this JSON runs ~2.5 characters per token) to a file instead of
@@ -35,7 +38,7 @@ SEARCH_K_MAX = 40
 ABSTRACTS_MAX = 15
 ABSTRACT_CHARS = 2000
 AUTHORS_SHOWN = 10
-# Filter keys that full-text chunk points carry (the rest are catalogue-only).
+# Filter keys chunk search accepts (the rest are for item search and listing).
 CHUNK_FILTER_KEYS = {"creators", "creators_all", "years", "year_from", "year_to", "venue",
                      "citation_keys", "item_keys"}
 ITEM_FILTER_KEYS = CHUNK_FILTER_KEYS | {"tags", "item_types", "collections", "has_pdf",
@@ -43,6 +46,9 @@ ITEM_FILTER_KEYS = CHUNK_FILTER_KEYS | {"tags", "item_types", "collections", "ha
                                         "added_since"}
 _LIST_FIELDS = ["item_key", "citation_key", "citation", "authors", "item_type", "year",
                 "year_int", "venue_folders", "doi", "has_pdf", "date_added", "added_ts"]
+# While a sync is writing, a search may use vectors loaded before it began;
+# a chunk replaced meanwhile is then missing, so a few extra are scored.
+_STALE_MARGIN = 20
 
 
 def _result_fields(payload: dict) -> dict:
@@ -96,11 +102,15 @@ def _checked(filters: dict) -> dict:
     return out
 
 
+def _in(column: str, values: list) -> tuple[str, list]:
+    return f"{column} IN ({', '.join('?' * len(values))})", list(values)
+
+
 def build_filter(filters: dict | None,
-                 allowed: set[str] = ITEM_FILTER_KEYS) -> "qm.Filter | None":
-    """Translate a filters dict into a Qdrant filter. A key outside
-    `allowed` raises ValueError naming the valid keys, so a mistyped filter
-    never widens a search without notice.
+                 allowed: set[str] = ITEM_FILTER_KEYS) -> FilterSQL | None:
+    """Translate a filters dict into SQL over the catalogue's items. A key
+    outside `allowed` raises ValueError naming the valid keys, so a
+    mistyped filter never widens a search without notice.
 
     Supported keys (all optional, AND-combined):
       creators:   list of surnames, any form ("van Atteveldt", "Atteveldt, W.";
@@ -111,7 +121,8 @@ def build_filter(filters: dict | None,
       venue:      venue name (case-insensitive exact match)
       citation_keys / item_keys: explicit paper lists (any match)
 
-    Catalogue-only keys (item-level search; chunk points lack these fields):
+    Item-search keys (hub_search_items, hub_list_items; chunk search
+    refuses them):
       tags:       list of tags (any match)
       item_types: list of Zotero item types (any match)
       collections: list of collection keys (any match)
@@ -129,46 +140,42 @@ def build_filter(filters: dict | None,
         raise ValueError(f"unknown filter {', '.join(sorted(unknown))}{hint};"
                          f" valid filters here: {', '.join(sorted(allowed))}")
     filters = _checked(filters)
-    must: list = []
+    parts: list[tuple[str, list]] = []
     if v := filters.get("tags"):
-        must.append(qm.FieldCondition(key="tags", match=qm.MatchAny(any=list(v))))
+        parts.append(any_value("tag", list(v), column="value"))
     if v := filters.get("item_types"):
-        must.append(qm.FieldCondition(key="item_type", match=qm.MatchAny(any=list(v))))
+        parts.append(_in("i.item_type", list(v)))
     if v := filters.get("collections"):
-        must.append(qm.FieldCondition(key="collections", match=qm.MatchAny(any=list(v))))
+        parts.append(any_value("collection", list(v), column="value"))
     if (v := filters.get("has_pdf")) is not None:
-        must.append(qm.FieldCondition(key="has_pdf", match=qm.MatchValue(value=bool(v))))
+        parts.append(("i.has_pdf = ?", [int(bool(v))]))
     if v := filters.get("creators"):
-        must.append(
-            qm.FieldCondition(
-                key="creator_surnames", match=qm.MatchAny(any=[query_key(s) for s in v])
-            )
-        )
+        parts.append(any_value("creator", [query_key(s) for s in v], column="value"))
     for name in filters.get("creators_all") or []:
-        must.append(qm.FieldCondition(key="creator_surnames",
-                                      match=qm.MatchValue(value=query_key(name))))
+        parts.append(any_value("creator", [query_key(name)], column="value"))
     if v := filters.get("years"):
-        must.append(qm.FieldCondition(key="year_int", match=qm.MatchAny(any=[int(y) for y in v])))
-    if filters.get("year_from") is not None or filters.get("year_to") is not None:
-        must.append(
-            qm.FieldCondition(
-                key="year_int",
-                range=qm.Range(gte=filters.get("year_from"), lte=filters.get("year_to")),
-            )
-        )
+        parts.append(_in("i.year_int", [int(y) for y in v]))
+    if filters.get("year_from") is not None:
+        parts.append(("i.year_int >= ?", [filters["year_from"]]))
+    if filters.get("year_to") is not None:
+        parts.append(("i.year_int <= ?", [filters["year_to"]]))
     if v := filters.get("venue"):
-        must.append(qm.FieldCondition(key="venue_lc", match=qm.MatchValue(value=v.lower())))
-    for name in ("categories", "publishers", "venue_folders"):
-        if v := filters.get(name):
-            must.append(qm.FieldCondition(key=f"{name}_lc", match=qm.MatchAny(any=[s.lower() for s in v])))
+        parts.append(("i.venue_lc = ?", [v.lower()]))
+    for key, field in (("categories", "category"), ("publishers", "publisher"),
+                       ("venue_folders", "venue_folder")):
+        if v := filters.get(key):
+            parts.append(any_value(field, [s.lower() for s in v]))
     if v := filters.get("added_since"):
         since = datetime.datetime.fromisoformat(v).replace(tzinfo=datetime.UTC)
-        must.append(qm.FieldCondition(key="added_ts", range=qm.Range(gte=int(since.timestamp()))))
+        parts.append(("i.added_ts >= ?", [int(since.timestamp())]))
     if v := filters.get("citation_keys"):
-        must.append(qm.FieldCondition(key="citation_key", match=qm.MatchAny(any=list(v))))
+        parts.append(_in("i.citation_key", list(v)))
     if v := filters.get("item_keys"):
-        must.append(qm.FieldCondition(key="item_key", match=qm.MatchAny(any=list(v))))
-    return qm.Filter(must=must) if must else None
+        parts.append(_in("i.item_key", list(v)))
+    if not parts:
+        return None
+    return FilterSQL(" AND ".join(f"({sql})" for sql, _ in parts),
+                     [p for _, params in parts for p in params])
 
 
 @dataclass
@@ -196,130 +203,164 @@ class SearchResult:
 
 
 class HubSearch:
-    """Query interface over the scriptorium index."""
+    """Query interface over the scriptorium index.
 
-    def __init__(
-        self,
-        config: Config,
-        client: QdrantClient | None = None,
-        client_provider: "Callable[[], QdrantClient] | None" = None,
-        embedder: Embedder | None = None,
-        client_lock: "threading.RLock | None" = None,
-    ):
+    `hub` is the index to read (the daemon passes its own, so searches and
+    syncs share one store); without one, a HubIndex is opened. `writing`
+    tells whether a sync is writing right now: while it is, a search uses
+    the vectors already loaded rather than reloading after every paper."""
+
+    def __init__(self, config: Config, hub: HubIndex | None = None,
+                 embedder: Embedder | None = None,
+                 writing: Callable[[], bool] | None = None):
         self.config = config
-        # A provider (e.g. the daemon's HubIndex.client property) is fetched
-        # per call, so the store can be released and reopened between calls.
-        # A fixed client is reused as-is; otherwise open our own.
-        self._client_provider = client_provider
-        self._client = client if client_provider is None else None
-        self.embedder = embedder or Embedder(config.embedding_model, config.embedding_dim)
-        self._client_lock = client_lock or contextlib.nullcontext()
+        self.embedder = embedder or (hub.embedder if hub else
+                                     Embedder(config.embedding_model, config.embedding_dim))
+        self.hub = hub or HubIndex(config, embedder=self.embedder)
+        self.store = self.hub.store
+        self._writing = writing or (lambda: False)
+        self._matrices: dict[str, VectorMatrix] = {}
+        self._load_lock = threading.Lock()
+        self._revision_checked = False
+        self.last_used = 0.0
+
+    # -- the vectors in memory -------------------------------------------
 
     @property
-    def client(self) -> QdrantClient:
-        if self._client_provider is not None:
-            return self._client_provider()
-        if self._client is None:
-            self._client = QdrantClient(path=str(self.config.index_dir / "qdrant"))
-        return self._client
+    def loaded(self) -> bool:
+        return bool(self._matrices)
+
+    def release(self) -> None:
+        """Free the in-memory vectors; the next search loads them again."""
+        self._matrices = {}
+
+    def _matrix(self, kind: str) -> VectorMatrix:
+        """The vectors of "chunks" or "items", loaded if absent or stale."""
+        self.last_used = time.monotonic()
+        current = self.store.generation[kind]
+        m = self._matrices.get(kind)
+        if m is not None and (m.generation == current or self._writing()):
+            return m
+        with self._load_lock:
+            m = self._matrices.get(kind)
+            if m is not None and m.generation == current:
+                return m
+            sql = ("SELECT id, item_key, vec FROM chunks ORDER BY id" if kind == "chunks"
+                   else "SELECT rowid, item_key, vec FROM items ORDER BY item_key")
+            m = VectorMatrix.load(self.store.query(sql), self.config.embedding_dim, current)
+            self._matrices[kind] = m
+            return m
+
+    def _query_vector(self, encode: Callable[[str], list[float]], text: str) -> list[float]:
+        if not self._revision_checked:
+            check_embedder(self.store, self.embedder)
+            self._revision_checked = True
+        return encode(text)
+
+    def _admitted(self, flt: FilterSQL | None) -> set[str] | None:
+        """The item keys a filter admits; None when there is no filter."""
+        if flt is None:
+            return None
+        return {r[0] for r in self.store.query(*flt.items_sql())}
+
+    # -- searches ----------------------------------------------------------
 
     def search(self, query: str, k: int = 10, filters: dict | None = None) -> list[SearchResult]:
         flt = build_filter(filters, CHUNK_FILTER_KEYS)
-        query_vector = self.embedder.encode_query(query)
-        with self._client_lock:
-            if not self.client.collection_exists(COLLECTION):
-                raise RuntimeError("Index is empty — run `scriptorium index` first.")
-            hits = self.client.query_points(
-                COLLECTION,
-                query=query_vector,
-                query_filter=flt,
-                limit=k,
-                with_payload=True,
-            ).points
-        return [
-            SearchResult(
-                rank=i,
-                citation_key=h.payload["citation_key"] or h.payload["item_key"],
-                citation=h.payload["citation"],
-                name=h.payload["name"],
-                text=h.payload["text"],
-                similarity=float(h.score),
-                item_key=h.payload["item_key"],
-                chunk_index=h.payload["chunk_index"],
-            )
-            for i, h in enumerate(hits, start=1)
-        ]
+        query_vector = self._query_vector(self.embedder.encode_query, query)
+        m = self._matrix("chunks")
+        if not len(m.ids):
+            raise RuntimeError("Index is empty — run a sync first.")
+        writing = self._writing()
+        best = m.top(query_vector, k + (_STALE_MARGIN if writing else 0),
+                     m.rows_of(self._admitted(flt)))
+        ids = [int(m.ids[row]) for row, _ in best]
+        score = {int(m.ids[row]): s for row, s in best}
+        marks = ", ".join("?" * len(ids))
+        rows = {r["id"]: r for r in self.store.query(
+            "SELECT c.id, c.item_key, c.chunk_index, c.pages, c.text, i.citation_key,"
+            " json_extract(i.payload, '$.citation') AS citation"
+            f" FROM chunks c LEFT JOIN items i ON i.item_key = c.item_key WHERE c.id IN ({marks})",
+            ids)} if ids else {}
+        results = []
+        for cid in ids:
+            r = rows.get(cid)
+            if r is None:  # replaced by a sync since the vectors were loaded
+                continue
+            docname = r["citation_key"] or r["item_key"]
+            results.append(SearchResult(
+                rank=len(results) + 1, citation_key=docname, citation=r["citation"] or "",
+                name=f"{docname} pages {r['pages']}" if r["pages"] else docname,
+                text=r["text"], similarity=score[cid], item_key=r["item_key"],
+                chunk_index=r["chunk_index"]))
+            if len(results) == k:
+                break
+        return results
 
     def facets(self, field: str, contains: str = "", scope: str = "fulltext",
                filters: dict | None = None) -> dict:
         """Distinct values of a metadata field, with per-paper counts.
-        scope "fulltext": across indexed chunks (the papers with full text;
-        fields creators | venues | years). scope "items": across the whole
+        scope "fulltext": across the papers with indexed full text (fields
+        creators | venues | years). scope "items": across the whole
         catalogue (every item), which adds the fields categories |
         publishers | venue_folders | item_types. `filters` (build_filter's
         schema) counts within a filtered set; in scope "fulltext" only the
         chunk keys are allowed. Raises ValueError on an unknown scope,
         field or filter key."""
-        keys = {"creators": "creator_surnames", "venues": "venue_lc", "years": "year"}
+        # field -> a multi-value field name, or an SQL expression over items
+        fields = {"creators": ("creator", None), "venues": (None, "i.venue_lc"),
+                  "years": (None, "json_extract(i.payload, '$.year')")}
         if scope == "items":
-            keys |= {"categories": "categories", "publishers": "publishers",
-                     "venue_folders": "venue_folders", "item_types": "item_type"}
+            fields |= {"categories": ("category", None), "publishers": ("publisher", None),
+                       "venue_folders": ("venue_folder", None),
+                       "item_types": (None, "i.item_type")}
         elif scope != "fulltext":
             raise ValueError("scope must be fulltext or items")
-        key = keys.get(field)
-        if key is None:
-            raise ValueError(f"field must be one of: {', '.join(keys)}")
+        if field not in fields:
+            raise ValueError(f"field must be one of: {', '.join(fields)}")
         if scope == "fulltext" and (bad := set(filters or {}) - CHUNK_FILTER_KEYS):
             raise ValueError(f"filters {sorted(bad)} apply to scope 'items' only; scope"
                              f" 'fulltext' takes {sorted(CHUNK_FILTER_KEYS)}")
-        collection = CATALOGUE if scope == "items" else COLLECTION
-        counts: dict[str, set] = {}
+        flt = build_filter(filters, ITEM_FILTER_KEYS if scope == "items" else CHUNK_FILTER_KEYS)
+        where = [flt.where] if flt and flt.where else []
+        params = list(flt.params) if flt else []
+        if scope == "fulltext":
+            where.append("EXISTS (SELECT 1 FROM papers p WHERE p.item_key = i.item_key)")
+        multi, expr = fields[field]
+        if multi:
+            sql = ("SELECT v.value AS value, COUNT(DISTINCT i.item_key) AS n FROM items i"
+                   " JOIN item_values v ON v.item_key = i.item_key AND v.field = ?")
+            params = [multi, *params]
+        else:
+            sql = f"SELECT {expr} AS value, COUNT(*) AS n FROM items i"
+        sql += (" WHERE " + " AND ".join(f"({w})" for w in where) if where else "")
+        sql += " GROUP BY value"
         needle = (query_key(contains) or contains.lower()) if field == "creators" else contains.lower()
-        with self._client_lock:
-            offset = None
-            while True:
-                points, offset = self.client.scroll(
-                    collection, limit=512,
-                    scroll_filter=build_filter(
-                        filters, ITEM_FILTER_KEYS if scope == "items" else CHUNK_FILTER_KEYS),
-                    offset=offset, with_payload=[key, "item_key"], with_vectors=False,
-                )
-                for p in points:
-                    values = p.payload.get(key)
-                    values = values if isinstance(values, list) else [values]
-                    for v in values:
-                        if v and (not needle or needle in str(v).lower()):
-                            counts.setdefault(str(v), set()).add(p.payload["item_key"])
-                if offset is None:
-                    break
-        return {v: len(keys) for v, keys in sorted(counts.items())}
+        counts = {str(r["value"]): r["n"] for r in self.store.query(sql, params)
+                  if r["value"] not in (None, "")
+                  and (not needle or needle in str(r["value"]).lower())}
+        return dict(sorted(counts.items()))
 
     def papers(self, filters: dict | None = None) -> list[dict]:
         """The papers a filter set admits (the retrieval pool): one record per
-        paper with citation_key and short-form citation, sorted by key."""
-        papers: dict[str, dict] = {}
-        with self._client_lock:
-            offset = None
-            while True:
-                points, offset = self.client.scroll(
-                    COLLECTION,
-                    scroll_filter=build_filter(filters, CHUNK_FILTER_KEYS),
-                    limit=512,
-                    offset=offset,
-                    with_payload=["item_key", "citation_key", "citation"],
-                    with_vectors=False,
-                )
-                for p in points:
-                    papers.setdefault(
-                        p.payload["item_key"],
-                        {
-                            "citation_key": p.payload["citation_key"] or p.payload["item_key"],
-                            "citation": p.payload["citation"],
-                        },
-                    )
-                if offset is None:
-                    break
-        return sorted(papers.values(), key=lambda r: r["citation_key"].lower())
+        paper with indexed full text, with citation_key and short-form
+        citation, sorted by key."""
+        flt = build_filter(filters, CHUNK_FILTER_KEYS) or FilterSQL("", [])
+        sql, params = flt.items_sql(
+            "i.item_key, i.citation_key, json_extract(i.payload, '$.citation') AS citation")
+        sql += (" AND" if flt.where else " WHERE") + \
+            " EXISTS (SELECT 1 FROM papers p WHERE p.item_key = i.item_key)"
+        papers = [{"citation_key": r["citation_key"] or r["item_key"], "citation": r["citation"]}
+                  for r in self.store.query(sql, params)]
+        return sorted(papers, key=lambda r: r["citation_key"].lower())
+
+    def _payloads(self, item_keys: list[str], extra: str = "") -> dict[str, dict]:
+        if not item_keys:
+            return {}
+        marks = ", ".join("?" * len(item_keys))
+        return {r["item_key"]: json.loads(r["payload"]) for r in self.store.query(
+            f"SELECT item_key, payload FROM items WHERE item_key IN ({marks}){extra}",
+            item_keys)}
 
     def search_items(
         self, query: str, k: int = 20, filters: dict | None = None, abstracts: bool = False
@@ -330,36 +371,35 @@ class HubSearch:
         if abstracts and k > ABSTRACTS_MAX:
             raise ValueError(f"with abstracts, k must be at most {ABSTRACTS_MAX}")
         flt = build_filter(filters)
-        query_vector = self.embedder.encode_item_query(query)
-        with self._client_lock:
-            if not self.client.collection_exists(CATALOGUE):
-                raise RuntimeError("Catalogue is empty — run a sync first.")
-            hits = self.client.query_points(
-                CATALOGUE,
-                query=query_vector,
-                query_filter=flt,
-                limit=k,
-                with_payload=True,
-            ).points
-        return [
-            {
-                "rank": i,
-                "similarity": round(float(h.score), 4),
-                "item_key": h.payload["item_key"],
-                "item_type": h.payload["item_type"],
-                "citation_key": h.payload["citation_key"],
-                "citation": h.payload["citation"],
-                "year": h.payload["year"],
-                "venue": h.payload.get("venue", ""),
-                "venue_folders": h.payload.get("venue_folders", []),
-                "doi": h.payload.get("doi", ""),
-                "tags": h.payload["tags"],
-                "has_pdf": h.payload["has_pdf"],
-                **_result_fields(h.payload),
-                **({"abstract": _abstract(h.payload)} if abstracts else {}),
-            }
-            for i, h in enumerate(hits, start=1)
-        ]
+        query_vector = self._query_vector(self.embedder.encode_item_query, query)
+        m = self._matrix("items")
+        if not len(m.ids):
+            raise RuntimeError("Catalogue is empty — run a sync first.")
+        best = m.top(query_vector, k, m.rows_of(self._admitted(flt)))
+        keys = [m.items[row] for row, _ in best]
+        payloads = self._payloads(keys)
+        results = []
+        for (row, sim), key in zip(best, keys, strict=True):
+            p = payloads.get(key)
+            if p is None:  # removed by a sync since the vectors were loaded
+                continue
+            results.append({
+                "rank": len(results) + 1,
+                "similarity": round(sim, 4),
+                "item_key": p["item_key"],
+                "item_type": p["item_type"],
+                "citation_key": p["citation_key"],
+                "citation": p["citation"],
+                "year": p["year"],
+                "venue": p.get("venue", ""),
+                "venue_folders": p.get("venue_folders", []),
+                "doi": p.get("doi", ""),
+                "tags": p["tags"],
+                "has_pdf": p["has_pdf"],
+                **_result_fields(p),
+                **({"abstract": _abstract(p)} if abstracts else {}),
+            })
+        return results
 
     def lookup(self, inputs: list[str], candidates: int = 3) -> list[dict]:
         """Exact lookup of library items by DOI, arXiv ID (bare, arXiv: or
@@ -371,35 +411,30 @@ class HubSearch:
         for raw in inputs:
             kind, value = classify(raw)
             if kind == "title":
-                conditions = [qm.FieldCondition(key="title_norm", match=qm.MatchValue(value=value))]
+                rows = self.store.query(
+                    "SELECT payload FROM items WHERE title_norm = ? LIMIT 50", (value,))
             else:
-                ident = f"{kind}:{value}"
-                conditions = [
-                    qm.FieldCondition(key=field, match=qm.MatchValue(value=ident))
-                    for field in ("identifiers", "preprint_identifiers")
-                ]
-            with self._client_lock:
-                if not self.client.collection_exists(CATALOGUE):
-                    raise RuntimeError("Catalogue is empty — run a sync first.")
-                points, _ = self.client.scroll(
-                    CATALOGUE, scroll_filter=qm.Filter(should=conditions), limit=50,
-                    with_payload=True, with_vectors=False,
-                )
+                rows = self.store.query(
+                    "SELECT payload FROM items i WHERE EXISTS (SELECT 1 FROM item_values v"
+                    " WHERE v.item_key = i.item_key AND v.field IN"
+                    " ('identifier', 'preprint_identifier') AND v.value = ?) LIMIT 50",
+                    (f"{kind}:{value}",))
             matches = []
-            for p in points:
+            for row in rows:
+                p = json.loads(row["payload"])
                 if kind == "title":
                     how = "title"
-                elif f"{kind}:{value}" in p.payload.get("identifiers", []):
+                elif f"{kind}:{value}" in p.get("identifiers", []):
                     how = kind
                 else:
                     how = "recorded preprint of this item"
                 matches.append({
-                    "item_key": p.payload["item_key"],
-                    "citation_key": p.payload["citation_key"],
-                    "citation": p.payload["citation"],
-                    "item_type": p.payload["item_type"],
-                    "doi": p.payload.get("doi", ""),
-                    "has_pdf": p.payload["has_pdf"],
+                    "item_key": p["item_key"],
+                    "citation_key": p["citation_key"],
+                    "citation": p["citation"],
+                    "item_type": p["item_type"],
+                    "doi": p.get("doi", ""),
+                    "has_pdf": p["has_pdf"],
                     "matched_on": how,
                 })
             entry = {"input": raw, "kind": kind, "found": bool(matches), "matches": matches}
@@ -429,23 +464,17 @@ class HubSearch:
             raise ValueError(f"limit must be 0-{LIST_LIMIT_MAX}; page with offset")
         if offset < 0:
             raise ValueError("offset must be 0 or more")
-        flt = build_filter(filters)
-        with self._client_lock:
-            if not self.client.collection_exists(CATALOGUE):
-                raise RuntimeError("Catalogue is empty — run a sync first.")
-            if limit == 0:
-                total = self.client.count(CATALOGUE, count_filter=flt, exact=True).count
-                return {"total": total, "offset": offset, "returned": 0,
-                        "next_offset": None, "items": []}
-            rows, page = [], None
-            while True:
-                points, page = self.client.scroll(
-                    CATALOGUE, scroll_filter=flt, limit=1024, offset=page,
-                    with_payload=_LIST_FIELDS, with_vectors=False,
-                )
-                rows.extend({**p.payload, "_id": p.id} for p in points)
-                if page is None:
-                    break
+        flt = build_filter(filters) or FilterSQL("", [])
+        if limit == 0:
+            sql, params = flt.items_sql("COUNT(*)")
+            total = self.store.query(sql, params)[0][0]
+            return {"total": total, "offset": offset, "returned": 0,
+                    "next_offset": None, "items": []}
+        sql, params = flt.items_sql("i.payload")
+        rows = []
+        for r in self.store.query(sql, params):
+            p = json.loads(r["payload"])
+            rows.append({k: p.get(k) for k in _LIST_FIELDS} | {"_abstract": p.get("abstract", "")})
 
         def tie(r: dict) -> tuple:
             return ((r.get("citation") or "").lower(), r["item_key"])
@@ -460,12 +489,6 @@ class HubSearch:
             rows.sort(key=tie)
         window = rows[offset : offset + limit]
         nxt = offset + len(window)
-        abstract_of = {}
-        if abstracts and window:
-            with self._client_lock:
-                for p in self.client.retrieve(CATALOGUE, ids=[r["_id"] for r in window],
-                                              with_payload=["abstract"]):
-                    abstract_of[str(p.id)] = _abstract(p.payload)
         return {
             "total": len(rows),
             "offset": offset,
@@ -475,8 +498,7 @@ class HubSearch:
                 {**{k: r.get(k) for k in _LIST_FIELDS
                     if k not in ("year_int", "added_ts", "authors", "date_added")},
                  **_result_fields(r),
-                 **({"abstract": abstract_of.get(str(r["_id"]), "")} if abstracts else {})}
+                 **({"abstract": _abstract({"abstract": r["_abstract"]})} if abstracts else {})}
                 for r in window
             ],
         }
-
