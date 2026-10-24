@@ -479,7 +479,8 @@ class HubIndex:
         from scriptorium.parsing import PARSER_VERSION
         from scriptorium.zotero import METADATA_VERSION
 
-        embedded = iter(self._encode([c.embed_text for c in chunks if not c.artefact]))
+        texts = [c.embed_text for c in chunks if not c.artefact]
+        embedded = iter(self._encode(texts) if texts else [])
         rows = [(record.item_key, i, c.part, c.pages, c.text, int(c.artefact),
                  None if c.artefact else to_blob(next(embedded)))
                 for i, c in enumerate(chunks)]

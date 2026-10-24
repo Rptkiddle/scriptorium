@@ -40,6 +40,7 @@ import json
 import math
 import os
 import re
+import threading
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -268,6 +269,7 @@ class TeiStore:
         self.dir = directory
         self.record = directory / "parsed.jsonl"
         self._latest: dict[str, dict] | None = None
+        self._lock = threading.Lock()  # a sync's GROBID workers write at once
 
     def path(self, key: str) -> Path:
         return self.dir / f"{key}.tei.xml.gz"
@@ -291,10 +293,11 @@ class TeiStore:
         return gzip.decompress(self.path(key).read_bytes())
 
     def _append(self, row: dict) -> None:
-        self.dir.mkdir(parents=True, exist_ok=True)
-        with open(self.record, "a") as f:
-            f.write(json.dumps(row) + "\n")
-        self.latest()[row["key"]] = row
+        with self._lock:
+            self.dir.mkdir(parents=True, exist_ok=True)
+            with open(self.record, "a") as f:
+                f.write(json.dumps(row) + "\n")
+            self.latest()[row["key"]] = row
 
     def put(self, key: str, pdf: str, md5: str, grobid: str, http: int, secs: float,
             tei: bytes | None = None, error: str = "") -> None:

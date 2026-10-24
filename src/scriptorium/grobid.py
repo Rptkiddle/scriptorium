@@ -105,10 +105,11 @@ class Grobid:
                                         " (setting grobid_dir)")
             env = os.environ | {"JAVA_HOME": java_home(self.java), "LC_ALL": "C",
                                 "JAVA_OPTS": "-Xmx3072m"}
-            out = open(self.log_path, "a") if self.log_path else subprocess.DEVNULL  # noqa: SIM115
-            self._proc = subprocess.Popen([str(script)], cwd=self.install_dir, env=env,
-                                          stdout=out, stderr=subprocess.STDOUT,
-                                          start_new_session=True)
+            # The child keeps its own handle on the log; this one closes at once.
+            with open(self.log_path or os.devnull, "a") as out:
+                self._proc = subprocess.Popen([str(script)], cwd=self.install_dir, env=env,
+                                              stdout=out, stderr=subprocess.STDOUT,
+                                              start_new_session=True)
             atexit.register(self.stop)
             deadline = time.monotonic() + START_TIMEOUT
             while time.monotonic() < deadline:
