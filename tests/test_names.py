@@ -1,12 +1,12 @@
 """Author name keys: one author is one filter value, however the name is
 stored or typed."""
 
-from types import SimpleNamespace
 
 from scriptorium.config import Config
 from scriptorium.index import HubIndex
 from scriptorium.names import creator_keys, keys_from_formatted, query_key
 from scriptorium.search import HubSearch
+from scriptorium.tei import Passage
 from scriptorium.zotero import PaperRecord
 
 
@@ -86,7 +86,8 @@ def test_chunks_read_their_metadata_from_the_catalogue(tmp_path):
                       citation_key="oldkey", date_added="", pdf_key="", pdf_path="",
                       pdf_status="ok")
     hub.upsert_catalogue([old], {})
-    chunks = [SimpleNamespace(name=f"oldkey pages {i}-{i + 1}", text=f"t{i}") for i in range(3)]
+    chunks = [Passage(text=f"t{i}", embed_text=f"t{i}", pages=f"{i}-{i + 1}", part="body")
+              for i in range(3)]
     hub.add_paper(old, chunks, "h")
     search = HubSearch(cfg, hub=hub, embedder=StubEmbedder())
     assert {r.name for r in search.search("q", k=5)} == {

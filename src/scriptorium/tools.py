@@ -58,16 +58,22 @@ _ITEM_FILTERS = """Filters (all optional; any other key is an error): {"creators
 
 
 @mcp.tool(meta=REPLY_LIMIT_META)
-def hub_search_chunks(query: str, k: int = 10, filters: dict | None = None) -> list[dict]:
-    """Search INSIDE the library's papers: dense retrieval over full-text
-    chunks of every PDF-indexed paper. Use when the question is about
-    content: what the literature says, evidence for a claim, how a method
-    works. Returns the top-k most similar chunks, each with citation key,
-    page range, similarity score and full chunk text (~5,000 characters
-    each, so k up to 7 fits one reply; larger replies may be saved to a
-    file instead). To find which items the library holds, use
-    hub_search_items. Dense retrieval only; relevance scoring of the
-    returned chunks is the caller's job.
+def hub_search_chunks(query: str, k: int = 10, filters: dict | None = None,
+                      context: int = 0) -> list[dict]:
+    """Search INSIDE papers: semantic search over the paragraphs of every
+    paper with an indexed PDF (body text, footnotes and appendices; not
+    titles or abstracts, which hub_search_items searches). The usual flow:
+    find papers with hub_search_items, then search inside them here with
+    {"item_keys": [...]}. Use when the question is about content: what a
+    paper or the literature says, evidence for a claim, how a method works.
+    Returns the k most similar passages (about 90 words each, at most ~300),
+    best first, each with citation key, pages, part (body | footnote |
+    appendix), chunk_index (its position in the paper), similarity and
+    text. context=1-3 adds the passages before and after each hit in the
+    same part ("before", "after"), for reading a hit in place. One reply
+    holds at most 20 passages: k x (1 + 2 x context) <= 20 (k up to 20;
+    with context=1, up to 6). Tables and formulas read as text are never
+    returned. Relevance judgement of the hits is the caller's job.
 
     Optional metadata filters restrict the pool BEFORE similarity ranking:
     {"creators": [surnames], "creators_all": [surnames], "years": [ints],
@@ -78,7 +84,7 @@ def hub_search_chunks(query: str, k: int = 10, filters: dict | None = None) -> l
     "creators_all" ALL. Resolve venues and years with hub_facets first."""
     d = current()
     try:
-        return [r.to_dict() for r in d.search.search(query, k=k, filters=filters)]
+        return [r.to_dict() for r in d.search.search(query, k=k, filters=filters, context=context)]
     except ValueError as exc:
         raise ToolError(str(exc)) from exc
 
@@ -140,8 +146,9 @@ _SEARCH_ITEMS = inspect.cleandoc(f"""Search FOR library items about a topic: sem
     judged without opening items. For a complete list or a count of
     everything matching filters (all works by an author, a venue's items for
     a year), use hub_list_items; to check whether a specific paper is in the
-    library by DOI, arXiv ID or exact title, use hub_lookup; to read papers'
-    content, use hub_search_chunks.
+    library by DOI, arXiv ID or exact title, use hub_lookup; to search
+    inside papers (their body text), pass the item keys found here to
+    hub_search_chunks.
 
     {_ITEM_FILTERS}""")
 
@@ -520,7 +527,7 @@ def hub_attachment_link(parent_key: str, pdf_path: str, filename: str = "",
         result["indexed"] = {"deferred": "a sync is running; the next sync indexes this paper"}
         return result
     try:
-        result["indexed"] = ingest_items(d.reader, d.hub, d.cfg, [parent_key], log=log)
+        result["indexed"] = ingest_items(d.reader, d.hub, d.cfg, [parent_key], log=log, grobid=d.grobid)
     except Exception as exc:  # noqa: BLE001 — report, never mask the attach
         result["indexed"] = {"error": f"attached, but indexing failed: {exc}"}
     finally:
@@ -539,7 +546,7 @@ def hub_index(item_keys: list[str]) -> dict:
     if not d.write_lock.acquire(timeout=LOCK_WAIT_S):
         raise ToolError("a sync is running; call hub_index again when it has finished")
     try:
-        return ingest_items(d.reader, d.hub, d.cfg, item_keys, log=log)
+        return ingest_items(d.reader, d.hub, d.cfg, item_keys, log=log, grobid=d.grobid)
     finally:
         d.write_lock.release()
 

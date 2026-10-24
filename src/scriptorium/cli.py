@@ -146,10 +146,18 @@ def show(item_key: str) -> None:
 @app.command()
 def parse(
     item_key: str,
-    full: bool = typer.Option(False, help="Dump every chunk in full"),
+    full: bool = typer.Option(False, help="Dump every passage in full"),
 ) -> None:
-    """Parse one paper's PDF into chunks and report text quality."""
-    from scriptorium.parsing import ParseError, parse_paper
+    """Read one paper's PDF into passages (GROBID; the TEI is kept) and show them."""
+    from paperqa.utils import md5sum
+
+    from scriptorium.grobid import GrobidUnavailable
+    from scriptorium.parsing import (
+        ParseError,
+        grobid_from_settings,
+        parse_paper,
+        tei_store,
+    )
     from scriptorium.zotero import ZoteroReader, ZoteroUnavailableError
 
     cfg = load_config()
@@ -163,20 +171,26 @@ def parse(
         raise typer.Exit(1)
 
     typer.echo(f"{record.citation}\nkey={record.citation_key or '(none)'}  pdf={record.pdf_path}\n")
+    if record.pdf_status != "ok":
+        typer.echo(f"error: no usable PDF (status: {record.pdf_status})", err=True)
+        raise typer.Exit(1)
     try:
-        chunks = parse_paper(record, cfg)
-    except ParseError as exc:
+        chunks = parse_paper(record, md5sum(record.pdf_path), tei_store(cfg),
+                             grobid_from_settings(cfg))
+    except (ParseError, GrobidUnavailable) as exc:
         typer.echo(f"parse failed: {exc}", err=True)
         raise typer.Exit(1) from exc
 
-    total_chars = sum(len(c.text) for c in chunks)
-    typer.echo(f"{len(chunks)} chunks, {total_chars} chars total\n")
+    words = sum(len(c.text.split()) for c in chunks)
+    artefacts = sum(c.artefact for c in chunks)
+    typer.echo(f"{len(chunks)} passages ({artefacts} artefacts), {words} words\n")
     for i, c in enumerate(chunks):
+        label = (f"[{i:>3}] {c.part} pages {c.pages or '?'} ({len(c.text.split())} words)"
+                 + (" ARTEFACT" if c.artefact else ""))
         if full:
-            typer.echo(f"--- {c.name} ({len(c.text)} chars) ---\n{c.text}\n")
+            typer.echo(f"--- {label} ---\n{c.text}\n")
         else:
-            preview = " ".join(c.text[:300].split())
-            typer.echo(f"[{i:>2}] {c.name} ({len(c.text)} chars)\n     {preview}...\n")
+            typer.echo(f"{label}\n     {c.text[:300]}...\n")
 
 
 @app.command()

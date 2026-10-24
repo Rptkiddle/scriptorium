@@ -2,7 +2,6 @@
 and revision checks, the in-memory vectors' reload rule, and the sync
 state's round trip."""
 
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -11,6 +10,7 @@ from scriptorium.config import Config
 from scriptorium.index import HubIndex
 from scriptorium.search import HubSearch
 from scriptorium.store import VectorMatrix, from_blob, to_blob
+from scriptorium.tei import Passage
 from scriptorium.zotero import PaperRecord
 
 
@@ -119,7 +119,7 @@ def test_a_replaced_chunk_is_skipped_by_a_search_with_older_vectors(tmp_path):
     writing = {"now": False}
     search = HubSearch(cfg, hub=hub, embedder=Embedder(), writing=lambda: writing["now"])
     hub.upsert_catalogue([record("P")], {})
-    chunks = [SimpleNamespace(name=f"p pages {i}", text=f"t{i}") for i in range(3)]
+    chunks = [Passage(text=f"t{i}", embed_text=f"t{i}", pages=str(i), part="body") for i in range(3)]
     hub.add_paper(record("P"), chunks, "h1")
     assert len(search.search("q", k=10)) == 3
     writing["now"] = True
@@ -132,7 +132,7 @@ def test_sync_state_round_trips_through_the_store(tmp_path):
     cfg = Config(index_dir=tmp_path, embedding_dim=4)
     hub = HubIndex(cfg, embedder=Embedder())
     hub.upsert_catalogue([record("A"), record("B", pdf="no_pdf")], {})
-    hub.add_paper(record("A"), [SimpleNamespace(name="a pages 1-2", text="x")], "hash")
+    hub.add_paper(record("A"), [Passage(text="x", embed_text="x", pages="1-2", part="body")], "hash")
     hub.record_failure("C", "PDF parsed to empty text", "h:2")
     hub.state.catalogue["B"] = 7  # e.g. a version rebase
     hub.state.library_version, hub.state.last_sync_at = 42, "2026-10-23T12:00:00Z"
@@ -148,7 +148,7 @@ def test_sync_state_round_trips_through_the_store(tmp_path):
 def test_chunk_search_without_a_catalogue_row_still_finds_the_chunk(tmp_path):
     cfg = Config(index_dir=tmp_path, embedding_dim=4)
     hub = HubIndex(cfg, embedder=Embedder())
-    hub.add_paper(record("Z"), [SimpleNamespace(name="z pages 1", text="x")], "h")
+    hub.add_paper(record("Z"), [Passage(text="x", embed_text="x", pages="1", part="body")], "h")
     hit = HubSearch(cfg, hub=hub, embedder=Embedder()).search("q")[0]
     assert (hit.item_key, hit.citation_key, hit.name) == ("Z", "Z", "Z pages 1")
 

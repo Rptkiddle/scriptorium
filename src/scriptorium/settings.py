@@ -8,9 +8,9 @@ fall back to DEFAULTS, so a new setting needs a DEFAULTS entry and a SCHEMA
 entry (the GUI and the dashboard reference render from SCHEMA).
 
 These are runtime preferences (retrieval depth, subagent models, poll
-intervals). Parameters whose change would obligate a re-index (chunking,
-embedding model, bibliography detection) are deliberately NOT here — they
-live in config.py / code.
+intervals). Parameters whose change would obligate a re-index (the passage
+rules, the embedding model, GROBID's request) are deliberately NOT here —
+they live in config.py / code.
 """
 
 import json
@@ -25,8 +25,14 @@ DEFAULTS: dict = {
     "general": {
         "menubar_health_interval": 5,  # seconds between /health polls
         "menubar_staleness_interval": 60,  # seconds between Zotero version checks
-        "model_idle_minutes": 15,  # unload the embedding model after idle (0 = never)
-        "index_idle_minutes": 15,  # release the in-memory search vectors after idle (0 = never)
+        "model_idle_minutes": 5,  # unload the embedding model after idle (0 = never)
+        "index_idle_minutes": 5,  # release the in-memory search vectors after idle (0 = never)
+        # GROBID reads PDFs into structured text (grobid.py); it is started when
+        # a PDF needs reading and stopped after this long idle (0 = never).
+        "grobid_idle_minutes": 5,
+        "grobid_dir": "~/.local/share/grobid/install",  # its standalone install
+        "grobid_port": 8070,
+        "grobid_java_home": "",  # Java 21; empty = JAVA_HOME, else Homebrew's openjdk@21
         "auto_sync": 1,  # sync automatically when the index is behind Zotero
         "auto_sync_interval": 60,  # seconds between the daemon's staleness checks
     },
@@ -86,6 +92,8 @@ _INT_BOUNDS = {
     "menubar_staleness_interval": (10, 3600),
     "model_idle_minutes": (0, 1440),
     "index_idle_minutes": (0, 1440),
+    "grobid_idle_minutes": (0, 1440),
+    "grobid_port": (1024, 65535),
     "nightly_hour": (0, 23),
     "catchup_days": (1, 30),
     "auto_add": (0, 1),
@@ -246,6 +254,15 @@ SCHEMA: dict = {
             {"key": "index_idle_minutes", "kind": "int",
              "label": "Index idle release (min)",
              "doc": "Free the search vectors held in memory after this long unused; 0 keeps them"},
+            {"key": "grobid_idle_minutes", "kind": "int",
+             "label": "GROBID idle stop (min)",
+             "doc": "Stop GROBID (the PDF reader, 3-4 GB while running) after this long unused; 0 keeps it running"},
+            {"key": "grobid_dir", "kind": "text", "label": "GROBID install folder",
+             "doc": "GROBID's standalone install (grobid-service and grobid-home)"},
+            {"key": "grobid_port", "kind": "int", "label": "GROBID port",
+             "doc": "Local port GROBID listens on (127.0.0.1 only)"},
+            {"key": "grobid_java_home", "kind": "text", "label": "Java 21 home",
+             "doc": "Empty: JAVA_HOME, else Homebrew's openjdk@21"},
             {"key": "auto_sync", "kind": "onoff", "label": "Auto-sync",
              "doc": "Sync automatically whenever the index falls behind Zotero"},
             {"key": "auto_sync_interval", "kind": "int",

@@ -27,7 +27,7 @@ import numpy as np
 STORE_FILE = "index.sqlite"
 # A schema change ships with a migration or requires a rebuild; an index
 # with a different number is refused, never read on a guess.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA = """
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -65,16 +65,21 @@ CREATE INDEX item_values_by_value ON item_values(field, value);
 CREATE INDEX item_values_by_value_lc ON item_values(field, value_lc);
 CREATE INDEX item_values_by_item ON item_values(item_key);
 
--- Full-text chunks. Metadata (citation, creators, year, venue) is not
--- copied here: it is read from the item's catalogue row, so an edit in
--- Zotero changes one row, not every chunk.
+-- Full-text passages (tei.passages), numbered in reading order: body,
+-- then footnotes, then appendix. Metadata (citation, creators, year,
+-- venue) is not copied here: it is read from the item's catalogue row, so
+-- an edit in Zotero changes one row, not every passage. An artefact
+-- (a table or formula read as text) is stored without a vector, so
+-- searches never return it.
 CREATE TABLE chunks(
     id          INTEGER PRIMARY KEY,
     item_key    TEXT NOT NULL,
     chunk_index INTEGER NOT NULL,
+    part        TEXT NOT NULL DEFAULT 'body',  -- body | footnote | appendix
     pages       TEXT NOT NULL,              -- e.g. "3-5"
     text        TEXT NOT NULL,
-    vec         BLOB NOT NULL,
+    artefact    INTEGER NOT NULL DEFAULT 0,
+    vec         BLOB,                       -- NULL for an artefact
     UNIQUE(item_key, chunk_index)
 );
 

@@ -35,6 +35,10 @@ from scriptorium.store import FilterSQL, VectorMatrix, any_value
 # per-tool limit as a margin (tools.REPLY_LIMIT_META).
 LIST_LIMIT_MAX = 60
 SEARCH_K_MAX = 40
+# A passage is at most ~300 words (~2,000 characters), so a passage-search
+# reply holds at most this many passages, hits and their context together.
+PASSAGES_MAX = 20
+CONTEXT_MAX = 3
 ABSTRACTS_MAX = 15
 ABSTRACT_CHARS = 2000
 AUTHORS_SHOWN = 10
@@ -188,6 +192,9 @@ class SearchResult:
     similarity: float
     item_key: str
     chunk_index: int
+    part: str = "body"
+    before: list[str] | None = None  # context: the passages before, nearest last
+    after: list[str] | None = None   # context: the passages after, nearest first
 
     def to_dict(self) -> dict:
         return {
@@ -198,8 +205,9 @@ class SearchResult:
             "similarity": round(self.similarity, 4),
             "item_key": self.item_key,
             "chunk_index": self.chunk_index,
+            "part": self.part,
             "text": self.text,
-        }
+        } | ({"before": self.before, "after": self.after} if self.before is not None else {})
 
 
 class HubSearch:
@@ -247,7 +255,9 @@ class HubSearch:
                 return m
             # Chunk results are read back by chunk id; item results by item key
             # (an item's rowid is not used).
-            sql = ("SELECT id, item_key, vec FROM chunks ORDER BY id" if kind == "chunks"
+            # Artefacts (tables, formulas read as text) have no vector.
+            sql = ("SELECT id, item_key, vec FROM chunks WHERE vec IS NOT NULL ORDER BY id"
+                   if kind == "chunks"
                    else "SELECT rowid, item_key, vec FROM items ORDER BY rowid")
             m = VectorMatrix.load(self.store.query(sql), self.config.embedding_dim, current)
             self._matrices[kind] = m
@@ -267,7 +277,16 @@ class HubSearch:
 
     # -- searches ----------------------------------------------------------
 
-    def search(self, query: str, k: int = 10, filters: dict | None = None) -> list[SearchResult]:
+    def search(self, query: str, k: int = 10, filters: dict | None = None,
+               context: int = 0) -> list[SearchResult]:
+        """The k passages most similar to the query; with context n, each
+        with the n passages before and after it in the same part of its
+        paper."""
+        if not 0 <= context <= CONTEXT_MAX:
+            raise ValueError(f"context must be 0-{CONTEXT_MAX}")
+        if k < 1 or k * (1 + 2 * context) > PASSAGES_MAX:
+            raise ValueError(f"k x (1 + 2 x context) must be at most {PASSAGES_MAX} passages"
+                             f" (with context {context}: k up to {PASSAGES_MAX // (1 + 2 * context)})")
         flt = build_filter(filters, CHUNK_FILTER_KEYS)
         query_vector = self._query_vector(self.embedder.encode_query, query)
         m = self._matrix("chunks")
@@ -280,7 +299,7 @@ class HubSearch:
         score = {int(m.ids[row]): s for row, s in best}
         marks = ", ".join("?" * len(ids))
         rows = {r["id"]: r for r in self.store.query(
-            "SELECT c.id, c.item_key, c.chunk_index, c.pages, c.text, i.citation_key,"
+            "SELECT c.id, c.item_key, c.chunk_index, c.part, c.pages, c.text, i.citation_key,"
             " json_extract(i.payload, '$.citation') AS citation"
             f" FROM chunks c LEFT JOIN items i ON i.item_key = c.item_key WHERE c.id IN ({marks})",
             ids)} if ids else {}
@@ -294,9 +313,17 @@ class HubSearch:
                 rank=len(results) + 1, citation_key=docname, citation=r["citation"] or "",
                 name=f"{docname} pages {r['pages']}" if r["pages"] else docname,
                 text=r["text"], similarity=score[cid], item_key=r["item_key"],
-                chunk_index=r["chunk_index"]))
+                chunk_index=r["chunk_index"], part=r["part"]))
             if len(results) == k:
                 break
+        if context:
+            for hit in results:
+                near = self.store.query(
+                    "SELECT chunk_index, text FROM chunks WHERE item_key = ? AND part = ?"
+                    " AND chunk_index BETWEEN ? AND ? ORDER BY chunk_index",
+                    (hit.item_key, hit.part, hit.chunk_index - context, hit.chunk_index + context))
+                hit.before = [n["text"] for n in near if n["chunk_index"] < hit.chunk_index]
+                hit.after = [n["text"] for n in near if n["chunk_index"] > hit.chunk_index]
         return results
 
     def facets(self, field: str, contains: str = "", scope: str = "fulltext",

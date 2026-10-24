@@ -23,6 +23,7 @@ from scriptorium.config import Config
 from scriptorium.identifiers import item_identifiers, normalise_title
 from scriptorium.names import authors_from_formatted, keys_from_formatted
 from scriptorium.store import STORE_FILE, VALUE_FIELDS, Store, dumps, to_blob
+from scriptorium.tei import Passage
 from scriptorium.zotero import PaperRecord
 
 _QUERY_PROMPT = (
@@ -294,12 +295,6 @@ def catalogue_fields(r: PaperRecord, folders: dict[str, tuple[str, str, str]]) -
     }
 
 
-def _pages(chunk_name: str) -> str:
-    """The page range of a PaperQA2 chunk name ("<docname> pages 3-5")."""
-    _, sep, pages = chunk_name.partition(" pages ")
-    return pages if sep else ""
-
-
 _UPSERT_PAPER = (
     "INSERT INTO papers(item_key, version, content_hash, chunks, parser, meta)"
     " VALUES(?, ?, ?, ?, ?, ?) ON CONFLICT(item_key) DO UPDATE SET"
@@ -477,21 +472,24 @@ class HubIndex:
         self._mark_saved(item_key)
         self.store.generation["chunks"] += 1
 
-    def add_paper(self, record: PaperRecord, chunks, content_hash: str) -> int:
-        """Embed one paper's chunks and store them, replacing any earlier
-        ones, in one transaction with its bookkeeping. Returns the count."""
+    def add_paper(self, record: PaperRecord, chunks: list[Passage], content_hash: str) -> int:
+        """Embed one paper's passages and store them, replacing any earlier
+        ones, in one transaction with its bookkeeping. Artefacts are stored
+        without a vector. Returns the count."""
         from scriptorium.parsing import PARSER_VERSION
         from scriptorium.zotero import METADATA_VERSION
 
-        vectors = self._encode([c.text for c in chunks])
-        rows = [(record.item_key, i, _pages(c.name), c.text, to_blob(v))
-                for i, (c, v) in enumerate(zip(chunks, vectors, strict=True))]
+        embedded = iter(self._encode([c.embed_text for c in chunks if not c.artefact]))
+        rows = [(record.item_key, i, c.part, c.pages, c.text, int(c.artefact),
+                 None if c.artefact else to_blob(next(embedded)))
+                for i, c in enumerate(chunks)]
         entry = {"version": record.version, "content_hash": content_hash,
                  "chunks": len(rows), "parser": PARSER_VERSION, "meta": METADATA_VERSION}
         with self.store.transaction() as st:
             st.execute("DELETE FROM chunks WHERE item_key = ?", (record.item_key,))
             st.conn.executemany(
-                "INSERT INTO chunks(item_key, chunk_index, pages, text, vec) VALUES(?, ?, ?, ?, ?)",
+                "INSERT INTO chunks(item_key, chunk_index, part, pages, text, artefact, vec)"
+                " VALUES(?, ?, ?, ?, ?, ?, ?)",
                 rows)
             st.execute(_UPSERT_PAPER, (record.item_key, *entry.values()))
             st.execute("DELETE FROM failures WHERE item_key = ?", (record.item_key,))
