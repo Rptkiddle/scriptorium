@@ -173,6 +173,7 @@ def sync_library(
     records = reader.iter_papers()
     hashes = PdfHashes(hub.state_path.with_name("pdf_hashes.json"))
     store = tei_store(config)
+    own_grobid = grobid is None  # started here: stopped once the PDFs are read
     grobid = grobid or grobid_from_settings(config)
 
     last_sync_at = hub.state.last_sync_at
@@ -248,6 +249,8 @@ def sync_library(
         grobid_unavailable = read_new_pdfs(
             [r for r in records if r.item_key in to_embed], to_embed, hub, store, grobid,
             log, progress, cancel)
+        if own_grobid:
+            grobid.stop()  # 3-4 GB the embedding phase does not need
     waiting = 0
 
     for i, record in enumerate(records):
@@ -379,7 +382,7 @@ def ingest_items(
     reader.check_available()
     hashes = PdfHashes(hub.state_path.with_name("pdf_hashes.json"))
     store = tei_store(config)
-    grobid = grobid or grobid_from_settings(config)
+    grobid = grobid or grobid_from_settings(config)  # stopped at process exit
     ingested, metadata_updated, skipped, catalogued, errors = [], [], [], [], {}
     folders = None
     for key in item_keys:
