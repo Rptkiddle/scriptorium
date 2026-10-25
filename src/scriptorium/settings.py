@@ -27,7 +27,7 @@ DEFAULTS: dict = {
         "menubar_staleness_interval": 60,  # seconds between Zotero version checks
         "model_idle_minutes": 5,  # unload the embedding model after idle (0 = never)
         "index_idle_minutes": 5,  # release the in-memory search vectors after idle (0 = never)
-        # GROBID reads PDFs into structured text (grobid.py); it is started when
+        # GROBID parses PDFs into structured text (grobid.py); it is started when
         # a PDF needs reading and stopped after this long idle (0 = never).
         "grobid_idle_minutes": 5,
         "grobid_dir": "~/.local/share/grobid/install",  # its standalone install
@@ -256,7 +256,7 @@ SCHEMA: dict = {
              "doc": "Free the search vectors held in memory after this long unused; 0 keeps them"},
             {"key": "grobid_idle_minutes", "kind": "int",
              "label": "GROBID idle stop (min)",
-             "doc": "Stop GROBID (the PDF reader, 3-4 GB while running) after this long unused; 0 keeps it running"},
+             "doc": "Stop GROBID (the PDF parser, 3-4 GB while running) after this long unused; 0 keeps it running"},
             {"key": "grobid_dir", "kind": "text", "label": "GROBID install folder",
              "doc": "GROBID's standalone install (grobid-service and grobid-home)"},
             {"key": "grobid_port", "kind": "int", "label": "GROBID port",

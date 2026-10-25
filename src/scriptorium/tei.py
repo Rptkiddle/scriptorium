@@ -1,6 +1,6 @@
 """GROBID's TEI output: turning it into passages, and keeping it on disk.
 
-GROBID reads a PDF into TEI XML: the body as headed sections of paragraphs
+GROBID parses a PDF into TEI XML: the body as headed sections of paragraphs
 (<p>, each split into sentences <s>), footnotes as <note place="foot">, and
 the back matter (references, acknowledgements, funding, appendices) in
 <back>. Each sentence carries its position on the page (coords), so every
