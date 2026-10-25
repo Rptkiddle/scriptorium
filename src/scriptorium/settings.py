@@ -99,7 +99,7 @@ _INT_BOUNDS = {
     "auto_add": (0, 1),
     "auto_sync": (0, 1),
     "auto_sync_interval": (10, 3600),
-    "k": (1, 50),
+    "k": (1, 20),  # passage search returns at most 20 passages a call
     "force_chunks": (1, 10),
     "summary_words": (50, 300),
     "rcs_cutoff": (0, 3),
@@ -337,7 +337,7 @@ SCHEMA: dict = {
                   " (PaperQA2's procedure with Claude subagents as the judges)."),
         "fields": [
             {"key": "k", "kind": "int", "label": "k - chunks per query",
-             "doc": "Retrieved per query formulation (PaperQA2 evidence_k)"},
+             "doc": "Retrieved per query formulation (PaperQA2 evidence_k); at most 20, passage search's cap"},
             {"key": "force_chunks", "kind": "int", "label": "Forced chunks per green-lit paper",
              "doc": "Chunks forced into the pool for each paper the green-light pass names"},
             {"key": "summary_words", "kind": "int", "label": "Evidence summary length (words)",

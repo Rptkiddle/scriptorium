@@ -19,6 +19,7 @@ the library can be audited and undone from the data directory.
 """
 
 import datetime
+import hashlib
 import html
 import json
 import re
@@ -86,6 +87,14 @@ def _list_edit(item_keys, add, remove, what: str) -> tuple[list[str], list[str],
 _HTML_TAG = re.compile(
     r"</?(p|br|div|span|b|i|u|s|em|strong|a|ul|ol|li|h[1-6]|blockquote|pre|code|sub|sup"
     r"|table|tr|td|th)\b[^>]*>", re.IGNORECASE)
+
+
+def _md5(path: Path) -> str:
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
 
 
 def _note_html(note: str) -> str:
@@ -380,11 +389,17 @@ class ZoteroWriter:
         is left in place) and creates a linked_file attachment whose path is
         base-relative, so it stays valid on any machine sharing the base
         directory setting. When no filename is given, the file is named by
-        the parent's citation key, falling back to the source name.
+        the parent's citation key, falling back to the source name. If the
+        parent already has an attachment with this file's content, nothing is
+        written and that attachment is returned ("existing": true), so a
+        repeated call is harmless.
         """
         pdf = Path(pdf_path).expanduser()
         if not pdf.is_file():
             raise ZoteroWriteError(f"no file at {pdf}")
+        existing = self._attached_copy(parent_key, pdf)
+        if existing:
+            return existing
         if not filename:
             try:
                 filename = (self._reader.item_raw(parent_key) or {}).get("citationKey", "")
@@ -427,3 +442,26 @@ class ZoteroWriter:
                 target.unlink(missing_ok=True)
             raise
         return {**result, "file": str(target)}
+
+    def _attached_copy(self, parent_key: str, pdf: Path) -> dict | None:
+        """The parent's attachment that already holds this file (same
+        content, any name), so attaching it again changes nothing instead
+        of creating a second record and a -1 copy. None if there is none or
+        Zotero cannot be read (the bridge call then reports the problem)."""
+        try:
+            children = self._reader.children(parent_key)
+        except Exception:  # noqa: BLE001 — Zotero closed or key unknown
+            return None
+        size, digest = pdf.stat().st_size, None
+        for child in children:
+            path = Path(child.get("path") or "")
+            if (child.get("item_type") != "attachment" or not path.is_file()
+                    or path.stat().st_size != size):
+                continue
+            digest = digest or _md5(pdf)
+            if _md5(path) != digest:
+                continue
+            if (self._reader.item_raw(child["key"]) or {}).get("deleted"):
+                continue  # in the trash: attach afresh
+            return {"existing": True, "attachment_key": child["key"], "file": str(path)}
+        return None

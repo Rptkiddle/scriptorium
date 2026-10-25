@@ -130,8 +130,9 @@ through
 `hub_attachment_link`, which names the file by citation key, stores it as a
 linked file and indexes the full text. Each item is re-checked live first,
 so nothing is attached twice; a re-run skips items already attached
-(`attached.jsonl`). Attaching takes about 8 seconds per paper, so a large
-run is an overnight job. The staged files are kept until the user has
+(`attached.jsonl`). Attaching takes a few seconds per paper once the PDF
+parser (GROBID) is running (the first attach waits about a minute for it
+to start), so a large run takes hours. The staged files are kept until the user has
 checked the result.
 
 ## 5 — The rest

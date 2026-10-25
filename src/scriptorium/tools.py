@@ -516,7 +516,11 @@ def hub_attachment_link(parent_key: str, pdf_path: str, filename: str = "",
     created directly in the local library via the bridge plugin. Omit
     filename to name the file by the parent's citation key (preferred).
     The paper is full-text indexed in the same call; the result carries
-    "indexed". `run` names the calling run in the write log."""
+    "indexed". The first attach after the PDF parser (GROBID) has been idle
+    starts it and takes about a minute; later ones take seconds. A PDF the
+    item already holds (same content, any name) is not attached again: the
+    result is the existing attachment, "existing": true, so a repeated call
+    is harmless. `run` names the calling run in the write log."""
     d = current()
     result = d.writer.link_attachment(parent_key, pdf_path, filename=filename,
                                       source=run or None)
@@ -542,7 +546,9 @@ def hub_index(item_keys: list[str]) -> dict:
     their metadata and, for items with a PDF, parse, chunk, and embed the
     full text. Requires the Zotero app to be running. Rarely needed
     directly — hub_attachment_link indexes in the same call and the daemon
-    auto-syncs when the library changes; use this for targeted re-indexing."""
+    auto-syncs when the library changes; use this for targeted re-indexing.
+    Parsing a PDF after the PDF parser (GROBID) has been idle starts it
+    first, which takes about a minute."""
     d = current()
     if not d.write_lock.acquire(timeout=LOCK_WAIT_S):
         raise ToolError("a sync is running; call hub_index again when it has finished")

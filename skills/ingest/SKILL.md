@@ -168,7 +168,10 @@ the linked-attachments folder and full-text-indexes the paper in the same
 call (the result carries `"indexed"`). Delete the inbox copy only after
 the result confirms the copied file and that indexing succeeded or was
 deferred (`"deferred"`: a sync was running and the next sync indexes the
-paper); keep it if `"indexed"` holds an error.
+paper); keep it if `"indexed"` holds an error. The first attach after the
+PDF parser (GROBID) has been idle starts it and takes about a minute;
+later ones take seconds. Calling it again for the same PDF is harmless: it
+returns the existing attachment (`"existing": true`) and writes nothing.
 
 ## Step 5 — Index and report
 
