@@ -37,7 +37,7 @@ class Daemon:
         self.search = HubSearch(cfg, hub=self.hub, embedder=self.embedder,
                                 writing=self.write_lock.locked)
         self.reader = ZoteroReader(cfg)
-        # GROBID reads PDFs; started by the first PDF a sync or attach needs
+        # GROBID parses PDFs; started by the first PDF a sync or attach needs
         # read, stopped by the idle reaper (general.grobid_idle_minutes).
         self.grobid = grobid_from_settings(cfg)
         # A write through the hub wakes the auto-sync watcher, so the index

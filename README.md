@@ -5,7 +5,7 @@
 
 Scriptorium is an experimental project in which I explore how AI agents can work with the research literature effectively and semi-autonomously. It centres on a knowledge store (currently: Zotero) and the cycle of work around it. It is motivated by the idea that agentic workflows may be beneficial in interfacing systematically with the sheer number of publications encountered today, especially when working at interdisciplinary junctions.
 
-Currently, a Python daemon indexes the store (embedded Qdrant + Qwen3-Embedding-0.6B + PaperQA2's modified PyMuPDF reader) and serves it as 22+ MCP tools for agentic workflows. It reads Zotero via local API and writes through a small Zotero plugin (also included). It also requires access to the Crossref, OpenAlex and (ideally) Semantic Scholar APIs (for now, these are all free). Currently, it also invokes some custom Claude Code 'skills' for certain tasks, but my longer-term aim is to make the package vendor-free.
+Currently, a Python daemon indexes the store (SQLite + Qwen3-Embedding-0.6B + GROBID) and serves it as 29 MCP tools for agentic workflows. It reads Zotero via local API and writes through a small Zotero plugin (also included). It also requires access to the Crossref, OpenAlex and (ideally) Semantic Scholar APIs (for now, these are all free). Currently, it also invokes some custom Claude Code 'skills' for certain tasks, but my longer-term aim is to make the package vendor-free.
 
 I am a PhD candidate and postdoctoral researcher in Communication Science at Vrije Universiteit Amsterdam. I built scriptorium as a working tool for my own research, and as an experimental project in learning to interface with a voluminous interdisciplinary literature. I share it as a tool under heavy development, currently quite personalised to my own workflow, and liable to change and break. If you have questions, or want to collaborate, feel free to reach me at r.t.kiddle@vu.nl.
 
@@ -36,14 +36,14 @@ I am a PhD candidate and postdoctoral researcher in Communication Science at Vri
 
 ## Features
 
-**Hub.** The index holds one catalogue entry per library item (title and abstract embedded; authors, year, item type, venue, folder path, tags and date added stored as filters) and overlapping full-text passages of about 5,000 characters for every item with a PDF, with the reference list removed. The daemon re-syncs whenever Zotero's library version changes (on any change to library items), and logs every write to Zotero with the item's previous state.
+**Hub.** The index holds one catalogue entry per library item (title and abstract embedded; authors, year, item type, venue, folder path, tags and date added stored as filters) and paragraph-level full-text passages for every item with a PDF, parsed by GROBID, with references, captions and tables left out. The daemon re-syncs whenever Zotero's library version changes (on any change to library items, and straight after a write through the hub), and logs every write to Zotero with the item's previous state.
 
 **Skills.**
 
 | Skill | Phase | What it does |
 |---|---|---|
 | <img src="docs/assets/dog-search.svg" width="140" alt="search"><br>`/scriptorium:search` | 1 | Spot searches and lookups; picks the right search tool and resolves filter values first |
-| <img src="docs/assets/dog-ingest.svg" width="140" alt="ingest"><br>`/scriptorium:ingest` | 1 | Adds papers with verified metadata, from PDFs in a local path or from DOIs |
+| <img src="docs/assets/dog-ingest.svg" width="140" alt="ingest"><br>`/scriptorium:ingest` | 1 | Adds papers with verified metadata, from PDFs, DOIs or full records, keeping a paper's published version over its preprints |
 | <img src="docs/assets/dog-retrieve.svg" width="140" alt="retrieve"><br>`/scriptorium:retrieve` | 1 | Downloads versions of record from publishers' sites, checks each against its title, and attaches on approval |
 | <img src="docs/assets/dog-surveil.svg" width="140" alt="surveil"><br>`/scriptorium:surveil` | 2 | Runs one surveillance cycle: Crossref harvest, filter, appraise, digest, add |
 | <img src="docs/assets/dog-interrogate.svg" width="140" alt="interrogate"><br>`/scriptorium:interrogate` | 2 | Answers a question from the full text of the library, citing passages with page ranges |
@@ -59,7 +59,9 @@ Claude Code session
      ▼
 daemon (scriptorium serve)
   tools.py    MCP tools
-  index.py    embedded Qdrant: catalogue + full-text chunks
+  index.py    SQLite: catalogue + full-text passages
+  grobid.py   GROBID, run while PDFs need parsing
+  tei.py      its output cut into passages
   search.py   filters, lookup, listing
   routes.py   dashboard and settings pages
      │                              │
@@ -78,18 +80,19 @@ launchd ──► launcher.py ──► surveillance_cycle.py ──► claude -
 | Read | `hub_lookup` | Exact match on DOI, arXiv ID or title, many at once |
 | | `hub_list_items` | Every item matching filters, paged, with a total; `limit=0` counts |
 | | `hub_search_items` | Items about a topic (title and abstract), narrowed by filters |
-| | `hub_search_chunks` | Passages from papers with an indexed PDF |
+| | `hub_search_chunks` | Passages from papers with an indexed PDF, optionally with their neighbouring paragraphs |
 | | `hub_search_pool` | The papers `hub_search_chunks` would draw from under a filter set |
 | | `hub_facets` | Filter values with counts |
 | | `hub_item` | One item in full, with its PDF path |
 | | `hub_children` | An item's attachments and notes |
-| | `hub_collections` | The folder tree, or one folder's items |
+| | `hub_collections` | The folder tree (or folders by name), or one folder's items |
 | | `hub_tags` | Tags in the library |
+| | `hub_bibtex` | BibLaTeX or BibTeX entries for citation keys |
 | Write | `hub_item_create`, `hub_item_update`, `hub_item_delete` | Create, patch, trash items |
 | | `hub_item_tags`, `hub_item_collections` | Add or remove single tags or folders, keeping the rest |
 | | `hub_note_create` | Add a note to an item |
 | | `hub_item_type` | Change item type; fields the new type lacks go to Extra |
-| | `hub_trash`, `hub_item_restore` | List the trash, take items out of it |
+| | `hub_trash`, `hub_item_restore` | List the trash (or search it by title), take items out of it |
 | | `hub_collection_create`, `_rename`, `_move`, `_delete` | Folder changes |
 | | `hub_attachment_link` | Attach a PDF as a linked file and index it |
 | Index | `hub_index`, `hub_sync`, `hub_sync_cancel`, `hub_status` | Index items, reconcile with Zotero, stop a sync, report health |
@@ -103,6 +106,7 @@ launchd ──► launcher.py ──► surveillance_cycle.py ──► claude -
 - Zotero 10+, with local API access enabled and the Scriptorium Bridge plugin installed
 - (currently) Claude Code, with the Crossref, OpenAlex and Semantic Scholar MCP servers (used by the skills)
 - Python 3.12+ and [uv](https://docs.astral.sh/uv/)
+- Java 21 and [GROBID](https://github.com/grobidOrg/grobid) 0.9.1
 
 ## Installation
 
@@ -117,6 +121,8 @@ SCRIPTORIUM_HF_ONLINE=1 uv run scriptorium sync   # first index build; downloads
 2. Build the app bundle with `app/build.sh` and open `~/Applications/Scriptorium.app` once from Finder to grant Desktop access (again after every rebuild).
 3. Copy the two plists in `launchd/` to `~/Library/LaunchAgents`, adjust their paths, and load each with `launchctl bootstrap gui/$UID <plist>`.
 4. In Claude Code: `/plugin marketplace add <path or URL of this repo>`, then `/plugin install scriptorium@scriptorium`.
+5. Install Java 21 (`brew install openjdk@21`).
+6. Build GROBID from its source release with `./gradlew clean assemble` and unpack the two zips it produces (`grobid-service`, `grobid-home`) into the folder named by the `grobid_dir` setting (default `~/.local/share/grobid/install`). Then run `chmod +x grobid-home/pdfalto/*/pdfalto*` (the zip drops the execute bit) and add `bindHost: 127.0.0.1` under both connectors in `grobid-home/config/grobid.yaml`. scriptorium starts and stops GROBID itself.
 
 ## Usage
 
@@ -138,7 +144,7 @@ Scripts:
 ```sh
 uv run python scripts/surveil.py [--from YYYY-MM-DD]
 uv run python scripts/fetch_pdfs.py --plan | --pilot N | --publisher P | --keys-from <run>/added.json [--retry]
-uv run python scripts/attach_pdfs.py --run <fetch run folder>
+uv run python scripts/attach_pdfs.py --run <fetch run folder> [--review | --accept KEY ... | --reject KEY ...]
 uv run python scripts/ingest_add.py --entries <entries.json> [--dry-run]
 uv run python scripts/dedupe_versions.py [--apply <run folder>]
 ```
@@ -147,7 +153,7 @@ The daemon serves a dashboard and settings page at `http://localhost:8765/`.
 
 ## Configuration
 
-Settings are edited at `/settings` and stored in the data directory (mode 600); API keys are never served back over HTTP. Sections: `general` (sync and idle timers), `zotero` (linked-attachments folder), `surveillance` (schedule, research profile, models, abstract-source keys), `interrogation` (retrieval and scoring parameters, models) and `discovery` (Semantic Scholar key, models, caps). Models are aliases (`haiku`, `sonnet`, `opus`, `fable`).
+Settings are edited at `/settings` and stored in the data directory (mode 600); API keys are never served back over HTTP. Sections: `general` (sync and idle timers, GROBID), `zotero` (linked-attachments folder, default BibTeX format), `surveillance` (schedule, research profile, models, abstract-source keys), `interrogation` (retrieval and scoring parameters, models) and `discovery` (Semantic Scholar key, models, caps). Models are aliases (`haiku`, `sonnet`, `opus`, `fable`).
 
 Environment variables read by `config.py`:
 
@@ -156,9 +162,8 @@ Environment variables read by `config.py`:
 | `SCRIPTORIUM_INDEX_DIR` | the data directory |
 | `SCRIPTORIUM_ZOTERO_DATA` | Zotero's data directory |
 | `SCRIPTORIUM_EMBEDDING_MODEL`, `SCRIPTORIUM_EMBEDDING_DIM` | Qwen3-Embedding-0.6B, 256 |
-| `SCRIPTORIUM_CHUNK_CHARS`, `SCRIPTORIUM_CHUNK_OVERLAP` | 5000, 250 |
 
-Changing the chunk sizes or the model requires re-indexing.
+Changing the model requires re-indexing.
 
 ## Data layout
 
@@ -166,9 +171,10 @@ Code and data are kept apart; the repository's git-ignored `data` link points to
 
 ```
 data/
-├── settings.json, state.json     settings; index sync state
+├── settings.json                 settings
+├── index.sqlite                  the index (catalogue, passages, sync state)
+├── tei/                          each paper's GROBID output
 ├── writes.jsonl                  every write to Zotero, with the state before it
-├── qdrant/                       the index
 └── <activity>/runs/<YYYY-MM-DD-HHMMSS>[-<topic>]/
     ├── run.json                  status, summary, commit, history
     ├── report.md
@@ -195,6 +201,6 @@ Not yet licensed. I intend to release scriptorium under the GNU Affero General P
 
 To cite scriptorium, see [`CITATION.cff`](CITATION.cff).
 
-scriptorium uses PaperQA2 by FutureHouse (Apache-2.0): its document reader, chunking and retrieval defaults, and adapted versions of its evidence-summary and answer prompts. PDF text extraction uses PyMuPDF (AGPL-3.0). The banner lettering is outlined from the UnifrakturMaguntia and EB Garamond fonts (SIL Open Font License 1.1; texts in `LICENSES/`).
+scriptorium uses PaperQA2 by FutureHouse (Apache-2.0): adapted versions of its evidence-summary and answer prompts, and its retrieval defaults. PDF text extraction uses GROBID (Apache-2.0); PyMuPDF (AGPL-3.0) checks fetched PDFs against their titles. The banner lettering is outlined from the UnifrakturMaguntia and EB Garamond fonts (SIL Open Font License 1.1; texts in `LICENSES/`).
 
 Skarlinski, M. D., Cox, S., Laurent, J. M., Braza, J. D., Hinks, M. M., Hammerling, M. J., Ponnapati, M., Rodriques, S. G., & White, A. D. (2024). *Language agents achieve superhuman synthesis of scientific knowledge*. arXiv. https://doi.org/10.48550/arXiv.2409.13740

@@ -1,4 +1,4 @@
-"""GROBID, the program that reads a PDF into structured text (TEI XML).
+"""GROBID, the program that parses a PDF into structured text (TEI XML).
 
 GROBID is a Java service. scriptorium runs GROBID's standalone install
 (its start script plus its models folder) on this machine, on a local

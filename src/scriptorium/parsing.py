@@ -1,4 +1,4 @@
-"""From a paper's PDF to its passages: GROBID reads the PDF (grobid.py), its
+"""From a paper's PDF to its passages: GROBID parses the PDF (grobid.py), its
 TEI is kept (tei.TeiStore), and the TEI is cut into passages (tei.passages).
 
 Reading a PDF with GROBID and cutting the TEI are separate steps, so a
@@ -110,7 +110,7 @@ def read_pdf(record: PaperRecord, content_hash: str, store: TeiStore, grobid: Gr
 
 def parse_paper(record: PaperRecord, content_hash: str, store: TeiStore,
                 grobid: Grobid) -> list[Passage]:
-    """The record's passages, from its stored TEI (GROBID reads the PDF
+    """The record's passages, from its stored TEI (GROBID parses the PDF
     first if none matches). Raises ParseError on failure."""
     read_pdf(record, content_hash, store, grobid)
     try:

@@ -47,7 +47,7 @@ def read_new_pdfs(records: list[PaperRecord], hashes: dict[str, str], hub: HubIn
                   store: TeiStore, grobid: Grobid, log: Callable[[str], None],
                   progress: Callable[[int, int, str], None],
                   cancel: threading.Event | None) -> str:
-    """Phase one of indexing: GROBID reads every PDF that has no stored TEI
+    """Phase one of indexing: GROBID parses every PDF that has no stored TEI
     yet, a few at a time, before any embedding starts. A PDF GROBID rejects
     is recorded as a failure. Returns "" or, when GROBID cannot be started,
     the reason (those papers then wait for the next sync)."""
@@ -155,7 +155,7 @@ def sync_library(
     Setting the ``cancel`` event stops the sync cleanly between papers; the
     returned summary then carries ``cancelled: True``.
 
-    Full text is indexed in two phases: GROBID reads every new or changed
+    Full text is indexed in two phases: GROBID parses every new or changed
     PDF first (read_new_pdfs), then each paper's stored TEI is cut into
     passages and embedded. ``grobid`` is the caller's GROBID (the daemon
     keeps one and stops it when idle); without one, a sync starts its own,
@@ -229,7 +229,7 @@ def sync_library(
     if refreshed:
         log(f"  rewrote the stored fields of {refreshed} catalogue items")
 
-    # Phase one: which papers need (re)embedding, and GROBID reads their PDFs.
+    # Phase one: which papers need (re)embedding, and GROBID parses their PDFs.
     to_embed: dict[str, str] = {}  # item key -> PDF hash
     for record in records:
         if cancelled or record.pdf_status != "ok":
