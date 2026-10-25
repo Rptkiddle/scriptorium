@@ -67,7 +67,8 @@ def hub_search_chunks(query: str, k: int = 10, filters: dict | None = None,
     {"item_keys": [...]}. Use when the question is about content: what a
     paper or the literature says, evidence for a claim, how a method works.
     Returns the k most similar passages (about 90 words each, at most ~300),
-    best first, each with citation key, pages, part (body | footnote |
+    best first, each with citation key, pages (the PDF's page numbers, which
+    can differ from the journal's printed ones), part (body | footnote |
     appendix), chunk_index (its position in the paper), similarity and
     text. context=1-3 adds the passages before and after each hit in the
     same part ("before", "after"), for reading a hit in place. One reply
