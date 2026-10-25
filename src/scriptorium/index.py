@@ -1,34 +1,31 @@
-"""Embed chunks and store them in the persistent index.
+"""Embed chunks and catalogue entries and keep them in the persistent index.
 
 Embedding: Qwen3-Embedding-0.6B via sentence-transformers on MPS. Documents
 are encoded plain; queries use the model's instruction prompt (the asymmetric
 scheme Qwen3 embeddings are trained for).
 
-Storage: embedded Qdrant (on-disk, single-process) under the data directory,
-plus a JSON sync-state file recording the Zotero library-version watermark
-and per-item versions/hashes that make indexing incremental and idempotent.
+Storage: one SQLite file under the data directory (scriptorium.store),
+holding the catalogue, the full-text chunks with their vectors, and the
+sync state: the Zotero library-version watermark and the per-item
+versions and hashes that make indexing incremental and idempotent. The
+index records which model, revision and dimension made its vectors and
+refuses an embedder that does not match.
 """
 
-import contextlib
 import datetime
 import hashlib
 import json
-import os
 import threading
 import time
-import uuid
 from dataclasses import dataclass, field
-from pathlib import Path
-
-from qdrant_client import QdrantClient, models
 
 from scriptorium.config import Config
 from scriptorium.identifiers import item_identifiers, normalise_title
 from scriptorium.names import authors_from_formatted, keys_from_formatted
+from scriptorium.store import STORE_FILE, VALUE_FIELDS, Store, dumps, to_blob
+from scriptorium.tei import Passage
 from scriptorium.zotero import PaperRecord
 
-COLLECTION = "scriptorium"
-CATALOGUE = "scriptorium_catalogue"
 _QUERY_PROMPT = (
     "Instruct: Given a research question, retrieve relevant passages from"
     " academic papers that help answer the question\nQuery: "
@@ -40,13 +37,16 @@ _ITEM_QUERY_PROMPT = (
 
 
 # The catalogue embeds what a paper is about; what it is (authors, year,
-# venue, type, tags) is payload, filtered exactly. Raising this number makes
-# the next sync re-embed every catalogue entry.
+# venue, type, tags) is stored beside it and filtered exactly. Raising this
+# number makes the next sync re-embed every catalogue entry.
 CATALOGUE_DOC_VERSION = 2  # 1: title, citation, abstract, tags; 2: title, abstract
 # Raising this number makes the next sync rewrite every catalogue entry's
-# stored fields (payload) while keeping its vector.
+# stored fields while keeping its vector.
 CATALOGUE_PAYLOAD_VERSION = 2  # 1: identifiers, preprint_identifiers, title_norm; 2: authors
 _FOLDER_MARKS = ("[✓] ", "[✗] ")
+# The sync-state stamps kept in the store's meta table, with their types.
+_STAMPS = {"library_version": int, "last_sync_at": str, "catalogue_meta": int,
+           "catalogue_doc": int, "catalogue_payload": int, "catalogue_folders": str}
 
 
 def catalogue_document(record: "PaperRecord") -> str:
@@ -102,6 +102,7 @@ class Embedder:
         self.model_name = model_name
         self.truncate_dim = truncate_dim
         self._model = None
+        self._revision: str | None = None
         self.last_used: float = 0.0
         # Model inference on MPS is not thread-safe; all encode calls are
         # serialized. Documents encode in sub-batches so a concurrent query
@@ -135,6 +136,22 @@ class Embedder:
                     " HF cache. Run once with SCRIPTORIUM_HF_ONLINE=1 to download it."
                 ) from exc
         return self._model
+
+    @property
+    def revision(self) -> str:
+        """The model's revision (commit) in the local Hugging Face cache, or
+        "" when it cannot be found. Read without loading the model."""
+        if self._revision is None:
+            try:
+                from pathlib import Path
+
+                from huggingface_hub import snapshot_download
+
+                path = snapshot_download(self.model_name, local_files_only=True)
+                self._revision = Path(path).name
+            except Exception:  # noqa: BLE001 — not cached, or no hub library
+                self._revision = ""
+        return self._revision
 
     @property
     def loaded(self) -> bool:
@@ -192,12 +209,32 @@ class Embedder:
         return vector.tolist()
 
 
+def check_embedder(store: Store, embedder) -> None:
+    """Refuse an embedder whose model revision differs from the one that
+    made the stored vectors (vectors of two revisions are not comparable).
+    The first vectors written record the revision. An embedder that cannot
+    tell its revision (e.g. a test stub) is not checked."""
+    revision = getattr(embedder, "revision", "") or ""
+    if not revision:
+        return
+    stored = store.meta("embedding_revision")
+    if not stored:
+        store.set_meta("embedding_revision", revision)
+    elif stored != revision:
+        raise RuntimeError(
+            f"The index was embedded with model revision {stored}, but the embedder"
+            f" has revision {revision}. Vectors of different revisions cannot be"
+            " compared: rebuild the index, or use the matching revision.")
+
+
 @dataclass
 class SyncState:
-    """What the index believes about the library (for incremental sync)."""
+    """What the index believes about the library (for incremental sync).
+    Kept in memory; HubIndex reads it from the store and writes back what
+    changed (save_state)."""
 
     library_version: int
-    items: dict[str, dict]  # item_key -> {version, content_hash, chunks}
+    items: dict[str, dict]  # item_key -> {version, content_hash, chunks, parser, meta}
     failed: dict[str, str]  # item_key -> failure reason
     catalogue: dict[str, int]  # item_key -> version (item-level metadata index)
     catalogue_meta: int = 0  # METADATA_VERSION the whole catalogue was built with
@@ -212,66 +249,12 @@ class SyncState:
     # retries the item only when either changes
     failed_hash: dict[str, str] = field(default_factory=dict)
 
-    @classmethod
-    def load(cls, path: Path) -> "SyncState":
-        if path.exists():
-            raw = json.loads(path.read_text())
-            return cls(
-                library_version=raw.get("library_version", 0),
-                items=raw.get("items", {}),
-                failed=raw.get("failed", {}),
-                catalogue=raw.get("catalogue", {}),
-                catalogue_meta=raw.get("catalogue_meta", 0),
-                catalogue_doc=raw.get("catalogue_doc", 0),
-                catalogue_payload=raw.get("catalogue_payload", 0),
-                catalogue_folders=raw.get("catalogue_folders", ""),
-                last_sync_at=raw.get("last_sync_at", ""),
-                catalogue_pdf=raw.get("catalogue_pdf", {}),
-                failed_hash=raw.get("failed_hash", {}),
-            )
-        return cls(library_version=0, items={}, failed={}, catalogue={})
-
-    def save(self, path: Path) -> None:
-        """Atomic: write a temp file beside the target, then rename over it,
-        so a crash mid-write never leaves a truncated state file."""
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(path.name + ".tmp")
-        tmp.write_text(
-            json.dumps(
-                {
-                    "library_version": self.library_version,
-                    "items": self.items,
-                    "failed": self.failed,
-                    "catalogue": self.catalogue,
-                    "catalogue_meta": self.catalogue_meta,
-                    "catalogue_doc": self.catalogue_doc,
-                    "catalogue_payload": self.catalogue_payload,
-                    "catalogue_folders": self.catalogue_folders,
-                    "last_sync_at": self.last_sync_at,
-                    "catalogue_pdf": self.catalogue_pdf,
-                    "failed_hash": self.failed_hash,
-                },
-                indent=1,
-            )
-        )
-        with open(tmp, "rb") as fh:
-            os.fsync(fh.fileno())
-        os.replace(tmp, path)
-
-
-def _point_id(item_key: str, chunk_index: int) -> str:
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"scriptorium:{item_key}:{chunk_index}"))
-
 
 def _creator_keys(record: PaperRecord) -> list[str]:
     """The author name keys the creators filter and facet match on
     (scriptorium.names); derived from the formatted creators string when the
     record carries no structured list."""
     return record.creator_keys or keys_from_formatted(record.creators)
-
-
-def _catalogue_id(item_key: str) -> str:
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"scriptorium:item:{item_key}"))
 
 
 def catalogue_fields(r: PaperRecord, folders: dict[str, tuple[str, str, str]]) -> dict:
@@ -304,9 +287,6 @@ def catalogue_fields(r: PaperRecord, folders: dict[str, tuple[str, str, str]]) -
         "categories": names(0),
         "publishers": names(1),
         "venue_folders": names(2),
-        "categories_lc": [n.lower() for n in names(0)],
-        "publishers_lc": [n.lower() for n in names(1)],
-        "venue_folders_lc": [n.lower() for n in names(2)],
         "added_ts": _added_ts(r.date_added),
         "identifiers": own,
         "preprint_identifiers": recorded,
@@ -315,84 +295,145 @@ def catalogue_fields(r: PaperRecord, folders: dict[str, tuple[str, str, str]]) -
     }
 
 
+_UPSERT_PAPER = (
+    "INSERT INTO papers(item_key, version, content_hash, chunks, parser, meta)"
+    " VALUES(?, ?, ?, ?, ?, ?) ON CONFLICT(item_key) DO UPDATE SET"
+    " version = excluded.version, content_hash = excluded.content_hash,"
+    " chunks = excluded.chunks, parser = excluded.parser, meta = excluded.meta")
+
+
 class HubIndex:
-    """The persistent chunk index (embedded Qdrant + sync state)."""
+    """The persistent index: the SQLite store plus the in-memory sync state.
 
-    def __init__(
-        self,
-        config: Config,
-        client: QdrantClient | None = None,
-        embedder: Embedder | None = None,
-        client_lock: "threading.RLock | None" = None,
-    ):
+    Every method that writes vectors does so in one transaction together
+    with its bookkeeping; save_state() writes the rest of the state that
+    changed in memory (the sync's own edits, e.g. failures and rebased
+    versions)."""
+
+    def __init__(self, config: Config, embedder=None, store: Store | None = None):
         self.config = config
-        self.qdrant_path = config.index_dir / "qdrant"
-        self.state_path = config.index_dir / "state.json"
+        self.path = config.index_dir / STORE_FILE
+        # Sibling files (the PDF hash cache) are placed beside this path.
+        self.state_path = self.path
         self.embedder = embedder or Embedder(config.embedding_model, config.embedding_dim)
-        self.qdrant_path.parent.mkdir(parents=True, exist_ok=True)
-        # The daemon shares one client across threads; guard its calls.
-        self._client_lock = client_lock or contextlib.nullcontext()
-        # The store opens lazily and can be released when idle (the daemon's
-        # reaper thread calls release_client(); the next access reopens it).
-        self._client = client
-        self._external_client = client is not None
-        self.client_last_used: float = 0.0
-        self._cached_chunk_count = 0
-        self.state = SyncState.load(self.state_path)
-        self._check_dim()
+        self.store = store or Store(self.path)
+        self._check_fingerprint()
+        self._revision_checked = False
+        self.state = self._load_state()
+        self._saved = self._snapshot()
 
-    @property
-    def client(self) -> QdrantClient:
-        with self._client_lock:
-            if self._client is None:
-                self._client = QdrantClient(path=str(self.qdrant_path))
-            self.client_last_used = time.monotonic()
-            return self._client
+    # -- fingerprint and state ---------------------------------------------
 
-    def release_client(self) -> None:
-        """Close the embedded store; the next access reopens it."""
-        with self._client_lock:
-            if self._client is None or self._external_client:
-                return
-            self._client.close()
-            self._client = None
-
-    @property
-    def store_open(self) -> bool:
-        return self._client is not None
-
-    def _check_dim(self) -> None:
-        """Refuse to serve an index whose vector size doesn't match config."""
-        for name in (COLLECTION, CATALOGUE):
-            with self._client_lock:
-                if not self.client.collection_exists(name):
-                    continue
-                stored = self.client.get_collection(name).config.params.vectors.size
-            if stored != self.config.embedding_dim:
+    def _check_fingerprint(self) -> None:
+        """Refuse to serve an index made by another model or dimension."""
+        for key, want in (("embedding_model", self.config.embedding_model),
+                          ("embedding_dim", str(self.config.embedding_dim))):
+            have = self.store.meta(key)
+            if not have:
+                self.store.set_meta(key, want)
+            elif have != want:
                 raise RuntimeError(
-                    f"Collection {name} vector size is {stored} but"
-                    f" SCRIPTORIUM_EMBEDDING_DIM is {self.config.embedding_dim}."
-                    " Run scripts/migrate_embedding_dim.py (or rebuild the index)"
-                    " before serving."
-                )
+                    f"The index at {self.path} was built with {key} {have}, but the"
+                    f" configuration says {want}. Rebuild the index (move the file"
+                    " aside and run a sync) or restore the configuration.")
 
-    def _ensure_collection(self, name: str = COLLECTION) -> None:
-        with self._client_lock:
-            if not self.client.collection_exists(name):
-                self.client.create_collection(
-                    name,
-                    vectors_config=models.VectorParams(
-                        size=self.config.embedding_dim, distance=models.Distance.COSINE
-                    ),
-                )
+    def _encode(self, texts: list[str]) -> list[list[float]]:
+        if not self._revision_checked:
+            check_embedder(self.store, self.embedder)
+            self._revision_checked = True
+        vectors = self.embedder.encode_documents(texts)
+        if any(len(v) != self.config.embedding_dim for v in vectors):
+            raise RuntimeError(f"the embedder returned vectors that are not"
+                               f" {self.config.embedding_dim}-dimensional")
+        return vectors
+
+    def _load_state(self) -> SyncState:
+        q = self.store.query
+        stamps = {k: cast(self.store.meta(k, "0" if cast is int else ""))
+                  for k, cast in _STAMPS.items()}
+        failures = q("SELECT item_key, reason, attempt FROM failures")
+        catalogue = q("SELECT item_key, version, has_pdf FROM items")
+        return SyncState(
+            items={r["item_key"]: {"version": r["version"], "content_hash": r["content_hash"],
+                                   "chunks": r["chunks"], "parser": r["parser"],
+                                   "meta": r["meta"]}
+                   for r in q("SELECT * FROM papers")},
+            failed={r["item_key"]: r["reason"] for r in failures},
+            failed_hash={r["item_key"]: r["attempt"] for r in failures if r["attempt"]},
+            catalogue={r["item_key"]: r["version"] for r in catalogue},
+            catalogue_pdf={r["item_key"]: bool(r["has_pdf"]) for r in catalogue},
+            **stamps,
+        )
+
+    def _snapshot(self) -> dict:
+        s = self.state
+        return {"items": {k: dict(v) for k, v in s.items.items()},
+                "failed": dict(s.failed), "failed_hash": dict(s.failed_hash),
+                "catalogue": dict(s.catalogue), "catalogue_pdf": dict(s.catalogue_pdf),
+                "stamps": {k: getattr(s, k) for k in _STAMPS}}
+
+    def save_state(self) -> None:
+        """Write what changed in the in-memory state since the last save, in
+        one transaction."""
+        s, saved, changed = self.state, self._saved, set()
+        with self.store.transaction() as st:
+            for key in set(saved["items"]) | set(s.items):
+                now = s.items.get(key)
+                if now == saved["items"].get(key):
+                    continue
+                changed.add(key)
+                if now is None:
+                    st.execute("DELETE FROM papers WHERE item_key = ?", (key,))
+                else:
+                    st.execute(_UPSERT_PAPER, (
+                        key, now.get("version", 0), now.get("content_hash", ""),
+                        now.get("chunks", 0), now.get("parser"), now.get("meta")))
+            failure_keys = (set(saved["failed"]) | set(s.failed)
+                            | set(saved["failed_hash"]) | set(s.failed_hash))
+            for key in failure_keys:
+                now = (s.failed.get(key), s.failed_hash.get(key, ""))
+                if now == (saved["failed"].get(key), saved["failed_hash"].get(key, "")):
+                    continue
+                changed.add(key)
+                if now[0] is None:
+                    st.execute("DELETE FROM failures WHERE item_key = ?", (key,))
+                else:
+                    st.execute("INSERT INTO failures(item_key, reason, attempt) VALUES(?, ?, ?)"
+                               " ON CONFLICT(item_key) DO UPDATE SET reason = excluded.reason,"
+                               " attempt = excluded.attempt", (key, *now))
+            for key in set(s.catalogue) | set(s.catalogue_pdf):
+                now = (s.catalogue.get(key), s.catalogue_pdf.get(key))
+                if now != (saved["catalogue"].get(key), saved["catalogue_pdf"].get(key)):
+                    changed.add(key)
+                    st.execute("UPDATE items SET version = ?, has_pdf = ? WHERE item_key = ?",
+                               (now[0] or 0, int(bool(now[1])), key))
+            for k in _STAMPS:
+                if getattr(s, k) != saved["stamps"][k]:
+                    st.set_meta(k, getattr(s, k))
+        self._mark_saved(*changed)
+        self._saved["stamps"] = {k: getattr(s, k) for k in _STAMPS}
+
+    def _mark_saved(self, *keys: str) -> None:
+        """A method wrote these keys' state itself: record the current values
+        as saved, so save_state does not write them again."""
+        for key in keys:
+            for part in ("items", "failed", "failed_hash", "catalogue", "catalogue_pdf"):
+                current = getattr(self.state, part)
+                if key in current:
+                    value = current[key]
+                    self._saved[part][key] = dict(value) if isinstance(value, dict) else value
+                else:
+                    self._saved[part].pop(key, None)
+
+    # -- full text -----------------------------------------------------------
 
     def classify_change(self, record: PaperRecord, content_hash: str) -> str:
         """What (re)indexing an item needs: 'embed', 'metadata', or 'none'.
 
         The PDF's content hash and the parser version decide whether chunks
         and vectors must be rebuilt; a Zotero version bump alone (a metadata
-        edit) or a METADATA_VERSION change only requires rewriting payloads
-        in place.
+        edit) or a METADATA_VERSION change needs only the bookkeeping updated
+        (chunks read their metadata from the item's catalogue row).
         """
         from scriptorium.parsing import PARSER_VERSION
         from scriptorium.zotero import METADATA_VERSION
@@ -407,115 +448,58 @@ class HubIndex:
         return "none"
 
     def update_metadata(self, record: PaperRecord) -> int:
-        """Refresh an item's payloads from Zotero metadata without re-embedding.
-
-        Rewrites the citation/filter fields on every point in one call per
-        item, and a chunk's name only when its citation-key prefix changed.
-        Returns the point count.
-        """
-        docname = record.citation_key or record.item_key
-        common = {
-            "citation_key": record.citation_key,
-            "citation": record.citation,
-            "title": record.title,
-            "creators": record.creators,
-            "year": record.year,
-            "doi": record.doi,
-            "venue": record.venue,
-            "creator_surnames": _creator_keys(record),
-            "year_int": int(record.year) if record.year.isdigit() else None,
-            "venue_lc": record.venue.lower(),
-        }
-        item = models.Filter(must=[
-            models.FieldCondition(key="item_key", match=models.MatchValue(value=record.item_key))
-        ])
-        updated = 0
-        with self._client_lock:
-            self.client.set_payload(COLLECTION, payload=common,
-                                    points=models.FilterSelector(filter=item))
-            offset = None
-            while True:
-                points, offset = self.client.scroll(
-                    COLLECTION, scroll_filter=item, limit=256, offset=offset,
-                    with_payload=["name"], with_vectors=False,
-                )
-                for p in points:
-                    updated += 1
-                    prefix, sep, suffix = p.payload.get("name", "").partition(" pages ")
-                    if sep and prefix != docname:
-                        self.client.set_payload(COLLECTION, points=[p.id],
-                                                payload={"name": f"{docname} pages {suffix}"})
-                if offset is None:
-                    break
+        """Record a metadata-only change. Chunks carry no metadata of their
+        own (citation, creators, year and venue are read from the item's
+        catalogue row, which the sync's catalogue pass has rewritten), so
+        only the bookkeeping changes. Returns the paper's chunk count."""
         from scriptorium.zotero import METADATA_VERSION
 
-        if record.item_key in self.state.items:
-            self.state.items[record.item_key]["version"] = record.version
-            self.state.items[record.item_key]["meta"] = METADATA_VERSION
-        return updated
+        known = self.state.items.get(record.item_key)
+        if known is None:
+            return 0
+        known["version"] = record.version
+        known["meta"] = METADATA_VERSION
+        return known.get("chunks", 0)
 
     def delete_paper(self, item_key: str) -> None:
-        with self._client_lock:
-            if self.client.collection_exists(COLLECTION):
-                self.client.delete(
-                    COLLECTION,
-                    points_selector=models.FilterSelector(
-                        filter=models.Filter(
-                            must=[
-                                models.FieldCondition(
-                                    key="item_key", match=models.MatchValue(value=item_key)
-                                )
-                            ]
-                        )
-                    ),
-                )
+        with self.store.transaction() as st:
+            st.execute("DELETE FROM chunks WHERE item_key = ?", (item_key,))
+            st.execute("DELETE FROM papers WHERE item_key = ?", (item_key,))
+            st.execute("DELETE FROM failures WHERE item_key = ?", (item_key,))
         self.state.items.pop(item_key, None)
         self.state.failed.pop(item_key, None)
         self.state.failed_hash.pop(item_key, None)
+        self._mark_saved(item_key)
+        self.store.generation["chunks"] += 1
 
-    def add_paper(self, record: PaperRecord, chunks, content_hash: str) -> int:
-        """Embed and upsert one paper's chunks. Returns the chunk count."""
-        self._ensure_collection()
-        self.delete_paper(record.item_key)  # idempotent re-ingest
-        texts = [c.text for c in chunks]
-        vectors = self.embedder.encode_documents(texts)
-        points = [
-            models.PointStruct(
-                id=_point_id(record.item_key, i),
-                vector=vec,
-                payload={
-                    "item_key": record.item_key,
-                    "chunk_index": i,
-                    "name": chunk.name,
-                    "text": chunk.text,
-                    "citation_key": record.citation_key,
-                    "citation": record.citation,
-                    "title": record.title,
-                    "creators": record.creators,
-                    "year": record.year,
-                    "doi": record.doi,
-                    "venue": record.venue,
-                    # filter-ready fields (see HubSearch filters)
-                    "creator_surnames": _creator_keys(record),
-                    "year_int": int(record.year) if record.year.isdigit() else None,
-                    "venue_lc": record.venue.lower(),
-                },
-            )
-            for i, (chunk, vec) in enumerate(zip(chunks, vectors, strict=True))
-        ]
-        with self._client_lock:
-            self.client.upsert(COLLECTION, points=points)
+    def add_paper(self, record: PaperRecord, chunks: list[Passage], content_hash: str) -> int:
+        """Embed one paper's passages and store them, replacing any earlier
+        ones, in one transaction with its bookkeeping. Artefacts are stored
+        without a vector. Returns the count."""
         from scriptorium.parsing import PARSER_VERSION
         from scriptorium.zotero import METADATA_VERSION
 
-        self.state.items[record.item_key] = {
-            "version": record.version,
-            "content_hash": content_hash,
-            "chunks": len(points),
-            "parser": PARSER_VERSION,
-            "meta": METADATA_VERSION,
-        }
-        return len(points)
+        texts = [c.embed_text for c in chunks if not c.artefact]
+        embedded = iter(self._encode(texts) if texts else [])
+        rows = [(record.item_key, i, c.part, c.pages, c.text, int(c.artefact),
+                 None if c.artefact else to_blob(next(embedded)))
+                for i, c in enumerate(chunks)]
+        entry = {"version": record.version, "content_hash": content_hash,
+                 "chunks": len(rows), "parser": PARSER_VERSION, "meta": METADATA_VERSION}
+        with self.store.transaction() as st:
+            st.execute("DELETE FROM chunks WHERE item_key = ?", (record.item_key,))
+            st.conn.executemany(
+                "INSERT INTO chunks(item_key, chunk_index, part, pages, text, artefact, vec)"
+                " VALUES(?, ?, ?, ?, ?, ?, ?)",
+                rows)
+            st.execute(_UPSERT_PAPER, (record.item_key, *entry.values()))
+            st.execute("DELETE FROM failures WHERE item_key = ?", (record.item_key,))
+        self.state.items[record.item_key] = entry
+        self.state.failed.pop(record.item_key, None)
+        self.state.failed_hash.pop(record.item_key, None)
+        self._mark_saved(record.item_key)
+        self.store.generation["chunks"] += 1
+        return len(rows)
 
     def record_failure(self, item_key: str, reason: str, attempt: str = "") -> None:
         """attempt: "content_hash:parser" of what failed ("" if unknown), so
@@ -528,109 +512,93 @@ class HubIndex:
 
     # -- catalogue (item-level metadata index, whole library) ----------------
 
+    @staticmethod
+    def _write_fields(st: Store, fields: dict, vec: bytes | None, version: int) -> bool:
+        """Write one item's stored fields (and its vector, when given).
+        Without a vector only an existing row is rewritten (its has_pdf
+        column too, so filters agree with the stored fields at once);
+        returns whether a row was written."""
+        columns = (fields["citation_key"], fields["item_type"], fields["year_int"],
+                   fields["venue_lc"], fields["added_ts"], fields["title_norm"], dumps(fields))
+        key = fields["item_key"]
+        if vec is None:
+            cur = st.execute(
+                "UPDATE items SET citation_key = ?, item_type = ?, year_int = ?, venue_lc = ?,"
+                " added_ts = ?, title_norm = ?, payload = ?, has_pdf = ? WHERE item_key = ?",
+                (*columns, int(fields["has_pdf"]), key))
+            if cur.rowcount == 0:
+                return False
+        else:
+            st.execute(
+                "INSERT INTO items(item_key, version, has_pdf, citation_key, item_type, year_int,"
+                " venue_lc, added_ts, title_norm, payload, vec)"
+                " VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                " ON CONFLICT(item_key) DO UPDATE SET version = excluded.version,"
+                " has_pdf = excluded.has_pdf, citation_key = excluded.citation_key,"
+                " item_type = excluded.item_type, year_int = excluded.year_int,"
+                " venue_lc = excluded.venue_lc, added_ts = excluded.added_ts,"
+                " title_norm = excluded.title_norm, payload = excluded.payload, vec = excluded.vec",
+                (key, version, int(fields["has_pdf"]), *columns, vec))
+        st.execute("DELETE FROM item_values WHERE item_key = ?", (key,))
+        st.conn.executemany(
+            "INSERT INTO item_values(item_key, field, value, value_lc) VALUES(?, ?, ?, ?)",
+            [(key, name, str(v), str(v).lower())
+             for name, source in VALUE_FIELDS.items() for v in fields.get(source) or []])
+        return True
+
     def upsert_catalogue(self, records: list["PaperRecord"],
                          folders: dict[str, tuple[str, str, str]] | None = None) -> int:
-        """Embed and upsert catalogue points for these items (batched).
-        `folders` (from folder_paths) names each item's category, publisher
-        and venue folders in the payload."""
+        """Embed and store catalogue entries for these items (one batch, one
+        transaction). `folders` (from folder_paths) names each item's
+        category, publisher and venue folders."""
         if not records:
             return 0
         folders = folders or {}
-        self._ensure_collection(CATALOGUE)
-        vectors = self.embedder.encode_documents([catalogue_document(r) for r in records])
-        points = [
-            models.PointStruct(id=_catalogue_id(r.item_key), vector=vec,
-                               payload=catalogue_fields(r, folders))
-            for r, vec in zip(records, vectors, strict=True)
-        ]
-        with self._client_lock:
-            self.client.upsert(CATALOGUE, points=points)
+        vectors = self._encode([catalogue_document(r) for r in records])
+        with self.store.transaction() as st:
+            for r, v in zip(records, vectors, strict=True):
+                self._write_fields(st, catalogue_fields(r, folders), to_blob(v), r.version)
         for r in records:
             self.state.catalogue[r.item_key] = r.version
             self.state.catalogue_pdf[r.item_key] = r.pdf_status == "ok"
-        return len(points)
+        self._mark_saved(*(r.item_key for r in records))
+        self.store.generation["items"] += 1
+        return len(records)
 
     def refresh_catalogue_payloads(self, records: list["PaperRecord"],
                                    folders: dict[str, tuple[str, str, str]] | None = None) -> int:
-        """Rewrite these items' catalogue payloads, keeping each stored
-        vector (no embedding). Items not yet in the catalogue are skipped.
-        Returns the number rewritten."""
+        """Rewrite these items' stored fields, keeping each vector (no
+        embedding). Items not yet in the catalogue are skipped. Returns the
+        number rewritten."""
         if not records:
             return 0
         folders = folders or {}
-        by_id = {_catalogue_id(r.item_key): r for r in records}
-        with self._client_lock:
-            if not self.client.collection_exists(CATALOGUE):
-                return 0
-            stored = self.client.retrieve(CATALOGUE, ids=list(by_id), with_vectors=True,
-                                          with_payload=False)
-            points = [
-                models.PointStruct(id=p.id, vector=p.vector,
-                                   payload=catalogue_fields(by_id[str(p.id)], folders))
-                for p in stored
-            ]
-            if points:
-                self.client.upsert(CATALOGUE, points=points)
-        return len(points)
+        with self.store.transaction() as st:
+            return sum(self._write_fields(st, catalogue_fields(r, folders), None, r.version)
+                       for r in records)
 
     def delete_catalogue(self, item_key: str) -> None:
-        self.state.catalogue_pdf.pop(item_key, None)
-        with self._client_lock:
-            if self.client.collection_exists(CATALOGUE):
-                self.client.delete(
-                    CATALOGUE,
-                    points_selector=models.FilterSelector(
-                        filter=models.Filter(
-                            must=[
-                                models.FieldCondition(
-                                    key="item_key", match=models.MatchValue(value=item_key)
-                                )
-                            ]
-                        )
-                    ),
-                )
+        self.store.execute("DELETE FROM items WHERE item_key = ?", (item_key,))
         self.state.catalogue.pop(item_key, None)
+        self.state.catalogue_pdf.pop(item_key, None)
+        self._mark_saved(item_key)
+        self.store.generation["items"] += 1
 
     def catalogue_lookup(self, key: str) -> dict | None:
-        """One catalogue payload by item key or citation key, or None."""
-        with self._client_lock:
-            if not self.client.collection_exists(CATALOGUE):
-                return None
-            points, _ = self.client.scroll(
-                CATALOGUE,
-                scroll_filter=models.Filter(
-                    should=[
-                        models.FieldCondition(key="item_key", match=models.MatchValue(value=key)),
-                        models.FieldCondition(key="citation_key", match=models.MatchValue(value=key)),
-                    ]
-                ),
-                limit=1,
-                with_payload=True,
-            )
-        return points[0].payload if points else None
+        """One catalogue entry's stored fields by item key or citation key, or None."""
+        rows = self.store.query("SELECT payload FROM items WHERE item_key = ? OR citation_key = ?"
+                                " ORDER BY item_key = ? DESC LIMIT 1", (key, key, key))
+        return json.loads(rows[0]["payload"]) if rows else None
 
     def counts(self) -> dict:
-        # Frequent health polls must not hold the store open: while it is
-        # released, serve the last computed chunk count instead of reopening.
-        with self._client_lock:
-            if self._client is not None:
-                self._cached_chunk_count = (
-                    self._client.count(COLLECTION).count
-                    if self._client.collection_exists(COLLECTION)
-                    else 0
-                )
+        chunks = self.store.query("SELECT COUNT(*) AS n FROM chunks")[0]["n"]
         return {
             "papers": len(self.state.items),
-            "chunks": self._cached_chunk_count,
+            "chunks": chunks,
             "catalogue_items": len(self.state.catalogue),
             "failed": len(self.state.failed),
             "library_version": self.state.library_version,
         }
 
-    def save_state(self) -> None:
-        self.state.save(self.state_path)
-
     def close(self) -> None:
-        if self._client is not None:
-            self._client.close()
-            self._client = None
+        self.store.close()

@@ -1,17 +1,13 @@
 """Exact lookup: identifiers an item answers to, input classification,
 hub_lookup's matches, and the payload refresh that keeps vectors."""
 
-from qdrant_client import QdrantClient
-
 from scriptorium.config import Config
 from scriptorium.identifiers import classify, item_identifiers, normalise_title
 from scriptorium.index import (
-    CATALOGUE,
     CATALOGUE_DOC_VERSION,
     CATALOGUE_PAYLOAD_VERSION,
     HubIndex,
     SyncState,
-    _catalogue_id,
 )
 from scriptorium.search import HubSearch
 from scriptorium.service import catalogue_outdated
@@ -70,14 +66,13 @@ def test_normalise_title_drops_markup_accents_and_punctuation():
 
 def _hub(tmp_path, records):
     cfg = Config(index_dir=tmp_path, embedding_dim=4)
-    client = QdrantClient(":memory:")
-    hub = HubIndex(cfg, client=client, embedder=Embedder())
+    hub = HubIndex(cfg, embedder=Embedder())
     hub.upsert_catalogue(records, {})
-    return hub, HubSearch(cfg, client=client, embedder=Embedder()), client
+    return hub, HubSearch(cfg, hub=hub, embedder=Embedder())
 
 
 def test_lookup_matches_each_way_and_offers_candidates_for_titles(tmp_path):
-    _, search, _ = _hub(tmp_path, [
+    _, search = _hub(tmp_path, [
         record("PUBL", "A Published Paper", doi="10.1000/a", extra="arXiv: 2603.13270"),
         record("ARXV", "An arXiv Preprint", doi="10.48550/arXiv.2501.00001",
                archive_id="arXiv:2501.00001", item_type="preprint"),
@@ -94,16 +89,20 @@ def test_lookup_matches_each_way_and_offers_candidates_for_titles(tmp_path):
 
 
 def test_payload_refresh_keeps_vectors_and_rewrites_fields(tmp_path):
-    hub, _, client = _hub(tmp_path, [record("PUBL", "A Published Paper", doi="10.1000/a")])
-    pid = _catalogue_id("PUBL")
-    before = client.retrieve(CATALOGUE, ids=[pid], with_vectors=True)[0]
-    assert before.payload["preprint_identifiers"] == []
+    hub, search = _hub(tmp_path, [record("PUBL", "A Published Paper", doi="10.1000/a")])
+
+    def vector():
+        return hub.store.query("SELECT vec FROM items WHERE item_key = 'PUBL'")[0]["vec"]
+
+    before = vector()
+    assert hub.catalogue_lookup("PUBL")["preprint_identifiers"] == []
     n = hub.refresh_catalogue_payloads(
         [record("PUBL", "A Published Paper", doi="10.1000/a", extra="arXiv: 2603.13270"),
          record("NEWX", "Not catalogued yet")], {})
-    after = client.retrieve(CATALOGUE, ids=[pid], with_vectors=True)[0]
-    assert n == 1 and after.vector == before.vector
-    assert after.payload["preprint_identifiers"] == ["arxiv:2603.13270"]
+    assert n == 1 and vector() == before
+    assert hub.catalogue_lookup("PUBL")["preprint_identifiers"] == ["arxiv:2603.13270"]
+    assert search.lookup(["2603.13270"])[0]["matches"][0]["item_key"] == "PUBL"
+    assert hub.catalogue_lookup("NEWX") is None
 
 
 def test_catalogue_outdated_follows_the_three_stamps():

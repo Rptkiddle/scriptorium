@@ -3,7 +3,6 @@ filters, and the result caps."""
 
 import pytest
 from fastmcp.exceptions import ToolError
-from qdrant_client import QdrantClient
 
 from scriptorium import tools
 from scriptorium.config import Config
@@ -39,14 +38,13 @@ class StubEmbedder:
 @pytest.fixture
 def search(tmp_path):
     cfg = Config(index_dir=tmp_path, embedding_dim=4)
-    client = QdrantClient(":memory:")
-    hub = HubIndex(cfg, client=client, embedder=StubEmbedder())
+    hub = HubIndex(cfg, embedder=StubEmbedder())
     items = [record(f"S{i}", f"Same year paper {i}", "2022") for i in range(7)]
     items += [record("OLD", "An older paper", "2020"), record("NEW", "A newer paper", "2024",
                                                               added="2026-10-15T20:00:00Z"),
               record("PRE", "A preprint", "2023", coll="VENX", creators="Welbers")]
     hub.upsert_catalogue(items, folder_paths(COLLS))
-    return HubSearch(cfg, client=client, embedder=StubEmbedder())
+    return HubSearch(cfg, hub=hub, embedder=StubEmbedder())
 
 
 def keys(page):

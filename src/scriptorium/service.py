@@ -7,8 +7,10 @@ cannot drift. Callers provide a log callback for progress lines.
 import datetime
 import threading
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 
 from scriptorium.config import Config
+from scriptorium.grobid import Grobid, GrobidUnavailable
 from scriptorium.index import (
     CATALOGUE_DOC_VERSION,
     CATALOGUE_PAYLOAD_VERSION,
@@ -17,7 +19,16 @@ from scriptorium.index import (
     folder_paths,
     folders_signature,
 )
-from scriptorium.parsing import PARSER_VERSION, ParseError, PdfHashes, parse_paper
+from scriptorium.parsing import (
+    PARSER_VERSION,
+    ParseError,
+    PdfHashes,
+    grobid_from_settings,
+    parse_paper,
+    read_pdf,
+    tei_store,
+)
+from scriptorium.tei import TeiStore
 from scriptorium.zotero import METADATA_VERSION, PaperRecord, ZoteroReader
 
 
@@ -27,6 +38,54 @@ def catalogue_outdated(state: SyncState) -> bool:
     return (state.catalogue_doc != CATALOGUE_DOC_VERSION
             or state.catalogue_meta != METADATA_VERSION
             or state.catalogue_payload != CATALOGUE_PAYLOAD_VERSION)
+
+
+GROBID_WORKERS = 4  # PDFs with GROBID at once (its config allows 10)
+
+
+def read_new_pdfs(records: list[PaperRecord], hashes: dict[str, str], hub: HubIndex,
+                  store: TeiStore, grobid: Grobid, log: Callable[[str], None],
+                  progress: Callable[[int, int, str], None],
+                  cancel: threading.Event | None) -> str:
+    """Phase one of indexing: GROBID reads every PDF that has no stored TEI
+    yet, a few at a time, before any embedding starts. A PDF GROBID rejects
+    is recorded as a failure. Returns "" or, when GROBID cannot be started,
+    the reason (those papers then wait for the next sync)."""
+    todo = [r for r in records if not store.usable(r.item_key, hashes[r.item_key])]
+    if not todo:
+        return ""
+    log(f"  reading {len(todo)} PDFs with GROBID")
+    try:
+        grobid.ensure()
+    except GrobidUnavailable as exc:
+        log(f"  GROBID unavailable: {exc}")
+        return str(exc)
+
+    def one(record: PaperRecord) -> tuple[PaperRecord, str]:
+        if cancel is not None and cancel.is_set():
+            return record, "cancelled"
+        try:
+            read_pdf(record, hashes[record.item_key], store, grobid)
+            return record, ""
+        except ParseError as exc:
+            return record, exc.reason
+        except GrobidUnavailable as exc:
+            return record, f"GROBID unavailable: {exc}"
+        except OSError as exc:
+            return record, f"unreadable PDF: {exc}"
+
+    unavailable = ""
+    with ThreadPoolExecutor(max_workers=GROBID_WORKERS) as pool:
+        for done, (record, error) in enumerate(pool.map(one, todo), 1):
+            progress(done, len(todo), f"reading PDFs ({len(todo)})")
+            if error.startswith("GROBID unavailable"):
+                unavailable = unavailable or error
+            elif error and error != "cancelled":
+                hub.record_failure(record.item_key, error,
+                                   f"{hashes[record.item_key]}:{PARSER_VERSION}")
+                log(f"  FAIL {record.citation_key or record.item_key}: {error}")
+    hub.save_state()
+    return unavailable
 
 
 def _utc_iso(ts: datetime.datetime) -> str:
@@ -80,6 +139,7 @@ def sync_library(
     log: Callable[[str], None] = lambda _: None,
     progress: Callable[[int, int, str], None] = lambda *_: None,
     cancel: threading.Event | None = None,
+    grobid: Grobid | None = None,
 ) -> dict:
     """Full reconcile: make the index match Zotero.
 
@@ -94,6 +154,13 @@ def sync_library(
     ``progress(done, total, current_key)`` is called once per record.
     Setting the ``cancel`` event stops the sync cleanly between papers; the
     returned summary then carries ``cancelled: True``.
+
+    Full text is indexed in two phases: GROBID reads every new or changed
+    PDF first (read_new_pdfs), then each paper's stored TEI is cut into
+    passages and embedded. ``grobid`` is the caller's GROBID (the daemon
+    keeps one and stops it when idle); without one, a sync starts its own,
+    stopped when the process exits. If GROBID cannot be started, papers
+    needing it wait for a later sync and the summary says why.
     """
     started = _utc_iso(datetime.datetime.now(datetime.UTC))
     current_version = reader.library_version()
@@ -105,6 +172,9 @@ def sync_library(
 
     records = reader.iter_papers()
     hashes = PdfHashes(hub.state_path.with_name("pdf_hashes.json"))
+    store = tei_store(config)
+    own_grobid = grobid is None  # started here: stopped once the PDFs are read
+    grobid = grobid or grobid_from_settings(config)
 
     last_sync_at = hub.state.last_sync_at
     stale_after_reset = rebase_versions(hub.state, records, current_version, last_sync_at)
@@ -159,6 +229,30 @@ def sync_library(
     if refreshed:
         log(f"  rewrote the stored fields of {refreshed} catalogue items")
 
+    # Phase one: which papers need (re)embedding, and GROBID reads their PDFs.
+    to_embed: dict[str, str] = {}  # item key -> PDF hash
+    for record in records:
+        if cancelled or record.pdf_status != "ok":
+            continue
+        try:
+            content_hash = hashes.of(record)
+        except OSError:
+            continue  # reported in the loop below
+        attempt = f"{content_hash}:{PARSER_VERSION}"
+        if (record.item_key in hub.state.failed
+                and hub.state.failed_hash.get(record.item_key) == attempt):
+            continue
+        if hub.classify_change(record, content_hash) == "embed":
+            to_embed[record.item_key] = content_hash
+    grobid_unavailable = ""
+    if to_embed and not cancelled:
+        grobid_unavailable = read_new_pdfs(
+            [r for r in records if r.item_key in to_embed], to_embed, hub, store, grobid,
+            log, progress, cancel)
+        if own_grobid:
+            grobid.stop()  # 3-4 GB the embedding phase does not need
+    waiting = 0
+
     for i, record in enumerate(records):
         if cancel is not None and cancel.is_set():
             cancelled = True
@@ -176,6 +270,7 @@ def sync_library(
                 continue
             if tracked:
                 hub.delete_paper(record.item_key)
+                store.remove(record.item_key)
                 hub.save_state()
                 removed += 1
                 log(f"  removed {record.citation_key or record.item_key} (PDF attachment removed)")
@@ -202,7 +297,15 @@ def sync_library(
                 metadata_updated += 1
                 log(f"  metadata {record.citation_key or record.item_key} ({n} chunks)")
                 continue
-            n = hub.add_paper(record, parse_paper(record, config, content_hash), content_hash)
+            if not store.usable(record.item_key, content_hash):
+                if grobid_unavailable:
+                    waiting += 1  # GROBID could not read it this time
+                    continue
+                if record.item_key in hub.state.failed:
+                    failed += 1  # recorded in phase one
+                    continue
+            n = hub.add_paper(record, parse_paper(record, content_hash, store, grobid),
+                              content_hash)
             hub.save_state()
             if tracked:
                 updated += 1
@@ -230,6 +333,7 @@ def sync_library(
         live_keys = reader.all_item_keys()
         for gone in set(hub.state.items) - live_keys:
             hub.delete_paper(gone)
+            store.remove(gone)
             removed += 1
             log(f"  removed {gone} (deleted in Zotero)")
         for gone in set(hub.state.catalogue) - live_keys:
@@ -243,6 +347,8 @@ def sync_library(
         hub.state.library_version = current_version
         hub.state.last_sync_at = started
 
+    if waiting:
+        log(f"  {waiting} papers wait for GROBID ({grobid_unavailable})")
     hub.save_state()
     hashes.save(prune=not cancelled)
     return {
@@ -256,7 +362,8 @@ def sync_library(
         "failed": failed,
         "cancelled": cancelled,
         "library_version": hub.state.library_version,
-    }
+    } | ({"grobid_unavailable": grobid_unavailable, "waiting_for_grobid": waiting}
+         if grobid_unavailable else {})
 
 
 def ingest_items(
@@ -265,6 +372,7 @@ def ingest_items(
     config: Config,
     item_keys: list[str],
     log: Callable[[str], None] = lambda _: None,
+    grobid: Grobid | None = None,
 ) -> dict:
     """Targeted ingest of specific Zotero items by key.
 
@@ -273,6 +381,8 @@ def ingest_items(
     """
     reader.check_available()
     hashes = PdfHashes(hub.state_path.with_name("pdf_hashes.json"))
+    store = tei_store(config)
+    grobid = grobid or grobid_from_settings(config)  # stopped at process exit
     ingested, metadata_updated, skipped, catalogued, errors = [], [], [], [], {}
     folders = None
     for key in item_keys:
@@ -304,12 +414,15 @@ def ingest_items(
                 metadata_updated.append(f"{record.citation_key or key} ({n} chunks)")
                 log(f"  metadata {record.citation_key or key} ({n} chunks)")
                 continue
-            n = hub.add_paper(record, parse_paper(record, config, content_hash), content_hash)
+            n = hub.add_paper(record, parse_paper(record, content_hash, store, grobid),
+                              content_hash)
             ingested.append(f"{record.citation_key or key} ({n} chunks)")
             log(f"  ingested {record.citation_key or key} ({n} chunks)")
+        except GrobidUnavailable as exc:
+            errors[key] = f"GROBID unavailable: {exc} (indexed at the next sync once it starts)"
         except ParseError as exc:
             errors[key] = exc.reason
-            hub.record_failure(key, exc.reason)
+            hub.record_failure(key, exc.reason, f"{content_hash}:{PARSER_VERSION}")
         except OSError as exc:
             errors[key] = f"unreadable PDF: {exc}"
             hub.record_failure(key, errors[key])

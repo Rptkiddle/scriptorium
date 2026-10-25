@@ -1,10 +1,10 @@
 """Metadata derivation: venue field mapping and the METADATA_VERSION stamp."""
 
-import json
 from types import SimpleNamespace
 
 import pytest
 
+from scriptorium.config import Config
 from scriptorium.index import HubIndex, SyncState
 from scriptorium.parsing import PARSER_VERSION
 from scriptorium.zotero import METADATA_VERSION, _venue
@@ -27,15 +27,16 @@ def test_venue_mapping(data, expected):
     assert _venue(data) == expected
 
 
-def test_state_without_stamp_loads_as_zero(tmp_path):
-    path = tmp_path / "state.json"
-    path.write_text(json.dumps({"library_version": 5, "items": {}, "failed": {},
-                                "catalogue": {"A": 3}}))
-    state = SyncState.load(path)
-    assert state.catalogue_meta == 0
-    state.catalogue_meta = METADATA_VERSION
-    state.save(path)
-    assert SyncState.load(path).catalogue_meta == METADATA_VERSION
+def test_new_index_starts_without_stamps_and_keeps_them(tmp_path):
+    cfg = Config(index_dir=tmp_path, embedding_dim=4)
+    hub = HubIndex(cfg, embedder=object())
+    assert hub.state.catalogue_meta == 0 and hub.state.library_version == 0
+    hub.state.catalogue_meta = METADATA_VERSION
+    hub.state.library_version = 5
+    hub.save_state()
+    hub.close()
+    again = HubIndex(cfg, embedder=object()).state
+    assert again.catalogue_meta == METADATA_VERSION and again.library_version == 5
 
 
 def _hub(known: dict) -> HubIndex:

@@ -1,6 +1,6 @@
 """The scriptorium daemon: MCP server over streamable HTTP on localhost.
 
-One long-lived process owns the Qdrant index and the embedding model; every
+One long-lived process owns the index and the embedding model; every
 Claude Code session connects here. The state lives in daemon.py, the MCP
 tools in tools.py and the web pages in routes.py; nothing starts until
 run() is called.

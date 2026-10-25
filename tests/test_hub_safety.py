@@ -11,8 +11,8 @@ from scriptorium.config import Config
 from scriptorium.index import SyncState
 from scriptorium.service import sync_library
 from scriptorium.settings import SettingsFileError, load_settings, save_settings
+from scriptorium.tei import Passage
 from scriptorium.zotero import ZoteroReader
-
 
 # -- reader lock ---------------------------------------------------------------
 
@@ -158,13 +158,23 @@ def test_sync_removes_chunks_when_attachment_removed(tmp_path):
 
 # -- atomic writes -------------------------------------------------------------
 
-def test_state_save_is_atomic_and_leaves_no_temp(tmp_path):
-    path = tmp_path / "state.json"
-    state = SyncState(library_version=3, items={}, failed={}, catalogue={},
-                      catalogue_pdf={"A": True})
-    state.save(path)
-    assert SyncState.load(path).catalogue_pdf == {"A": True}
-    assert not (tmp_path / "state.json.tmp").exists()
+def test_a_failed_write_leaves_the_index_as_it_was(tmp_path):
+    """add_paper writes chunks and bookkeeping in one transaction: an
+    error midway leaves neither."""
+    from scriptorium.index import HubIndex
+
+    class Embedder:
+        def encode_documents(self, texts):
+            return [[1.0, 0.0, 0.0, 0.0] for _ in texts]
+
+    hub = HubIndex(Config(index_dir=tmp_path, embedding_dim=4), embedder=Embedder())
+    rec = SimpleNamespace(item_key="P", version=1)
+    chunks = [Passage(text="a", embed_text="a", pages="1-2", part="body"),
+              Passage(text=None, embed_text="b", pages="2-3", part="body")]  # NOT NULL fails
+    with pytest.raises(Exception):  # noqa: B017 — any database error
+        hub.add_paper(rec, chunks, "h")
+    assert hub.store.query("SELECT COUNT(*) AS n FROM chunks")[0]["n"] == 0
+    assert hub.state.items == {} and hub.store.query("SELECT * FROM papers") == []
 
 
 def test_settings_save_refuses_to_overwrite_corrupt_file(tmp_path):
@@ -218,19 +228,26 @@ def test_sync_skips_a_failed_item_until_its_pdf_changes(tmp_path, monkeypatch):
             pass
 
     monkeypatch.setattr(service, "PdfHashes", _Hashes)
+    read = []
+    def fake_read(r, h, store, grobid):  # GROBID "reads" it: a TEI is stored
+        read.append(r.item_key)
+        store.put(r.item_key, "", h, "test", 200, 0.0, tei=b"<TEI/>")
+
+    monkeypatch.setattr(service, "read_pdf", fake_read)
     monkeypatch.setattr(service, "parse_paper",
-                        lambda r, c, h=None: parsed.append(r.item_key) or [])
+                        lambda r, h, store, grobid: parsed.append(r.item_key) or [])
     hub.classify_change = lambda r, h: "embed"
     hub.add_paper = lambda r, chunks, h: 0
+    grobid = SimpleNamespace(ensure=lambda: None)
 
     rec = SimpleNamespace(item_key="SCAN", version=1, pdf_status="ok",
                           citation_key="SCAN", date_modified="", hash="h1")
-    summary = sync_library(_FakeReader([rec]), hub, Config(index_dir=tmp_path))
-    assert parsed == [] and summary["failed"] == 1
+    summary = sync_library(_FakeReader([rec]), hub, Config(index_dir=tmp_path), grobid=grobid)
+    assert read == parsed == [] and summary["failed"] == 1
 
-    rec.hash = "h2"  # a new PDF: try again
-    sync_library(_FakeReader([rec]), hub, Config(index_dir=tmp_path))
-    assert parsed == ["SCAN"]
+    rec.hash = "h2"  # a new PDF: GROBID reads it, then it is indexed
+    sync_library(_FakeReader([rec]), hub, Config(index_dir=tmp_path), grobid=grobid)
+    assert read == parsed == ["SCAN"]
 
 
 def test_a_renamed_folder_refreshes_the_stored_folder_fields(tmp_path):

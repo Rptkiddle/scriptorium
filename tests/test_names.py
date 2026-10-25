@@ -1,14 +1,12 @@
 """Author name keys: one author is one filter value, however the name is
 stored or typed."""
 
-from types import SimpleNamespace
-
-from qdrant_client import QdrantClient, models
 
 from scriptorium.config import Config
-from scriptorium.index import COLLECTION, HubIndex
+from scriptorium.index import HubIndex
 from scriptorium.names import creator_keys, keys_from_formatted, query_key
 from scriptorium.search import HubSearch
+from scriptorium.tei import Passage
 from scriptorium.zotero import PaperRecord
 
 
@@ -48,6 +46,9 @@ class StubEmbedder:
     def encode_item_query(self, text):
         return [1.0, 0.0, 0.0, 0.0]
 
+    def encode_query(self, text):
+        return [1.0, 0.0, 0.0, 0.0]
+
 
 def record(key, creators):
     return PaperRecord(item_key=key, version=1, item_type="journalArticle", title=key,
@@ -58,8 +59,7 @@ def record(key, creators):
 
 def test_four_stored_forms_match_one_filter_and_one_facet_value(tmp_path):
     cfg = Config(index_dir=tmp_path, embedding_dim=4)
-    client = QdrantClient(":memory:")
-    hub = HubIndex(cfg, client=client, embedder=StubEmbedder())
+    hub = HubIndex(cfg, embedder=StubEmbedder())
     hub.upsert_catalogue([
         record("A", [person("van Atteveldt", "Wouter")]),
         record("B", [person("Atteveldt", "Wouter van")]),
@@ -67,7 +67,7 @@ def test_four_stored_forms_match_one_filter_and_one_facet_value(tmp_path):
         record("D", [person("Van Atteveldt", "W.")]),
         record("E", [person("Trilling", "Damian")]),
     ], {})
-    search = HubSearch(cfg, client=client, embedder=StubEmbedder())
+    search = HubSearch(cfg, hub=hub, embedder=StubEmbedder())
     for typed in ("van Atteveldt", "Atteveldt, W.", "Wouter van Atteveldt"):
         page = search.list_items({"creators": [typed]})
         assert sorted(i["item_key"] for i in page["items"]) == ["A", "B", "C", "D"], typed
@@ -75,22 +75,28 @@ def test_four_stored_forms_match_one_filter_and_one_facet_value(tmp_path):
     assert search.facets("creators", "Van Atteveldt", scope="items") == {"atteveldt": 4}
 
 
-def test_metadata_refresh_writes_the_keys_to_every_chunk(tmp_path):
+def test_chunks_read_their_metadata_from_the_catalogue(tmp_path):
+    """A metadata edit changes one catalogue row: chunk search then shows the
+    new citation key and filters on the new author keys, with the chunks
+    themselves untouched."""
     cfg = Config(index_dir=tmp_path, embedding_dim=4)
-    client = QdrantClient(":memory:")
-    hub = HubIndex(cfg, client=client, embedder=StubEmbedder())
+    hub = HubIndex(cfg, embedder=StubEmbedder())
     old = PaperRecord(item_key="P", version=1, item_type="journalArticle", title="T",
                       creators="Wouter van Atteveldt", year="2024", doi="", venue="V",
                       citation_key="oldkey", date_added="", pdf_key="", pdf_path="",
                       pdf_status="ok")
-    chunks = [SimpleNamespace(name=f"oldkey pages {i}-{i + 1}", text=f"t{i}") for i in range(3)]
+    hub.upsert_catalogue([old], {})
+    chunks = [Passage(text=f"t{i}", embed_text=f"t{i}", pages=f"{i}-{i + 1}", part="body")
+              for i in range(3)]
     hub.add_paper(old, chunks, "h")
-    new = PaperRecord(**{**old.__dict__, "citation_key": "newkey",
+    search = HubSearch(cfg, hub=hub, embedder=StubEmbedder())
+    assert {r.name for r in search.search("q", k=5)} == {
+        "oldkey pages 0-1", "oldkey pages 1-2", "oldkey pages 2-3"}
+    new = PaperRecord(**{**old.__dict__, "version": 2, "citation_key": "newkey",
                          "creator_keys": creator_keys([person("van Atteveldt", "Wouter")])})
+    hub.upsert_catalogue([new], {})
     assert hub.update_metadata(new) == 3
-    points, _ = client.scroll(COLLECTION, limit=10, with_payload=True,
-                              scroll_filter=models.Filter(must=[models.FieldCondition(
-                                  key="item_key", match=models.MatchValue(value="P"))]))
-    assert all(p.payload["creator_surnames"] == ["atteveldt"] for p in points)
-    assert sorted(p.payload["name"] for p in points) == [
+    hits = search.search("q", k=5, filters={"creators": ["van Atteveldt"]})
+    assert sorted(r.name for r in hits) == [
         "newkey pages 0-1", "newkey pages 1-2", "newkey pages 2-3"]
+    assert all(r.citation_key == "newkey" for r in hits)

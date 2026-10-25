@@ -3,10 +3,11 @@ sync machinery, created once by start() when the daemon runs.
 
 Concurrency: FastMCP runs the synchronous tool handlers in a thread pool,
 so parallel calls are real threads. The embedder serializes model calls
-internally (sub-batch granularity), a shared RLock guards the Qdrant
-client, and write operations (sync/ingest) are additionally serialized by
-one write lock, so at most one write runs at a time while searches
-interleave between embedding batches.
+internally (sub-batch granularity), the store's lock guards its one SQLite
+connection (each call is short), and write operations (sync/ingest) are
+additionally serialized by one write lock, so at most one write runs at a
+time while searches interleave between embedding batches. A search during
+a sync scores the vectors loaded before it; they reload once it is done.
 """
 
 import threading
@@ -14,6 +15,7 @@ import time
 
 from scriptorium.config import Config
 from scriptorium.index import Embedder, HubIndex
+from scriptorium.parsing import grobid_from_settings
 from scriptorium.search import HubSearch
 from scriptorium.service import catalogue_outdated, sync_library
 from scriptorium.settings import load_settings
@@ -29,17 +31,15 @@ def log(message: str) -> None:
 class Daemon:
     def __init__(self, cfg: Config):
         self.cfg = cfg
-        self.client_lock = threading.RLock()
         self.write_lock = threading.Lock()
         self.embedder = Embedder(cfg.embedding_model, cfg.embedding_dim)
-        self.hub = HubIndex(cfg, embedder=self.embedder, client_lock=self.client_lock)
-        self.search = HubSearch(
-            cfg,
-            client_provider=lambda: self.hub.client,
-            embedder=self.embedder,
-            client_lock=self.client_lock,
-        )
+        self.hub = HubIndex(cfg, embedder=self.embedder)
+        self.search = HubSearch(cfg, hub=self.hub, embedder=self.embedder,
+                                writing=self.write_lock.locked)
         self.reader = ZoteroReader(cfg)
+        # GROBID reads PDFs; started by the first PDF a sync or attach needs
+        # read, stopped by the idle reaper (general.grobid_idle_minutes).
+        self.grobid = grobid_from_settings(cfg)
         # A write through the hub wakes the auto-sync watcher, so the index
         # (which hub_item, hub_lookup and the searches read) catches up at once
         # instead of at the next timed check.
@@ -78,6 +78,7 @@ class Daemon:
                 result = sync_library(
                     self.reader, self.hub, self.cfg,
                     log=log, progress=self.sync_progress, cancel=self.sync_cancel,
+                    grobid=self.grobid,
                 )
             finally:
                 with self.sync_status_lock:
@@ -99,15 +100,21 @@ class Daemon:
             return {"error": str(exc)}
         finally:
             self.write_lock.release()
-        self.last_sync_error = None
+        # GROBID not starting is a setup fault: shown like a failed sync, so
+        # the menubar and /health say why new PDFs are not indexed.
+        self.last_sync_error = ({"error": f"GROBID unavailable: {result['grobid_unavailable']}"
+                                          f" ({result['waiting_for_grobid']} papers waiting)",
+                                 "at": time.strftime("%Y-%m-%d %H:%M")}
+                                if result.get("grobid_unavailable") else None)
         log("sync " + ("paused" if result.get("cancelled") else "done") + ": "
             + ", ".join(f"{k} {result[k]}" for k in
                         ("added", "updated", "metadata_updated", "removed", "failed")))
         return result
 
     def idle_reaper(self) -> None:
-        """Free the embedding model and the embedded store after idle periods
-        (general.model_idle_minutes / index_idle_minutes; 0 keeps them loaded)."""
+        """Free the embedding model, the in-memory search vectors and GROBID
+        after idle periods (general.model_idle_minutes / index_idle_minutes /
+        grobid_idle_minutes; 0 keeps them)."""
         while True:
             time.sleep(60)
             try:
@@ -123,11 +130,19 @@ class Daemon:
                 index_idle = general["index_idle_minutes"]
                 if (
                     index_idle
-                    and self.hub.store_open
-                    and now - self.hub.client_last_used > index_idle * 60
+                    and self.search.loaded
+                    and now - self.search.last_used > index_idle * 60
                     and not self.write_lock.locked()
                 ):
-                    self.hub.release_client()
+                    self.search.release()
+                grobid_idle = general["grobid_idle_minutes"]
+                if (
+                    grobid_idle
+                    and self.grobid.running
+                    and now - self.grobid.last_used > grobid_idle * 60
+                    and not self.write_lock.locked()
+                ):
+                    self.grobid.stop()
             except Exception:  # noqa: BLE001 — the reaper must never die
                 pass
 

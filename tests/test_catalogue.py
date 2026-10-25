@@ -1,15 +1,11 @@
 """The catalogue: what is embedded, what is a filter, and the rebuild stamp."""
 
-import json
-
 import pytest
-from qdrant_client import QdrantClient
 
 from scriptorium.config import Config
 from scriptorium.index import (
     CATALOGUE_DOC_VERSION,
     HubIndex,
-    SyncState,
     catalogue_document,
     folder_paths,
 )
@@ -60,26 +56,25 @@ def test_folder_paths_name_category_publisher_and_venue_without_marks():
 
 
 def test_catalogue_doc_stamp_round_trips_and_defaults_to_zero(tmp_path):
-    path = tmp_path / "state.json"
-    path.write_text(json.dumps({"library_version": 1, "items": {}, "failed": {}, "catalogue": {}}))
-    state = SyncState.load(path)
-    assert state.catalogue_doc == 0  # an older state file triggers a rebuild
-    state.catalogue_doc = CATALOGUE_DOC_VERSION
-    state.save(path)
-    assert SyncState.load(path).catalogue_doc == CATALOGUE_DOC_VERSION
+    cfg = Config(index_dir=tmp_path, embedding_dim=4)
+    hub = HubIndex(cfg, embedder=StubEmbedder())
+    assert hub.state.catalogue_doc == 0  # a new index triggers a full build
+    hub.state.catalogue_doc = CATALOGUE_DOC_VERSION
+    hub.save_state()
+    hub.close()
+    assert HubIndex(cfg, embedder=StubEmbedder()).state.catalogue_doc == CATALOGUE_DOC_VERSION
 
 
 @pytest.fixture
 def catalogue(tmp_path):
     cfg = Config(index_dir=tmp_path, embedding_dim=4)
-    client = QdrantClient(":memory:")
-    hub = HubIndex(cfg, client=client, embedder=StubEmbedder())
+    hub = HubIndex(cfg, embedder=StubEmbedder())
     hub.upsert_catalogue([
         record("A", "Paper A", collections=["VENA"], added="2026-10-01T00:00:00Z"),
         record("B", "Paper B", collections=["VENX"], creators="Welbers", item_type="preprint"),
         record("C", "Paper C", collections=[]),
     ], folder_paths(COLLS))
-    return HubSearch(cfg, client=client, embedder=StubEmbedder())
+    return HubSearch(cfg, hub=hub, embedder=StubEmbedder())
 
 
 def keys(search, filters):
