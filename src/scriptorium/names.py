@@ -13,7 +13,8 @@ any spelling of a surname finds the author:
   word ("Damian Trilling" -> damian, trilling; "Pham Huong Anh" -> pham,
   huong, anh), since the family name may come first;
 - a particle or initial is kept when it is the only word ("Le", "Du");
-- a hyphenated surname gives the whole and its parts;
+- a hyphenated surname gives the whole and its parts (typographic hyphens
+  and dashes count as "-");
 - a filter value is reduced to its surname's last such word ("Wouter van
   Atteveldt", "Atteveldt, W." -> atteveldt).
 """
@@ -30,6 +31,7 @@ def _words(text: str) -> list[str]:
     """Lowercased, accent-folded words, LaTeX escapes removed; hyphens and
     inner apostrophes kept."""
     text = re.sub(r"\\[a-zA-Z]+|[\\{}\"]", "", text or "")
+    text = re.sub("[\u2010-\u2015\u2212]", "-", text)
     text = unicodedata.normalize("NFKD", text)
     text = "".join(c for c in text if not unicodedata.combining(c)).lower()
     return [w.strip("'.,;:()") for w in re.split(r"[\s,;]+", text) if w.strip("'.,;:()")]

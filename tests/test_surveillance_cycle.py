@@ -132,7 +132,7 @@ def test_digest_reports_version_matches_not_as_failures(tmp_path):
         "created": {"10.1/pub": {"key": "NEW1", "citation_key": "adaPublished2026"}},
         "skipped_existing": [], "failed": {}, "unverified": {},
         "versions": {
-            "10.1/pre": {"case": "recorded", "matched_key": "PUB1", "how": "title + first author",
+            "10.1/pre": {"case": "recorded", "matched_key": "PUB1", "how": "title + shared author",
                          "matched_title": "A preprint"},
             "10.1/pub": {"case": "replaces", "matched_key": "PRE1", "how": "crossref has-preprint",
                          "matched_title": "A published paper",

@@ -9,10 +9,11 @@ add path (additions.add_papers) and the library-wide check
 
 Two items are versions of one paper when Crossref links them (a preprint
 record's "is-preprint-of", a published record's "has-preprint") or, failing
-that, when their normalised titles are equal and their first authors share
-a surname key. Every pair includes a preprint: two published items with the
-same title and first author are separate publications (a conference paper
-and its journal extension, for instance).
+that, when their normalised titles are equal and they share an author
+surname key (any author: the order often changes between a preprint and
+its published version). Every pair includes a preprint: two published items
+with the same title and authors are separate publications (a conference
+paper and its journal extension, for instance).
 """
 
 from dataclasses import dataclass
@@ -38,16 +39,16 @@ def own_identifiers(item: dict) -> list[str]:
                             item.get("extra", ""))[0]
 
 
-def _first_author_keys(item: dict) -> set[str]:
+def _author_keys(item: dict) -> set[str]:
     creators = item.get("creators") or []
     authors = [c for c in creators if c.get("creatorType") == "author"] or creators
-    return set(creator_keys(authors[:1]))
+    return set(creator_keys(authors))
 
 
 @dataclass
 class Match:
     item: dict  # the other version
-    how: str  # "crossref is-preprint-of", "crossref has-preprint" or "title + first author"
+    how: str  # "crossref is-preprint-of", "crossref has-preprint" or "title + shared author"
 
 
 class VersionIndex:
@@ -88,15 +89,15 @@ class VersionIndex:
             hit = self.own.get(_identifier(link.get("id", "")))
             if hit is not None and hit is not item and (is_preprint(item) or is_preprint(hit)):
                 return Match(hit, f"crossref {name}")
-        keys = _first_author_keys(item)
+        keys = _author_keys(item)
         title = normalise_title(item.get("title", ""))
         if not keys or not title:
             return None
         hits = [hit for hit in self.titles.get(title, [])
                 if hit is not item and (is_preprint(item) or is_preprint(hit))
-                and keys & _first_author_keys(hit)]
+                and keys & _author_keys(hit)]
         hits.sort(key=is_preprint)
-        return Match(hits[0], "title + first author") if hits else None
+        return Match(hits[0], "title + shared author") if hits else None
 
 
 def record_line(preprint: dict) -> tuple[str, str]:

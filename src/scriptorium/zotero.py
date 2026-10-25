@@ -130,7 +130,7 @@ def dois_of(items: list[dict]) -> set[str]:
 # Bumped whenever the derivation of indexed metadata from Zotero fields
 # changes (venue, citation, creators, ...); a mismatch with the stamp in the
 # sync state makes the next sync refresh every item's stored metadata.
-METADATA_VERSION = 2  # 2: creator keys ignore case, accents and particles
+METADATA_VERSION = 3  # 2: creator keys ignore case, accents and particles; 3: typographic hyphens
 
 # Zotero stores an item's venue under a type-specific field; first match
 # wins, so a conference paper's proceedings title outranks its conference

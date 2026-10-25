@@ -25,10 +25,10 @@ PREPRINT = _item("PRE1", "preprint", "Echo chambers revisited!", "Trilling",
                  "10.31235/osf.io/abcde", repository="SocArXiv")
 
 
-def test_title_and_first_author_pair_a_preprint_with_its_published_version():
+def test_title_and_a_shared_author_pair_a_preprint_with_its_published_version():
     index = VersionIndex([PUBLISHED])
     match = index.other_version(PREPRINT)
-    assert match.item is PUBLISHED and match.how == "title + first author"
+    assert match.item is PUBLISHED and match.how == "title + shared author"
     assert VersionIndex([PREPRINT]).other_version(PUBLISHED).item is PREPRINT
 
 
@@ -37,9 +37,20 @@ def test_two_published_items_with_the_same_title_and_author_are_not_versions():
     assert VersionIndex([PUBLISHED]).other_version(extension) is None
 
 
-def test_a_different_first_author_is_not_a_match():
+def test_no_shared_author_is_not_a_match():
     other = _item("PRE2", "preprint", "Echo Chambers Revisited", "Welbers")
     assert VersionIndex([PUBLISHED]).other_version(other) is None
+
+
+def test_a_changed_author_order_or_a_typographic_hyphen_still_matches():
+    def authors(*surnames):
+        return [{"creatorType": "author", "firstName": "A", "lastName": s} for s in surnames]
+    published = {**PUBLISHED, "creators": authors("Kroon", "Elliott-Graves")}
+    reordered = {**PREPRINT, "creators": authors("Welbers", "Kroon")}
+    hyphen = {**PREPRINT, "key": "PRE4", "creators": authors("Elliott\u2010Graves")}
+    index = VersionIndex([published])
+    assert index.other_version(reordered).item is published
+    assert index.other_version(hyphen).item is published
 
 
 def test_crossref_links_match_whatever_the_title():
@@ -157,7 +168,7 @@ def test_a_preprint_of_a_library_paper_is_recorded_not_created(monkeypatch):
                   {rec["DOI"]: rec}, [{"doi": rec["DOI"]}])
     assert result["created"] == {}
     assert result["versions"][rec["DOI"]] == {
-        "case": "recorded", "matched_key": "PUB1", "how": "title + first author",
+        "case": "recorded", "matched_key": "PUB1", "how": "title + shared author",
         "matched_title": "Echo Chambers Revisited"}
     assert FakeWriter.calls == [("update", "PUB1",
                                  {"extra": "x: y\nSocArXiv: 10.31235/osf.io/abcde"})]

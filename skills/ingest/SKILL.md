@@ -70,8 +70,8 @@ files (entries, verification notes) in `<rundir>/work/`, and pass
   preprints are recorded in the published item's Extra
   (`SocArXiv: 10.31235/osf.io/abcde`, `arXiv: 2603.13270`). Two items are
   versions of one paper when Crossref links them (`is-preprint-of`,
-  `has-preprint`) or when their titles and first authors match and one of
-  them is a preprint. `scripts/ingest_add.py` applies the rule itself: a
+  `has-preprint`) or when their titles match and they share an author, and
+  one of them is a preprint. `scripts/ingest_add.py` applies the rule itself: a
   preprint of a paper already in the library is not created but recorded
   on it; a published paper whose preprint is in the library is created,
   and the preprint is moved to the trash unless it has attachments or
