@@ -6,12 +6,11 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "paper-qa==2026.3.18",
-    "paper-qa-pymupdf==2026.3.18",
+    "pymupdf==1.28.2",  # title checks of fetched PDFs (pdf_routes)
     "pyzotero>=1.13",
     "fastmcp>=2",
     "sentence-transformers>=3",
     "torch>=2",
-    "qdrant-client>=1.12",
     "typer>=0.12",
 ]
 
