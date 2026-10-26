@@ -26,6 +26,11 @@ def test_all_up_and_current_is_green():
     assert summarize(HEALTH, 7, BRIDGE)[0] == "green"
 
 
+def test_failed_items_leave_the_icon_green_and_are_counted():
+    color, _, index = summarize({**HEALTH, "failed": 17}, 7, BRIDGE)
+    assert color == "green" and "up to date" in index and "17 failed item(s)" in index
+
+
 def test_index_behind_zotero_is_amber():
     color, _, index = summarize(HEALTH, 9, BRIDGE)
     assert color == "amber" and "behind Zotero" in index

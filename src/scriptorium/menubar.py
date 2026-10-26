@@ -9,8 +9,10 @@ and it can run while the daemon is stopped.
 Icon colour is the status summary:
   green  daemon up, Zotero up, index matches Zotero's library version
   amber  daemon and Zotero up, but the index differs from Zotero (the library
-         changed since the last sync), the hub has failed items, or the
-         last sync failed
+         changed since the last sync) or the last sync failed
+Failed items (PDFs without readable body text, e.g. scans) are counted in the
+menu but leave the icon green: most stay failed for good, retried only when
+their PDF changes.
   red    daemon unreachable; Zotero closed (which disables the staleness
          check, so the index cannot be trusted as current); or the
          Scriptorium Bridge plugin not loaded (every library write fails)
@@ -115,15 +117,11 @@ def summarize(
         return "red", status, "Zotero Bridge not loaded — writes will fail"
     if sync_error:
         return "amber", status, f"Sync: failing — {sync_error['error'][:80]}"
-    if zotero_version != watermark or failed:
-        behind = (
-            f"behind Zotero (v{watermark} vs v{zotero_version})"
-            if zotero_version != watermark
-            else "up to date"
-        )
-        return "amber", status, f"Sync: {behind}" + (
-            f", {failed} failed item(s)" if failed else "")
-    return "green", status, "Sync: up to date"
+    failures = f", {failed} failed item(s)" if failed else ""
+    if zotero_version != watermark:
+        return "amber", status, (
+            f"Sync: behind Zotero (v{watermark} vs v{zotero_version})" + failures)
+    return "green", status, "Sync: up to date" + failures
 
 
 def launchctl(*args: str) -> subprocess.CompletedProcess:
