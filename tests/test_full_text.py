@@ -123,6 +123,7 @@ def test_no_body_text_is_a_failure(tmp_path, setup):
     empty = (b'<TEI xmlns="http://www.tei-c.org/ns/1.0"><text><body/></text></TEI>')
     sync_library(Reader([rec]), hub, cfg, grobid=FakeGrobid({rec.pdf_path: (200, empty)}))
     assert "no body text" in hub.state.failed["E"] and "E" not in hub.state.items
+    assert "a scan, or a short item" in hub.state.failed["E"]  # both causes named
 
 
 def test_papers_wait_when_grobid_cannot_start(tmp_path, setup):

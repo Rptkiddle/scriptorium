@@ -81,7 +81,8 @@ _FOOT_PLACEHOLDER = re.compile(r"foot_\d+")
 
 
 class EmptyBody(ValueError):
-    """The TEI holds no body text (e.g. a scan GROBID could not read)."""
+    """The TEI holds no body text (e.g. a scan GROBID could not read, or a
+    one-page abstract whose text GROBID reads as the abstract)."""
 
 
 @dataclass

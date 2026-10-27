@@ -116,6 +116,7 @@ def parse_paper(record: PaperRecord, content_hash: str, store: TeiStore,
     try:
         return passages(store.read(record.item_key))
     except EmptyBody as exc:
-        raise ParseError(record.item_key, f"{exc} (a scan without a text layer?)") from exc
+        raise ParseError(record.item_key, f"{exc} (a scan, or a short item whose text"
+                                          " GROBID reads as the abstract)") from exc
     except Exception as exc:  # a damaged TEI file surfaces as varied errors
         raise ParseError(record.item_key, f"unreadable TEI: {type(exc).__name__}: {exc}") from exc
