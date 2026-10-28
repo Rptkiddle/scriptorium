@@ -35,7 +35,7 @@ knowledge.
    under `<index data dir>/interrogation/runs/`, and records this session
    in the run's `run.json`. Every script below takes `--run <rundir>`;
    intermediate files go to `<rundir>/work/`, the deliverables to `<rundir>`.
-3. Run all scripts from `~/Desktop/code/1_SELF/scriptorium/scriptorium` with
+3. Run all scripts from the scriptorium repository (the `repo` folder `hub_status` reports) with
    `uv run python scripts/<name>.py`.
 
 ## Standing rules

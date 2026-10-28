@@ -42,7 +42,7 @@ _BASE = f"http://localhost:{load_config().port}"
 
 HEALTH_URL = _BASE + "/health"
 ZOTERO_VERSIONS_URL = "http://localhost:23119/api/users/0/items?limit=1&format=versions"
-LABEL = "com.rupertkiddle.scriptorium"
+LABEL = "io.github.rptkiddle.scriptorium"
 PLIST = Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
 SURVEIL_STATE = state_path(load_config())
 LOG_DIR = Path.home() / "Library" / "Logs" / "scriptorium"

@@ -39,8 +39,8 @@ from the repo,
 be created, what is already in the library, and every preprint/published
 version match. No run is needed for a preview.
 
-Every ingest that adds papers is a run. Before anything else, from the repo
-(`~/Desktop/code/1_SELF/scriptorium/scriptorium`), run
+Every ingest that adds papers is a run. Before anything else, from
+the scriptorium repository (the `repo` folder `hub_status` reports), run
 `uv run python -m scriptorium.runs new ingestion`, which prints the run
 folder (`<rundir>`, named `<YYYY-MM-DD-HHMMSS>`). Keep the run's working
 files (entries, verification notes) in `<rundir>/work/`, and pass

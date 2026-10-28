@@ -9,7 +9,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[2]  # the repository this code runs from
 
 
 def _env_path(name: str, default: Path) -> Path:
@@ -26,7 +26,7 @@ class Config:
 
     # Index storage (the data folder; the repo's git-ignored `data` link may point elsewhere)
     index_dir: Path = field(
-        default_factory=lambda: _env_path("SCRIPTORIUM_INDEX_DIR", _REPO_ROOT / "data")
+        default_factory=lambda: _env_path("SCRIPTORIUM_INDEX_DIR", REPO_ROOT / "data")
     )
 
     # Models (local, MPS)

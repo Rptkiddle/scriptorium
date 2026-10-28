@@ -1,7 +1,7 @@
 #!/bin/zsh
 # Scriptorium.app dispatch: all modes the launcher stub can run.
 # Invoked as: Scriptorium.app/Contents/MacOS/Scriptorium <mode>
-#   daemon    the MCP daemon (LaunchAgent com.rupertkiddle.scriptorium)
+#   daemon    the MCP daemon (LaunchAgent io.github.rptkiddle.scriptorium)
 #   menubar   the menubar companion (…-menubar)
 #   surveil   one nightly surveillance cycle (…-surveillance)
 #   (none)    interactive launch: trigger/verify the Desktop-folder grant
@@ -9,7 +9,7 @@
 # attributed to "Scriptorium" in Privacy & Security.
 
 export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
-REPO="$HOME/Desktop/code/1_SELF/scriptorium/scriptorium"
+REPO="${0:A:h:h}"  # this script lives in <repo>/app/
 
 # Activity Monitor names a process after the binary it executes, and the
 # venv's python3 resolves to uv's python3.13. The daemon and menubar

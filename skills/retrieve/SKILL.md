@@ -13,8 +13,8 @@ library live, so the Zotero app must be running; fetch should run from a
 network with the institution's subscriptions (campus or its VPN), and
 attach also needs the daemon (with the Bridge plugin loaded in Zotero).
 
-**Where things are.** The scripts run from the code repo
-(`~/Desktop/code/1_SELF/scriptorium/scriptorium`, `uv run python
+**Where things are.** The scripts run from
+the scriptorium repository (the `repo` folder `hub_status` reports) (`uv run python
 scripts/...`). Runs live in the repo's `data/` folder as
 `data/<arm>/runs/<run>/`: a run named `ingestion/2026-10-14-1115` is
 `data/ingestion/runs/2026-10-14-1115/`, with its `added.json`; fetch runs

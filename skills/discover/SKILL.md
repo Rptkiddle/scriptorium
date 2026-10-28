@@ -8,7 +8,7 @@ description: Systematic literature discovery beyond the library - protocol-drive
 A discovery run: **protocol (gate) → search → [screen → snowball]* →
 verify → report → handoff (gate)**. The design and its evidence base are
 in `docs/discovery.md`. Scripts (run from
-`~/Desktop/code/1_SELF/scriptorium/scriptorium` with
+the scriptorium repository (the `repo` folder `hub_status` reports) with
 `uv run python scripts/<name>.py`) do all deterministic work; subagents
 judge candidates by reading prompt files and writing verdict files. Never
 read candidate metadata into your own context or judge relevance yourself.
