@@ -30,7 +30,12 @@ from scriptorium.citekeys import generate_citekey, unique_key
 from scriptorium.config import Config
 from scriptorium.settings import load_settings
 from scriptorium.zotero import ZoteroReader
-from scriptorium.zotero_bridge import BridgeError, BridgeTimeout, BridgeUnavailable, ZoteroBridge
+from scriptorium.zotero_bridge import (
+    BridgeError,
+    BridgeTimeout,
+    BridgeUnavailable,
+    ZoteroBridge,
+)
 
 # Item types that never carry a citation key.
 _NO_CITEKEY_TYPES = {"attachment", "note", "annotation"}

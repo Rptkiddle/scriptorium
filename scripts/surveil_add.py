@@ -22,7 +22,11 @@ from pathlib import Path
 
 from scriptorium.config import load_config
 from scriptorium.surveillance_cycle import (
-    _entries, add_run, add_summary, retry_pending, write_digest,
+    _entries,
+    add_run,
+    add_summary,
+    retry_pending,
+    write_digest,
 )
 
 

@@ -91,7 +91,11 @@ import pytest  # noqa: E402
 
 from scriptorium import additions  # noqa: E402
 from scriptorium.citekeys import unique_key  # noqa: E402
-from scriptorium.zotero_bridge import BridgeTimeout, BridgeUnavailable, ZoteroBridge  # noqa: E402
+from scriptorium.zotero_bridge import (  # noqa: E402
+    BridgeTimeout,
+    BridgeUnavailable,
+    ZoteroBridge,
+)
 
 
 def test_proceedings_article_becomes_conference_paper():

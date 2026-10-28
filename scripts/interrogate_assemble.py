@@ -30,7 +30,6 @@ from scriptorium.interrogation import parse_rcs
 from scriptorium.runs import work_dir
 from scriptorium.settings import load_settings
 
-
 ANSWER_TEMPLATE = """Answer in a direct and concise tone. Your audience is an expert, so be highly
 specific. If there are ambiguous terms or acronyms, first define them.
 
