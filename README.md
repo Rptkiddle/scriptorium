@@ -133,10 +133,10 @@ In Claude Code, ask about the library in plain words or invoke a skill:
 /scriptorium:interrogate  What does my library say about serendipity in recommender systems?
 ```
 
-Command line (`search` and `sync` refuse while the daemon is running):
+Command line (`sync` refuses while the daemon is running):
 
 ```sh
-uv run scriptorium status | items | show <key> | parse <key> | search "<query>" | sync | serve
+uv run scriptorium status | parse <key> | sync | serve
 ```
 
 Scripts:
