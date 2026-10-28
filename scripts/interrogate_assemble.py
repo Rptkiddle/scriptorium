@@ -5,8 +5,9 @@
 """interrogation skill, Step 4 assembly: filter scored verdicts, build the answer prompt.
 
 Reads the per-chunk scoring responses, parses them leniently
-(paperqa's llm_parse_json), applies the anchored relevance cutoff, strips
-quoted in-text citations from surviving summaries (paperqa's
+(PaperQA2's llm_parse_json, copied into interrogation.py), applies the
+anchored relevance cutoff, strips
+quoted in-text citations from surviving summaries (PaperQA2's
 strip_citations, so quotes cannot collide with citation keys), sorts by
 level, and writes the fully assembled answer prompt. Every survivor becomes
 a source.
@@ -23,10 +24,8 @@ import argparse
 import json
 from pathlib import Path
 
-from paperqa.utils import strip_citations
-
 from scriptorium.config import load_config
-from scriptorium.interrogation import parse_rcs
+from scriptorium.interrogation import parse_rcs, strip_citations
 from scriptorium.runs import work_dir
 from scriptorium.settings import load_settings
 

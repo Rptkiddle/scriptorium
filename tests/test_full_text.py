@@ -99,7 +99,7 @@ def test_grobid_reads_new_pdfs_and_artefacts_get_no_vector(tmp_path, setup):
 def test_a_stored_tei_of_the_same_pdf_is_used_without_grobid(tmp_path, setup):
     cfg, hub = setup
     rec = paper(tmp_path, "B")
-    from paperqa.utils import md5sum
+    from scriptorium.parsing import md5sum
     tei_store(cfg).put("B", rec.pdf_path, md5sum(rec.pdf_path), "0.9.1", 200, 1.0,
                        tei=tei(PROSE))
     grobid = FakeGrobid(start_error="must not be needed")

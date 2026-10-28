@@ -6,12 +6,11 @@ sync can read every new PDF first (GROBID running) and embed afterwards,
 and passages can be cut again later from the stored TEI without GROBID.
 """
 
+import hashlib
 import json
 import os
 import time
 from pathlib import Path
-
-from paperqa.utils import md5sum
 
 from scriptorium.config import Config
 from scriptorium.grobid import Grobid
@@ -33,6 +32,11 @@ class ParseError(RuntimeError):
         self.item_key = item_key
         self.reason = reason
         super().__init__(f"{item_key}: {reason}")
+
+
+def md5sum(path: str | os.PathLike) -> str:
+    """A file's MD5 hex digest: the PDF content hash the index records."""
+    return hashlib.md5(Path(path).read_bytes()).hexdigest()
 
 
 class PdfHashes:

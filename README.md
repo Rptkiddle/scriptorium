@@ -201,6 +201,6 @@ Not yet licensed. I intend to release scriptorium under the GNU Affero General P
 
 To cite scriptorium, see [`CITATION.cff`](CITATION.cff).
 
-scriptorium uses PaperQA2 by FutureHouse (Apache-2.0): adapted versions of its evidence-summary and answer prompts, and its retrieval defaults. PDF text extraction uses GROBID (Apache-2.0); PyMuPDF (AGPL-3.0) checks fetched PDFs against their titles. The banner lettering is outlined from the UnifrakturMaguntia and EB Garamond fonts (SIL Open Font License 1.1; texts in `LICENSES/`).
+scriptorium uses PaperQA2 by FutureHouse (Apache-2.0): adapted versions of its evidence-summary and answer prompts, its retrieval defaults, and two helper functions copied into the code (reading a judge's JSON reply, stripping citations). PDF text extraction uses GROBID (Apache-2.0); PyMuPDF (AGPL-3.0) checks fetched PDFs against their titles. The banner lettering is outlined from the UnifrakturMaguntia and EB Garamond fonts (SIL Open Font License 1.1; texts in `LICENSES/`).
 
 Skarlinski, M. D., Cox, S., Laurent, J. M., Braza, J. D., Hinks, M. M., Hammerling, M. J., Ponnapati, M., Rodriques, S. G., & White, A. D. (2024). *Language agents achieve superhuman synthesis of scientific knowledge*. arXiv. https://doi.org/10.48550/arXiv.2409.13740

@@ -149,7 +149,7 @@ def parse(
     full: bool = typer.Option(False, help="Dump every passage in full"),
 ) -> None:
     """Read one paper's PDF into passages (GROBID; the TEI is kept) and show them."""
-    from paperqa.utils import md5sum
+    from scriptorium.parsing import md5sum
 
     from scriptorium.grobid import GrobidUnavailable
     from scriptorium.parsing import (
