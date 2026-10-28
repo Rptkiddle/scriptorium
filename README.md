@@ -110,19 +110,31 @@ launchd ──► launcher.py ──► surveillance_cycle.py ──► claude -
 
 ## Installation
 
-```sh
-git clone https://github.com/Rptkiddle/scriptorium.git
-cd scriptorium
-uv sync --extra menubar
-SCRIPTORIUM_HF_ONLINE=1 uv run scriptorium sync   # first index build; downloads the embedding model
-```
+1. **Zotero.** Enable *Allow other applications on this computer to communicate with Zotero* (Settings › Advanced) and install the Scriptorium Bridge plugin ([`zotero-bridge/README.md`](zotero-bridge/README.md)).
+2. **GROBID.** `brew install openjdk@21`. Build GROBID 0.9.1 from its source release (`./gradlew clean assemble`), unpack the two zips it produces (`grobid-service`, `grobid-home`) into `~/.local/share/grobid/install`, run `chmod +x grobid-home/pdfalto/*/pdfalto*`, and add `bindHost: 127.0.0.1` under both connectors in `grobid-home/config/grobid.yaml`.
+3. **scriptorium.**
 
-1. In Zotero, enable *Allow other applications on this computer to communicate with Zotero* (Settings › Advanced), install the bridge ([`zotero-bridge/README.md`](zotero-bridge/README.md)), and set the Linked Attachment Base Directory to `zotero.linked_attachments_dir`.
-2. Build the app bundle with `app/build.sh` and open `~/Applications/Scriptorium.app` once from Finder to grant Desktop access (again after every rebuild).
-3. Copy the two plists in `launchd/` to `~/Library/LaunchAgents`, adjust their paths, and load each with `launchctl bootstrap gui/$UID <plist>`.
-4. In Claude Code: `/plugin marketplace add <path or URL of this repo>`, then `/plugin install scriptorium@scriptorium`.
-5. Install Java 21 (`brew install openjdk@21`).
-6. Build GROBID from its source release with `./gradlew clean assemble` and unpack the two zips it produces (`grobid-service`, `grobid-home`) into the folder named by the `grobid_dir` setting (default `~/.local/share/grobid/install`). Then run `chmod +x grobid-home/pdfalto/*/pdfalto*` (the zip drops the execute bit) and add `bindHost: 127.0.0.1` under both connectors in `grobid-home/config/grobid.yaml`. scriptorium starts and stops GROBID itself.
+   ```sh
+   git clone https://github.com/Rptkiddle/scriptorium.git
+   cd scriptorium
+   uv sync --extra menubar
+   ```
+
+4. **Settings.** Create `data/settings.json`:
+
+   ```json
+   {
+     "general": {"contact_email": "you@example.org"},
+     "zotero": {"data_dir": "~/Zotero", "linked_attachments_dir": "~/Zotero/linked"}
+   }
+   ```
+
+   `data_dir` is Zotero's data directory; `linked_attachments_dir` is Zotero's Linked Attachment Base Directory (needed to attach PDFs); the contact email goes with Crossref and OpenAlex requests (optional).
+5. **First index build** (Zotero open; downloads the embedding model): `SCRIPTORIUM_HF_ONLINE=1 uv run scriptorium sync`
+6. **Daemon:** `uv run scriptorium serve`
+7. **Claude Code:** `/plugin marketplace add https://github.com/Rptkiddle/scriptorium`, then `/plugin install scriptorium@scriptorium`. Skills other than `search` also use the Crossref, OpenAlex and Semantic Scholar MCP servers.
+
+Optional: `app/build.sh` builds a small app and installs LaunchAgents to run the daemon and menubar icon in the background; open the app once from Finder (Desktop-folder access), then load the agents with the commands it prints.
 
 ## Usage
 
@@ -153,21 +165,20 @@ The daemon serves a dashboard and settings page at `http://localhost:8765/`.
 
 ## Configuration
 
-Settings are edited at `/settings` and stored in the data directory (mode 600); API keys are never served back over HTTP. Sections: `general` (sync and idle timers, GROBID), `zotero` (linked-attachments folder, default BibTeX format), `surveillance` (schedule, research profile, models, abstract-source keys), `interrogation` (retrieval and scoring parameters, models) and `discovery` (Semantic Scholar key, models, caps). Models are aliases (`haiku`, `sonnet`, `opus`, `fable`).
+Settings are edited at `/settings` and stored in the data directory (mode 600); API keys are never served back over HTTP. Sections: `general` (sync and idle timers, GROBID, contact email), `zotero` (Zotero's data folder, linked-attachments folder, default BibTeX format), `surveillance` (schedule, research profile, models, abstract-source keys), `interrogation` (retrieval and scoring parameters, models) and `discovery` (Semantic Scholar key, models, caps). Models are aliases (`haiku`, `sonnet`, `opus`, `fable`).
 
 Environment variables read by `config.py`:
 
 | Variable | Default |
 |---|---|
-| `SCRIPTORIUM_INDEX_DIR` | the data directory |
-| `SCRIPTORIUM_ZOTERO_DATA` | Zotero's data directory |
+| `SCRIPTORIUM_INDEX_DIR` | `data/` in the repository |
 | `SCRIPTORIUM_EMBEDDING_MODEL`, `SCRIPTORIUM_EMBEDDING_DIM` | Qwen3-Embedding-0.6B, 256 |
 
 Changing the model requires re-indexing.
 
 ## Data layout
 
-Code and data are kept apart; the repository's git-ignored `data` link points to the data directory.
+Code and data are kept apart: everything scriptorium produces goes to the git-ignored `data` folder in the repository (or wherever a `data` link or `SCRIPTORIUM_INDEX_DIR` points).
 
 ```
 data/
