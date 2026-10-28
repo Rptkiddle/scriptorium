@@ -45,7 +45,6 @@ def main() -> None:
         path = work / name
         return path.read_text() if path.is_file() else None
 
-    chunks = json.loads(read("chunks.json") or "[]")
     filtering = read("filtering.md") or ""
     cutoff_m = re.search(r"cutoff (\d+)", filtering)
     cutoff = int(cutoff_m.group(1)) if cutoff_m else 2
@@ -69,16 +68,16 @@ def main() -> None:
         (run_dir / "brief.md").write_text(brief.strip() + "\n")
 
     lines = [f"# Sources — {q}", "",
-             f"{len(judged)} chunks judged · {len(survivors)} survived"
-             f" (cutoff {cutoff}) · {len(source_keys)} source papers", ""]
+             (f"{len(judged)} chunks judged · {len(survivors)} survived"
+             f" (cutoff {cutoff}) · {len(source_keys)} source papers"), ""]
     for ck in source_keys:
         mine = [j for j in survivors if j["citation_key"] == ck]
         lines += [f"## {ck}", f"{mine[0]['citation']}", ""]
         for j in sorted(mine, key=lambda j: -j["score"]):
             sim = f", similarity {j['similarity']:.3f}" if j["similarity"] is not None else ""
             pages = f", pages {j['pages']}" if j["pages"] else ""
-            lines += [f"- **{j['key']}** (level {j['score']}{sim}{pages}):"
-                      f" {j['summary']}", ""]
+            lines += [(f"- **{j['key']}** (level {j['score']}{sim}{pages}):"
+                      f" {j['summary']}"), ""]
     discarded = [j for j in judged if j not in survivors]
     if discarded:
         lines += ["## Judged but discarded", ""]

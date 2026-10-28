@@ -668,10 +668,10 @@ def write_report(config: Config, run_dir: Path) -> Path:
     lines = [
         f"# surveillance — {today}",
         "",
-        f"Candidates: {harvest_summary['candidates']} new"
+        (f"Candidates: {harvest_summary['candidates']} new"
         f" ({harvest_summary['mega_candidates']} megajournal,"
         f" {harvest_summary['field_candidates']} field)"
-        f" · accepted: {len(accepted)}",
+        f" · accepted: {len(accepted)}"),
         "",
     ]
     if "abstracts" in manifest:
@@ -695,14 +695,14 @@ def write_report(config: Config, run_dir: Path) -> Path:
         lines += ["", "## Accepted", ""]
         for a in sorted(accepted, key=lambda a: a["venue"]):
             lines += [
-                f"- **{a['title']}** — {a['authors']}, *{a['venue']}*."
-                f" https://doi.org/{a['doi']}",
+                (f"- **{a['title']}** — {a['authors']}, *{a['venue']}*."
+                f" https://doi.org/{a['doi']}"),
                 f"  {a['why']}",
             ]
     if unjudged:
         lines += ["", "## Not judged", "",
-                  "The appraise judges returned no verdict for these (after one"
-                  " retry); they are left out of the seen ledger:", ""]
+                  ("The appraise judges returned no verdict for these (after one"
+                  " retry); they are left out of the seen ledger:"), ""]
         lines += [f"- {c['title']} — https://doi.org/{c['doi']}" for c in unjudged]
     if errors:
         lines += ["", "## Venue errors", ""]

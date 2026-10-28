@@ -125,7 +125,7 @@ def summarize(
 
 
 def launchctl(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(["launchctl", *args], capture_output=True, text=True)
+    return subprocess.run(["launchctl", *args], capture_output=True, text=True, check=False)
 
 
 def compact(n: int) -> str:
@@ -268,23 +268,23 @@ class ScriptoriumMenubar(rumps.App):
         if not self.daemon_up:
             rumps.alert("scriptorium", "Daemon is not running — start it first.")
             return
-        subprocess.run(["open", _BASE + "/surveillance"])
+        subprocess.run(["open", _BASE + "/surveillance"], check=False)
 
 
     def open_dashboard(self, _) -> None:
         if not self.daemon_up:
             rumps.alert("scriptorium", "Daemon is not running — start it first.")
             return
-        subprocess.run(["open", _BASE + "/"])
+        subprocess.run(["open", _BASE + "/"], check=False)
 
     def open_settings(self, _) -> None:
         if not self.daemon_up:
             rumps.alert("scriptorium", "Daemon is not running — start it first.")
             return
-        subprocess.run(["open", _BASE + "/settings"])
+        subprocess.run(["open", _BASE + "/settings"], check=False)
 
     def open_logs(self, _) -> None:
-        subprocess.run(["open", str(LOG_DIR)])
+        subprocess.run(["open", str(LOG_DIR)], check=False)
 
 
 def main() -> None:

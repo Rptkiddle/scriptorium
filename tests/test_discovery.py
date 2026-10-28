@@ -257,7 +257,7 @@ def _interrogation_run(tmp_path, responses):
 
 def _run(script, *args):
     return subprocess.run([sys.executable, str(SCRIPTS / script), *args],
-                          capture_output=True, text=True)
+                          capture_output=True, text=True, check=False)
 
 
 def test_assemble_rejects_scores_outside_0_to_3(tmp_path):

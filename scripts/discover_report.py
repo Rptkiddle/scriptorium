@@ -44,10 +44,10 @@ def main() -> None:
     total_hits = sum(x["hits"] for x in prisma["queries"])
     d = prisma.get("dedup", {})
     lines += [
-        f"- identified: {total_hits} records"
-        f" ({len(prisma['queries'])} queries across Semantic Scholar and OpenAlex)",
-        f"- after deduplication: {d.get('unique', '?')} unique"
-        f" · already in library/known: {d.get('already_in_library', '?')} removed",
+        (f"- identified: {total_hits} records"
+        f" ({len(prisma['queries'])} queries across Semantic Scholar and OpenAlex)"),
+        (f"- after deduplication: {d.get('unique', '?')} unique"
+        f" · already in library/known: {d.get('already_in_library', '?')} removed"),
     ]
     for r in prisma["rounds"]:
         if r.get("stage") == "snowball":
@@ -65,8 +65,8 @@ def main() -> None:
                 f" ({r['arbitrated']} settled by the arbiter)")
     v = prisma.get("verify", {})
     lines += [
-        f"- verification: {v.get('checked', 0)} checked,"
-        f" {v.get('failed', 0)} failed",
+        (f"- verification: {v.get('checked', 0)} checked,"
+        f" {v.get('failed', 0)} failed"),
         f"- **included: {len(includes)}**",
         "",
     ]
@@ -83,10 +83,10 @@ def main() -> None:
     for c in sorted(includes, key=lambda c: (c["round"], c["id"])):
         authors = ", ".join(c["authors"][:3]) + (" et al." if len(c["authors"]) > 3 else "")
         lines += [
-            f"- **{c['title']}** — {authors} ({c.get('year', 'n.d.')})."
-            f" https://doi.org/{c['doi']}",
-            f"  found by {'/'.join(c['provenance'][:3])} (round {c['round']})"
-            f" — {c.get('why', '')}",
+            (f"- **{c['title']}** — {authors} ({c.get('year', 'n.d.')})."
+            f" https://doi.org/{c['doi']}"),
+            (f"  found by {'/'.join(c['provenance'][:3])} (round {c['round']})"
+            f" — {c.get('why', '')}"),
         ]
     vf = by_status.get("verify_failed", [])
     if vf:
