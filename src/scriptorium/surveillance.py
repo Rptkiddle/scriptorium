@@ -40,10 +40,10 @@ from scriptorium.apis import (
     OPENALEX,
     crossref_get,
     http_session,
+    mailto,
     request_json,
     strip_jats,
 )
-from scriptorium.config import CONTACT_EMAIL as MAILTO
 from scriptorium.config import Config
 from scriptorium.judging import parse_verdicts
 from scriptorium.runs import read_manifest, update_manifest, work_dir
@@ -161,7 +161,7 @@ def _resolve_venue(session: requests.Session, name: str) -> tuple[dict | None, s
     try:
         sources = request_json(
             session, "GET", f"{OPENALEX}/sources", attempts=1,
-            params={"search": name, "per-page": 10, "mailto": MAILTO},
+            params={"search": name, "per-page": 10, **mailto()},
         )["results"]
     except Exception:
         sources = []

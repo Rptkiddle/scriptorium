@@ -82,9 +82,18 @@ def test_s2_key_goes_to_s2_only_and_without_redirects(monkeypatch):
 
 
 def test_crossref_get_adds_mailto_and_unwraps_message(monkeypatch):
+    monkeypatch.setattr(apis, "contact_email", lambda: "me@example.org")
     s = _Session([_Resp(200, {"message": {"items": []}})])
     assert apis.crossref_get(s, f"{apis.CROSSREF}/works", rows=1) == {"items": []}
-    assert s.calls[0][2]["params"] == {"rows": 1, "mailto": apis.MAILTO}
+    assert s.calls[0][2]["params"] == {"rows": 1, "mailto": "me@example.org"}
+
+
+def test_no_contact_email_sends_no_mailto(monkeypatch):
+    monkeypatch.setattr(apis, "contact_email", lambda: "")
+    s = _Session([_Resp(200, {"message": {}})])
+    apis.crossref_get(s, f"{apis.CROSSREF}/works", rows=1)
+    assert s.calls[0][2]["params"] == {"rows": 1}
+    assert apis.http_session("x").headers["User-Agent"] == "scriptorium-x"
 
 
 def test_norm_doi_and_strip_jats():

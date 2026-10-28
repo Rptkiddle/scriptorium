@@ -35,13 +35,20 @@ DEFAULTS: dict = {
         "grobid_java_home": "",  # Java 21; empty = JAVA_HOME, else Homebrew's openjdk@21
         "auto_sync": 1,  # sync automatically when the index is behind Zotero
         "auto_sync_interval": 60,  # seconds between the daemon's staleness checks
+        # Sent as mailto with Crossref and OpenAlex requests (their "polite
+        # pool" serves identified users better); empty = no address sent.
+        "contact_email": "",
     },
     "zotero": {
         # Reads use Zotero's local API; writes go through the Scriptorium
         # Bridge plugin. Both require the Zotero app to be running.
         # Linked-file attachments live here; must match Zotero's Linked
         # Attachment Base Directory (Settings -> Advanced -> Files and Folders).
-        "linked_attachments_dir": "~/Desktop/libr/Papers",
+        # Empty until set: attaching PDFs refuses without it.
+        "linked_attachments_dir": "",
+        # Zotero's data directory (Settings -> Advanced -> Files and Folders);
+        # its storage/ folder holds the PDFs Zotero stores itself.
+        "data_dir": "~/Zotero",
         "bibtex_format": "biblatex",  # default format of hub_bibtex
     },
     "surveillance": {
@@ -268,6 +275,9 @@ SCHEMA: dict = {
             {"key": "auto_sync_interval", "kind": "int",
              "label": "Auto-sync check interval (s)",
              "doc": "How often the daemon compares index vs Zotero versions"},
+            {"key": "contact_email", "kind": "text", "label": "Contact email",
+             "doc": ("Sent with Crossref and OpenAlex requests (their polite pool);"
+                     " empty sends none")},
         ],
     },
     "zotero": {
@@ -279,6 +289,9 @@ SCHEMA: dict = {
              "label": "Linked attachments folder",
              "doc": ("Where PDFs live; must equal Zotero's Linked Attachment"
                      " Base Directory (Settings > Advanced > Files and Folders)")},
+            {"key": "data_dir", "kind": "text", "label": "Zotero data folder",
+             "doc": ("Zotero's data directory (Settings > Advanced > Files and"
+                     " Folders); PDFs Zotero stores itself are under its storage/")},
             {"key": "bibtex_format", "kind": "choice", "options": ["biblatex", "bibtex"],
              "label": "BibTeX export format",
              "doc": ("Default format of hub_bibtex: biblatex (\\addbibresource)"

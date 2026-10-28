@@ -22,8 +22,7 @@ import re
 
 import requests
 
-from scriptorium.apis import OPENALEX, http_session, request_json
-from scriptorium.config import CONTACT_EMAIL as MAILTO
+from scriptorium.apis import OPENALEX, http_session, mailto, request_json
 
 SCOPUS_SEARCH = "https://api.elsevier.com/content/search/scopus"
 SPRINGER_META = "https://api.springernature.com/meta/v2/json"
@@ -94,7 +93,7 @@ def _openalex(session, dois: list[str], settings: dict, found: dict) -> None:
     for batch in _batches([d for d in dois if not re.search(r"[|,]", d)], 50):
         res = request_json(session, "GET", f"{OPENALEX}/works", params={
             "filter": "doi:" + "|".join(f"https://doi.org/{d}" for d in batch),
-            "per-page": 50, "select": "doi,abstract_inverted_index", "mailto": MAILTO,
+            "per-page": 50, "select": "doi,abstract_inverted_index", **mailto(),
         })
         for work in res.get("results", []):
             doi = (work.get("doi") or "").lower().removeprefix("https://doi.org/")

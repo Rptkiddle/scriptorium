@@ -76,12 +76,19 @@ def status() -> None:
             "failed_items": hub.state.failed,
         }
         hub.close()
+    from pathlib import Path
+
+    from scriptorium.settings import load_settings
+
+    zotero_settings = load_settings(cfg)["zotero"]
+    zotero_dir = Path(zotero_settings["data_dir"]).expanduser()
     info = {
         "version": __version__,
         "zotero_local_api": cfg.zotero_local_api,
         "zotero_running": zotero_reachable(cfg.zotero_local_api),
-        "zotero_data_dir": str(cfg.zotero_data_dir),
-        "zotero_data_dir_exists": cfg.zotero_data_dir.exists(),
+        "zotero_data_dir": str(zotero_dir),
+        "zotero_data_dir_exists": zotero_dir.exists(),
+        "linked_attachments_dir": zotero_settings["linked_attachments_dir"] or "(not set)",
         "index_dir": str(cfg.index_dir),
         "index": "present" if index_exists else "not yet built",
         "embedding_model": cfg.embedding_model,
@@ -96,12 +103,11 @@ def parse(
     full: bool = typer.Option(False, help="Dump every passage in full"),
 ) -> None:
     """Read one paper's PDF into passages (GROBID; the TEI is kept) and show them."""
-    from scriptorium.parsing import md5sum
-
     from scriptorium.grobid import GrobidUnavailable
     from scriptorium.parsing import (
         ParseError,
         grobid_from_settings,
+        md5sum,
         parse_paper,
         tei_store,
     )
