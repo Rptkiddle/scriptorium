@@ -57,7 +57,7 @@ def test_reader_serialises_client_calls():
 
 def _reader_with_files(tmp_path, present: set[str]):
     reader = object.__new__(ZoteroReader)
-    reader.config = SimpleNamespace(zotero_data_dir=tmp_path)
+    reader._data_dir = lambda: tmp_path
     for key in present:
         (tmp_path / "storage" / key).mkdir(parents=True)
         (tmp_path / "storage" / key / "f.pdf").write_bytes(b"%PDF")

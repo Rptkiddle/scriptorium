@@ -27,9 +27,13 @@ from urllib.parse import urlsplit
 
 import requests
 
-from scriptorium.apis import CROSSREF, MAILTO, OPENALEX, request_json
+from scriptorium.apis import CROSSREF, OPENALEX, contact_email, mailto, request_json
 
-USER_AGENT = f"scriptorium/0.1 (VU Amsterdam research library tool; mailto:{MAILTO})"
+
+def user_agent() -> str:
+    """The honest user agent of PDF requests, with the contact address when set."""
+    email = contact_email()
+    return "scriptorium/0.1 (research library tool" + (f"; mailto:{email}" if email else "") + ")"
 PMC_BUCKET = "https://pmc-oa-opendata.s3.amazonaws.com"
 CATEGORY_KEYS = {"2AJ6WQZ6": "Journals", "GZ4CVXPR": "Proceedings", "3ISRFHE2": "Preprints"}
 SUBSCRIBED = "[✓] "
@@ -147,7 +151,7 @@ def crossref_pdf_links(message: dict) -> list[str]:
 
 def openalex_locations(session: requests.Session, doi: str) -> list[dict]:
     work = request_json(session, "GET", f"{OPENALEX}/works/doi:{doi}",
-                        params={"mailto": MAILTO, "select": "locations"}, not_found={})
+                        params={**mailto(), "select": "locations"}, not_found={})
     return work.get("locations") or []
 
 
@@ -252,7 +256,7 @@ def candidate_urls(session: requests.Session, record, resolver: str, url: str = 
         return [found] if found else []
     if resolver == "ifaamas":
         message = request_json(session, "GET", f"{CROSSREF}/works/{doi}",
-                               params={"mailto": MAILTO}, not_found={}).get("message", {})
+                               params=mailto(), not_found={}).get("message", {})
         found = ifaamas_url(message)
         return [found] if found else []
     if resolver == "plos":
@@ -279,7 +283,7 @@ def candidate_urls(session: requests.Session, record, resolver: str, url: str = 
         return ojs_galley_urls(resp.text, resp.url) if resp.ok else []
     if resolver == "policyreview":
         message = request_json(session, "GET", f"{CROSSREF}/works/{doi}",
-                               params={"mailto": MAILTO}, not_found={}).get("message", {})
+                               params=mailto(), not_found={}).get("message", {})
         own = [u for u in crossref_pdf_links(message) if urlsplit(u).netloc.endswith("policyreview.info")]
         return list(dict.fromkeys(policyreview_urls(doi) + own))
     urls = []
@@ -287,7 +291,7 @@ def candidate_urls(session: requests.Session, record, resolver: str, url: str = 
         urls += [loc["pdf_url"] for loc in openalex_locations(session, doi)
                  if (loc.get("source") or {}).get("type") == "journal" and loc.get("pdf_url")]
     message = request_json(session, "GET", f"{CROSSREF}/works/{doi}",
-                           params={"mailto": MAILTO}, not_found={}).get("message", {})
+                           params=mailto(), not_found={}).get("message", {})
     urls += crossref_pdf_links(message)
     # Nature-family articles (Nature Portfolio and Palgrave's 10.1057/s4...)
     # are served at nature.com/articles/<id>.pdf; Crossref lists no PDF link

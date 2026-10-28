@@ -29,8 +29,7 @@ from pathlib import Path
 
 import requests
 
-from scriptorium.apis import OPENALEX, S2, norm_doi, request_json, strip_jats
-from scriptorium.config import CONTACT_EMAIL
+from scriptorium.apis import OPENALEX, S2, mailto, norm_doi, request_json, strip_jats
 from scriptorium.judging import parse_verdicts
 from scriptorium.runs import work_dir
 
@@ -219,7 +218,7 @@ def search_openalex(session: requests.Session, expr: str, cap: int,
     while len(hits) < cap and cursor:
         data = _request(session, "GET", f"{OPENALEX}/works", params={
             "filter": ",".join(filters), "per-page": min(200, cap),
-            "cursor": cursor, "mailto": CONTACT_EMAIL,
+            "cursor": cursor, **mailto(),
         })
         hits += data.get("results") or []
         cursor = (data.get("meta") or {}).get("next_cursor")
@@ -448,7 +447,7 @@ def verify_include(session: requests.Session, cand: dict) -> str | None:
     try:
         cr = _request(session, "GET",
                       f"https://api.crossref.org/works/{cand['doi']}",
-                      params={"mailto": CONTACT_EMAIL}).get("message") or {}
+                      params=mailto()).get("message") or {}
         s2 = _request(session, "GET", f"{S2}/paper/DOI:{cand['doi']}",
                       params={"fields": "title,year,authors"})
         time.sleep(S2_DELAY)

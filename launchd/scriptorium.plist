@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Template: app/build.sh installs it into ~/Library/LaunchAgents with __HOME__ filled in. -->
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.rupertkiddle.scriptorium</string>
+    <string>io.github.rptkiddle.scriptorium</string>
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/rupertkiddle/Applications/Scriptorium.app/Contents/MacOS/Scriptorium</string>
+        <string>__HOME__/Applications/Scriptorium.app/Contents/MacOS/Scriptorium</string>
         <string>daemon</string>
     </array>
 
@@ -19,8 +20,8 @@
     <true/>
 
     <key>StandardOutPath</key>
-    <string>/Users/rupertkiddle/Library/Logs/scriptorium/daemon.log</string>
+    <string>__HOME__/Library/Logs/scriptorium/daemon.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/rupertkiddle/Library/Logs/scriptorium/daemon.err.log</string>
+    <string>__HOME__/Library/Logs/scriptorium/daemon.err.log</string>
 </dict>
 </plist>

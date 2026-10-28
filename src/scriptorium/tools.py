@@ -13,6 +13,7 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
 from scriptorium import __version__
+from scriptorium.config import REPO_ROOT
 from scriptorium.daemon import current, log
 from scriptorium.search import LIST_LIMIT_MAX, SEARCH_K_MAX
 from scriptorium.service import ingest_items
@@ -587,7 +588,9 @@ def hub_sync_cancel() -> dict:
 @mcp.tool()
 def hub_status() -> dict:
     """Hub health: index size, sync watermark, failed items, Zotero
-    reachability, model info."""
+    reachability, model info, and `repo`: the scriptorium repository the
+    daemon runs from, where the skills' scripts are run (`uv run python
+    scripts/<name>.py` from that folder)."""
     d = current()
     try:
         d.reader.check_available()
@@ -600,4 +603,5 @@ def hub_status() -> dict:
         "failed_items": d.hub.state.failed,
         "zotero_running": zotero_running,
         "embedding_model": d.cfg.embedding_model,
+        "repo": str(REPO_ROOT),
     }

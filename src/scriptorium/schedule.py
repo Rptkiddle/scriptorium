@@ -8,7 +8,7 @@ import os
 import subprocess
 from pathlib import Path
 
-NIGHTLY_LABEL = "com.rupertkiddle.scriptorium-surveillance"
+NIGHTLY_LABEL = "io.github.rptkiddle.scriptorium-surveillance"
 NIGHTLY_PLIST = Path.home() / "Library" / "LaunchAgents" / f"{NIGHTLY_LABEL}.plist"
 # The Scriptorium.app launcher stub (see app/): running through the app
 # gives the nightly job the app's scoped Desktop-folder permission.

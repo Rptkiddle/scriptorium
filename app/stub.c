@@ -6,18 +6,19 @@
  * binaries like uv or zsh. The stub itself does nothing but exec the
  * dispatch script in the repo — logic lives there, editable without
  * re-signing the bundle (which would invalidate the TCC grant).
+ * DISPATCH, the script's absolute path, is set by app/build.sh at compile
+ * time from wherever the repository is.
  */
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 
+#ifndef DISPATCH
+#error "build with app/build.sh, which sets DISPATCH"
+#endif
+
 int main(int argc, char *argv[]) {
-    const char *home = getenv("HOME");
-    if (!home) return 1;
-    char script[1024];
-    snprintf(script, sizeof script,
-             "%s/Desktop/code/1_SELF/scriptorium/scriptorium/app/dispatch.sh",
-             home);
+    char *script = DISPATCH;
     char *args[argc + 2];
     args[0] = "/bin/zsh";
     args[1] = script;

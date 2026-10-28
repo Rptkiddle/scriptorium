@@ -47,7 +47,6 @@ from scriptorium.config import load_config
 from scriptorium.pdf_routes import (
     BLOCK_BREAKER,
     URL_RESOLVERS,
-    USER_AGENT,
     Pacer,
     candidate_urls,
     fetch_pdf,
@@ -55,6 +54,7 @@ from scriptorium.pdf_routes import (
     interleave,
     review_decisions,
     route_of,
+    user_agent,
 )
 from scriptorium.runs import arm_dir, finish, new_run
 from scriptorium.zotero import ZoteroReader
@@ -260,7 +260,7 @@ def main() -> None:
         return
 
     session = requests.Session()
-    session.headers["User-Agent"] = USER_AGENT
+    session.headers["User-Agent"] = user_agent()
 
     run_dir = Path(args.run).expanduser() if args.run else new_run(cfg, "retrieval", slug="fetch")
     pdf_dir, review_dir = run_dir / "pdfs", run_dir / "pdfs-review"

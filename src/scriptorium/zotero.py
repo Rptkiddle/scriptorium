@@ -229,6 +229,13 @@ class ZoteroReader:
         raw = load_settings(self.config)["zotero"]["linked_attachments_dir"]
         return Path(raw).expanduser() if raw else None
 
+    def _data_dir(self) -> Path:
+        """Zotero's data directory from settings (its storage/ holds the
+        PDFs Zotero stores itself)."""
+        from scriptorium.settings import load_settings
+
+        return Path(load_settings(self.config)["zotero"]["data_dir"]).expanduser()
+
     @_locked
     def check_available(self) -> None:
         """Raise ZoteroUnavailableError if the local API is not reachable."""
@@ -301,7 +308,7 @@ class ZoteroReader:
         link_mode = att.get("linkMode", "")
         if link_mode in {"imported_file", "imported_url"}:
             filename = att.get("filename") or ""
-            path = self.config.zotero_data_dir / "storage" / key / filename
+            path = self._data_dir() / "storage" / key / filename
             if filename and path.exists():
                 return key, str(path), "ok"
             return key, str(path) if filename else "", "not_downloaded"

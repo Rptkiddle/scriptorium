@@ -9,11 +9,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-
-# Contact address sent with polite-pool API requests (Crossref and
-# OpenAlex identify heavy anonymous users; a mailto gets better service).
-CONTACT_EMAIL = "r.t.kiddle@vu.nl"
+REPO_ROOT = Path(__file__).resolve().parents[2]  # the repository this code runs from
 
 
 def _env_path(name: str, default: Path) -> Path:
@@ -27,15 +23,10 @@ class Config:
     zotero_local_api: str = os.environ.get(
         "SCRIPTORIUM_ZOTERO_API", "http://localhost:23119/api"
     )
-    zotero_data_dir: Path = field(
-        default_factory=lambda: _env_path(
-            "SCRIPTORIUM_ZOTERO_DATA", Path("~/Desktop/libr/Zotero").expanduser()
-        )
-    )
 
-    # Index storage (the repo's `data` symlink points at the .nosync data dir)
+    # Index storage (the data folder; the repo's git-ignored `data` link may point elsewhere)
     index_dir: Path = field(
-        default_factory=lambda: _env_path("SCRIPTORIUM_INDEX_DIR", _REPO_ROOT / "data")
+        default_factory=lambda: _env_path("SCRIPTORIUM_INDEX_DIR", REPO_ROOT / "data")
     )
 
     # Models (local, MPS)

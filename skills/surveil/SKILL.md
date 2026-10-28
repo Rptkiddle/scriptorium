@@ -11,7 +11,7 @@ the filter and appraise judgements, as tool-less calls on rendered prompt
 files. The nightly run (launchd, 02:00 by default) runs the same cycle
 through `scriptorium.launcher`; this skill is for an interactive run.
 
-From `~/Desktop/code/1_SELF/scriptorium/scriptorium`:
+From the scriptorium repository (the `repo` folder `hub_status` reports):
 
 ```
 uv run python scripts/surveil.py [--from YYYY-MM-DD]

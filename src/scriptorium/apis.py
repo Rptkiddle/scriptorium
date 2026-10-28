@@ -12,18 +12,32 @@ import time
 
 import requests
 
-from scriptorium.config import CONTACT_EMAIL as MAILTO
-
 CROSSREF = "https://api.crossref.org"
 S2 = "https://api.semanticscholar.org/graph/v1"
 OPENALEX = "https://api.openalex.org"
 KEY_HEADERS = {"x-api-key", "x-els-apikey", "x-els-insttoken"}
 
 
+def contact_email() -> str:
+    """The user's contact address for the APIs' polite pools
+    (general.contact_email in the settings); empty when not set."""
+    from scriptorium.config import load_config
+    from scriptorium.settings import load_settings
+
+    return str(load_settings(load_config())["general"].get("contact_email", "")).strip()
+
+
+def mailto() -> dict:
+    """The mailto request parameter, or nothing when no address is set."""
+    email = contact_email()
+    return {"mailto": email} if email else {}
+
+
 def http_session(agent: str) -> requests.Session:
     """A session identifying the calling arm (Crossref's polite pool)."""
     s = requests.Session()
-    s.headers["User-Agent"] = f"scriptorium-{agent} (mailto:{MAILTO})"
+    email = contact_email()
+    s.headers["User-Agent"] = f"scriptorium-{agent}" + (f" (mailto:{email})" if email else "")
     return s
 
 
@@ -84,7 +98,7 @@ def request_json(
 
 def crossref_get(session: requests.Session, url: str, **params) -> dict:
     """A Crossref API call (polite pool), returning the response's message."""
-    params["mailto"] = MAILTO
+    params.update(mailto())
     return request_json(session, "GET", url, params=params)["message"]
 
 
