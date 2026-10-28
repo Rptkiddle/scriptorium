@@ -17,7 +17,11 @@ from pathlib import Path
 
 from scriptorium.apis import http_session
 from scriptorium.discovery import (
-    LOOKUP_FAILED, candidates_path, load_json, save_json, verify_include,
+    LOOKUP_FAILED,
+    candidates_path,
+    load_json,
+    save_json,
+    verify_include,
 )
 
 

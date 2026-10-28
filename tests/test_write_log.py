@@ -7,7 +7,7 @@ import pytest
 
 from scriptorium.config import Config
 from scriptorium.zotero_bridge import BridgeUnavailable
-from scriptorium.zotero_write import WRITE_LOG, ZoteroWriter, ZoteroWriteError
+from scriptorium.zotero_write import WRITE_LOG, ZoteroWriteError, ZoteroWriter
 
 
 class _FakeBridge:

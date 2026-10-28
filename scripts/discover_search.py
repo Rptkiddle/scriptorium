@@ -18,10 +18,18 @@ from pathlib import Path
 from scriptorium.apis import http_session
 from scriptorium.config import load_config
 from scriptorium.discovery import (
-    _from_openalex, _from_s2, already_held, backfill_abstracts,
-    build_queries, candidates_path, library_titles, load_json, merge_candidates,
+    _from_openalex,
+    _from_s2,
+    already_held,
+    backfill_abstracts,
+    build_queries,
+    candidates_path,
+    library_titles,
+    load_json,
+    merge_candidates,
     save_json,
-    search_openalex, search_s2,
+    search_openalex,
+    search_s2,
 )
 from scriptorium.zotero import ZoteroReader, dois_of
 

@@ -32,8 +32,8 @@ Three properties of the evidence base shape the design:
 ## Procedure
 
 ```
-brief/question → protocol (user gate) → search → snowball → screen →
-arbitrate → [loop while yield] → verify → report → handoff (user gate)
+brief/question → protocol (user gate) → search → [screen → arbitrate →
+snowball, looped while yield] → verify → report → handoff (user gate)
 ```
 
 1. **Protocol.** The question is decomposed into 2–4 concept blocks
@@ -49,8 +49,8 @@ arbitrate → [loop while yield] → verify → report → handoff (user gate)
    work is findable in only one database). The query set is validated by
    relative recall — it must re-find the protocol's known-relevant seeds,
    or it is revised before screening.
-3. **Dedup and exclusion.** Normalised DOI, then external-ID crosswalk,
-   then fuzzy title+year+first-author. Items already in the library are
+3. **Dedup and exclusion.** Normalised DOI, then fuzzy
+   title+year+first-author. Items already in the library are
    excluded by live DOI check.
 4. **Abstract backfill.** ~52% of Crossref and ~40% of OpenAlex records
    lack abstracts; missing abstracts are backfilled across sources before
@@ -71,7 +71,9 @@ arbitrate → [loop while yield] → verify → report → handoff (user gate)
    an iteration adds nothing new (Wohlin convergence), or the round cap
    is hit. The report records which rule fired.
 9. **Verify.** Every include's metadata must agree between Crossref and
-   Semantic Scholar (title, authors, year, DOI) before it can be added.
+   Semantic Scholar (title, year within one, first author's surname),
+   looked up by DOI, before it can be added; an include without a DOI
+   cannot be verified.
 10. **Report and handoff.** A PRISMA-style flow report (identified per
     source → deduplicated → screened → excluded with reasons → included)
     plus the include list with per-paper provenance (which query or seed

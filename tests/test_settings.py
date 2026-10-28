@@ -4,8 +4,13 @@ import pytest
 
 from scriptorium.config import Config
 from scriptorium.settings import (
-    _INT_BOUNDS, DEFAULTS, SCHEMA, load_settings, mask_settings,
-    save_settings, secret_keys,
+    _INT_BOUNDS,
+    DEFAULTS,
+    SCHEMA,
+    load_settings,
+    mask_settings,
+    save_settings,
+    secret_keys,
 )
 
 KINDS = {"onoff", "int", "model", "text", "textarea", "secret", "choice"}

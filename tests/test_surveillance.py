@@ -10,7 +10,11 @@ from scriptorium.config import Config
 from scriptorium.runs import new_run
 from scriptorium.schedule import schedule_status
 from scriptorium.surveillance import (
-    FilterRetryNeeded, assemble_appraise, harvest, harvest_from, registry_path,
+    FilterRetryNeeded,
+    assemble_appraise,
+    harvest,
+    harvest_from,
+    registry_path,
 )
 
 TODAY = datetime.date(2026, 9, 23)
@@ -148,7 +152,11 @@ def test_assemble_fills_missing_abstracts_of_the_pool_only(tmp_path, monkeypatch
 # -- verdict files, appraise coverage, pending marker ------------------------
 
 from scriptorium.surveillance import (  # noqa: E402
-    AppraiseRetryNeeded, VerdictFileError, load_state, read_verdicts, write_report,
+    AppraiseRetryNeeded,
+    VerdictFileError,
+    load_state,
+    read_verdicts,
+    write_report,
 )
 
 

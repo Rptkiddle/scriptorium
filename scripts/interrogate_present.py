@@ -60,8 +60,8 @@ def main() -> None:
         f"Chunks: {len(chunks)} unique"
         + (f" · similarity {min(sims):.3f}-{max(sims):.3f}" if sims else "")
         + f" · scoring judges: {judges}",
-        f"Scores: central {tally[3]} · supporting {tally[2]} · contextual {tally[1]}"
-        f" · irrelevant {tally[0]}",
+        (f"Scores: central {tally[3]} · supporting {tally[2]} · contextual {tally[1]}"
+        f" · irrelevant {tally[0]}"),
     ]
     if survived:
         parts.append(

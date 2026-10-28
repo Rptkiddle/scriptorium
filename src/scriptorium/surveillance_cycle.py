@@ -30,8 +30,15 @@ from scriptorium.additions import add_papers
 from scriptorium.runs import finish, git_state, read_manifest, update_manifest, work_dir
 from scriptorium.settings import load_settings
 from scriptorium.surveillance import (
-    AppraiseRetryNeeded, FilterRetryNeeded, VerdictFileError, _base, assemble_appraise,
-    harvest, load_registry, read_verdicts, write_report,
+    AppraiseRetryNeeded,
+    FilterRetryNeeded,
+    VerdictFileError,
+    _base,
+    assemble_appraise,
+    harvest,
+    load_registry,
+    read_verdicts,
+    write_report,
 )
 
 PENDING = "add_pending.json"
@@ -195,8 +202,8 @@ def write_digest(run_dir: Path, by: str = "self") -> tuple[Path, str]:
                 tag = " (already in library)"
             elif added is not None:
                 tag = " (ADD FAILED)"
-            lines += [f"- **{a['title']}** — {a['authors']}, *{a['venue']}*."
-                      f" https://doi.org/{a['doi']}{tag}",
+            lines += [(f"- **{a['title']}** — {a['authors']}, *{a['venue']}*."
+                      f" https://doi.org/{a['doi']}{tag}"),
                       f"  {a.get('why', '')}"]
     else:
         lines += ["", "Nothing accepted; a quiet night."]

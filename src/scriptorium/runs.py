@@ -146,8 +146,8 @@ def rebuild_index(arm_path: Path) -> Path:
     lines = [
         f"# {arm_path.name} runs",
         "",
-        "One line per run, newest first: run ID (the folder in runs/), status,"
-        " summary. Each run's run.json holds the detail.",
+        ("One line per run, newest first: run ID (the folder in runs/), status,"
+        " summary. Each run's run.json holds the detail."),
         "",
     ]
     for d in sorted(runs.iterdir() if runs.is_dir() else [], reverse=True):

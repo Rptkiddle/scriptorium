@@ -22,8 +22,15 @@ import argparse
 from pathlib import Path
 
 from scriptorium.discovery import (
-    ARBITER_PROMPT, _card, candidates_path, collect_verdicts, lex_score, load_json,
-    protocol_terms, render_screen_prompts, save_json,
+    ARBITER_PROMPT,
+    _card,
+    candidates_path,
+    collect_verdicts,
+    lex_score,
+    load_json,
+    protocol_terms,
+    render_screen_prompts,
+    save_json,
 )
 from scriptorium.runs import work_dir
 
