@@ -164,6 +164,47 @@ def test_verify_wrong_year_fails(monkeypatch):
     assert "year mismatch" in verify_include(None, _cand(year=2020))
 
 
+def test_verify_ignores_accents_in_surnames(monkeypatch):
+    cr = {**CR_OK, "author": [{"family": "Resendez", "sequence": "first"}]}
+    s2 = {**S2_OK, "authors": [{"name": "Valeria Reséndez"}]}
+    monkeypatch.setattr(discovery, "_request", _mock_request(cr, s2))
+    monkeypatch.setattr(discovery.time, "sleep", lambda _: None)
+    assert verify_include(None, _cand(authors=["Valeria Reséndez"])) is None
+
+
+def _mock_datacite(datacite, s2):
+    def fake(session, method, url, params=None, json_body=None):
+        if "crossref" in url:
+            return {}
+        if "datacite" in url:
+            return datacite
+        return s2
+    return fake
+
+
+DC_OK = {"data": {"attributes": {"titles": [{"title": "A Paper"}], "publicationYear": 2020,
+                                 "creators": [{"name": "Lovelace, Ada", "familyName": "Lovelace"}]}}}
+
+
+def test_verify_falls_back_to_datacite_for_arxiv_dois(monkeypatch):
+    monkeypatch.setattr(discovery, "_request", _mock_datacite(DC_OK, S2_OK))
+    monkeypatch.setattr(discovery.time, "sleep", lambda _: None)
+    assert verify_include(None, _cand(doi="10.48550/arxiv.2306.10702")) is None
+
+
+def test_verify_datacite_mismatch_names_datacite(monkeypatch):
+    dc = {"data": {"attributes": {**DC_OK["data"]["attributes"], "publicationYear": 2015}}}
+    monkeypatch.setattr(discovery, "_request", _mock_datacite(dc, S2_OK))
+    monkeypatch.setattr(discovery.time, "sleep", lambda _: None)
+    assert verify_include(None, _cand(year=2020)) == "year mismatch vs datacite: 2015"
+
+
+def test_verify_fails_when_neither_registry_has_the_doi(monkeypatch):
+    monkeypatch.setattr(discovery, "_request", _mock_datacite({}, S2_OK))
+    monkeypatch.setattr(discovery.time, "sleep", lambda _: None)
+    assert verify_include(None, _cand()) == "not found in Crossref or DataCite"
+
+
 def test_verify_no_doi_fails():
     assert "no DOI" in verify_include(None, _cand(doi=""))
 
@@ -206,6 +247,7 @@ def test_empty_titles_never_fuzzy_match():
 def test_first_surname_handles_empty_authors():
     assert _first_surname([]) == "" and _first_surname([""]) == ""
     assert _first_surname(["Ana da Silva"]) == "silva"
+    assert _first_surname(["Valérie Bélair-Gagnon"]) == "belair-gagnon"
 
 
 def test_already_held_by_title_when_no_doi():

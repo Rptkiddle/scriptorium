@@ -97,8 +97,9 @@ convergence — proceed to verify.
 uv run python scripts/discover_verify.py --run <rundir>
 ```
 
-Crossref AND Semantic Scholar must corroborate every include; failures
-are reported but never added.
+The DOI's registry (Crossref, or DataCite for arXiv and other DataCite
+DOIs) AND Semantic Scholar must corroborate every include; failures are
+reported but never added.
 
 ## 6 — Report and handoff (user gate)
 
