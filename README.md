@@ -206,7 +206,7 @@ Before pushing, `scripts/check_push.sh` scans the outgoing commits for secrets a
 
 ## Licence
 
-Not yet licensed. I intend to release scriptorium under the GNU Affero General Public License 3.0, with a commercial licence available on request. Prompt text adapted from PaperQA2 falls under Apache-2.0 (`LICENSES/`).
+scriptorium is licensed under the GNU Affero General Public License v3.0 or later (`LICENSE`). A commercial licence is available on request. Prompt text adapted from PaperQA2 falls under Apache-2.0 (`LICENSES/`).
 
 ## Citation and acknowledgements
 
