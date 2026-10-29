@@ -3,12 +3,13 @@
 Usage:
     uv run python scripts/discover_verify.py --run <rundir>
 
-Applies the citation-verification rule to each include: Crossref AND
-Semantic Scholar must agree with the candidate's title, year, and first
-author. Verified includes keep status "include" with verified=true;
-failures become status "verify_failed" with the reason (they appear in
-the report but are never added). When Crossref or Semantic Scholar
-cannot be reached, the include stays unverified and a re-run retries it.
+Applies the citation-verification rule to each include: the DOI's
+registry (Crossref, or DataCite for DOIs Crossref does not hold, such as
+arXiv's) AND Semantic Scholar must agree with the candidate's title,
+year, and first author. Verified includes keep status "include" with
+verified=true; failures become status "verify_failed" with the reason
+(they appear in the report but are never added). When a source cannot be
+reached, the include stays unverified and a re-run retries it.
 Slow by design (1 req/s to Semantic Scholar).
 """
 
