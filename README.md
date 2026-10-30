@@ -32,7 +32,7 @@ I am a PhD candidate and postdoctoral researcher in Communication Science at Vri
 
 **Phase 2 – surveillance, interrogation and discovery.** Phase 2 provides more advanced agentic workflows: surveillance (a nightly filter-then-appraise check of new publications in subscribed venues), interrogation (adaptation of FutureHouse's PaperQA2 approach to asking questions of a large-N library) and discovery (systematic literature search, still under development). 
 
-**Phase 3 – a concept-level self-maintaining knowledge base.** The longer-term aim is a semi-autonomous (human-in-the-loop) knowledge base that maintains itself alongside the Zotero library and works at the level of concepts; providing a 'map' of relevant interdisciplinary literature as regards each concept to be utilised by the surveillance, interrogation, and discovery skills.   
+**Phase 3 – shared deployment and a concept-level knowledge base.** Phase 3 extends Scriptorium from a single researcher's installation to a research group. Scriptorium will run both locally, over one researcher's own library, and on a shared server, where colleagues contribute papers to a common index and search it together with the same tools. The longer-term aim is a semi-autonomous (human-in-the-loop) knowledge base that maintains itself alongside the library and works at the level of concepts, providing a 'map' of relevant interdisciplinary literature as regards each concept, to be utilised by the surveillance, interrogation and discovery skills.
 
 ## Features
 
