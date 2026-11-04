@@ -123,7 +123,12 @@ class Embedder:
             import torch
             from sentence_transformers import SentenceTransformer
 
-            device = "mps" if torch.backends.mps.is_available() else "cpu"
+            if torch.cuda.is_available():
+                device = "cuda"
+            elif torch.backends.mps.is_available():
+                device = "mps"
+            else:
+                device = "cpu"
             try:
                 # truncate_dim relies on the model's Matryoshka training:
                 # vectors are cut to the leading dimensions, then normalised.
@@ -168,7 +173,9 @@ class Embedder:
             gc.collect()
             import torch
 
-            if torch.backends.mps.is_available():
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            elif torch.backends.mps.is_available():
                 torch.mps.empty_cache()
 
     def encode_documents(self, texts: list[str], batch_size: int = 16) -> list[list[float]]:
@@ -183,11 +190,14 @@ class Embedder:
                     show_progress_bar=False,
                 )
             out.extend(v.tolist() for v in vectors)
-        # Release the MPS allocator's cached buffers after each document —
+        # Release the GPU allocator's cached buffers after each document —
         # without this a full-library sync accumulates tens of GB of cache.
         import torch
 
-        if torch.backends.mps.is_available():
+        if torch.cuda.is_available():
+            with self._lock:
+                torch.cuda.empty_cache()
+        elif torch.backends.mps.is_available():
             with self._lock:
                 torch.mps.empty_cache()
         return out
