@@ -25,6 +25,7 @@ import json
 import random
 import re
 import time
+import unicodedata
 from pathlib import Path
 
 import requests
@@ -35,6 +36,7 @@ from scriptorium.runs import work_dir
 
 S2_FIELDS = "title,abstract,year,venue,authors,externalIds"
 S2_DELAY = 1.1  # 1 req/s etiquette
+DATACITE = "https://api.datacite.org/dois"
 
 
 def _request(session: requests.Session, method: str, url: str,
@@ -48,14 +50,21 @@ def _request(session: requests.Session, method: str, url: str,
 
 # ---------------------------------------------------------------- candidates
 
+def _fold(text: str) -> str:
+    """Casefolded and stripped of accents, so sources that spell a name with
+    or without diacritics compare equal ("Reséndez" -> "resendez")."""
+    return "".join(c for c in unicodedata.normalize("NFKD", text.casefold())
+                   if not unicodedata.combining(c))
+
+
 def _norm_title(title: str) -> str:
-    return re.sub(r"[^a-z0-9]", "", (title or "").casefold())[:80]
+    return re.sub(r"[^a-z0-9]", "", _fold(title or ""))[:80]
 
 
 def _first_surname(authors: list | None) -> str:
-    """Last word of the first author's name, casefolded; "" if unknown."""
+    """Last word of the first author's name, folded; "" if unknown."""
     words = ((authors or [""])[0] or "").split()
-    return words[-1].casefold() if words else ""
+    return _fold(words[-1]) if words else ""
 
 
 def fuzzy_key(cand: dict) -> str | None:
@@ -435,32 +444,50 @@ def already_held(cand: dict, lib_dois: set[str], lib_titles: set[str]) -> bool:
 LOOKUP_FAILED = "lookup failed"
 
 
+def _datacite_as_crossref(record: dict) -> dict:
+    """A DataCite DOI record (arXiv, Zenodo and other DataCite-registered
+    DOIs) in the Crossref shape verify_include reads; {} if empty."""
+    attrs = (record.get("data") or {}).get("attributes") or {}
+    if not attrs:
+        return {}
+    first = (attrs.get("creators") or [{}])[0]
+    family = first.get("familyName") or (first.get("name") or "").split(",")[0].strip()
+    return {"title": [t["title"] for t in attrs.get("titles") or [] if t.get("title")][:1],
+            "issued": {"date-parts": [[attrs.get("publicationYear")]]},
+            "author": [{"family": family, "sequence": "first"}] if family else []}
+
+
 def verify_include(session: requests.Session, cand: dict) -> str | None:
-    """Crossref AND Semantic Scholar must agree with the candidate's
-    metadata (title, year ±1, first-author surname). Returns None when
-    verified, else the failure reason. Candidates without a DOI cannot be
-    verified and are failed. A reason starting with LOOKUP_FAILED means
-    the sources could not be reached, not that they disagree; the caller
-    leaves such a candidate for a later attempt."""
+    """The DOI's registry (Crossref, or DataCite for DOIs Crossref does not
+    hold, such as arXiv's) AND Semantic Scholar must agree with the
+    candidate's metadata (title, year ±1, first-author surname). Returns
+    None when verified, else the failure reason. Candidates without a DOI
+    cannot be verified and are failed. A reason starting with LOOKUP_FAILED
+    means the sources could not be reached, not that they disagree; the
+    caller leaves such a candidate for a later attempt."""
     if not cand["doi"]:
         return "no DOI — cannot verify"
+    registry = "crossref"
     try:
         cr = _request(session, "GET",
                       f"https://api.crossref.org/works/{cand['doi']}",
                       params=mailto()).get("message") or {}
+        if not cr:
+            registry = "datacite"
+            cr = _datacite_as_crossref(_request(session, "GET", f"{DATACITE}/{cand['doi']}"))
         s2 = _request(session, "GET", f"{S2}/paper/DOI:{cand['doi']}",
                       params={"fields": "title,year,authors"})
         time.sleep(S2_DELAY)
     except (requests.RequestException, RuntimeError) as exc:
         return f"{LOOKUP_FAILED}: {exc}"
     if not cr:
-        return "not found in Crossref"
+        return "not found in Crossref or DataCite"
     if not s2:
         return "not found in Semantic Scholar"
     title = _norm_title(cand["title"])
     if not title:
         return "title does not normalise to comparable text"
-    for name, source_title in (("crossref", (cr.get("title") or [""])[0]),
+    for name, source_title in ((registry, (cr.get("title") or [""])[0]),
                                ("s2", s2.get("title", ""))):
         other = _norm_title(source_title)
         if not other:
@@ -470,7 +497,7 @@ def verify_include(session: requests.Session, cand: dict) -> str | None:
             return f"title mismatch vs {name}: {source_title[:80]!r}"
     year = cand.get("year")
     cr_year = ((cr.get("issued") or {}).get("date-parts") or [[None]])[0][0]
-    for name, source_year in (("crossref", cr_year), ("s2", s2.get("year"))):
+    for name, source_year in ((registry, cr_year), ("s2", s2.get("year"))):
         if year and source_year and abs(int(year) - int(source_year)) > 1:
             return f"year mismatch vs {name}: {source_year}"
     surname = _first_surname(cand.get("authors"))
@@ -479,8 +506,8 @@ def verify_include(session: requests.Session, cand: dict) -> str | None:
                          if a.get("sequence") == "first"),
                         (cr.get("author") or [{}])[0].get("family", ""))
         s2_first = _first_surname([a.get("name", "") for a in (s2.get("authors") or [])])
-        for name, source_surname in (("crossref", cr_first), ("s2", s2_first)):
-            other = source_surname.casefold()
+        for name, source_surname in ((registry, cr_first), ("s2", s2_first)):
+            other = _fold(source_surname)
             # Containment either way: compound surnames ("da Silva") split
             # differently across sources.
             if other and surname not in other and other not in surname:
