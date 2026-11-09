@@ -119,7 +119,7 @@ uv run python scripts/ingest_add.py --entries <rundir>/work/ingest_entries.json
 ```
 
 The new items arrive without PDFs; note in the report that
-`/scriptorium:retrieve` obtains them (fetch, then attach on the user's go).
+`scripts/find_pdfs.py` can look for them through Zotero, on the user's go.
 
 Your final message: the report path, the flow summary (identified →
 candidates → screened → included → verified), the stopping rule that
