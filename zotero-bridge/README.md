@@ -33,6 +33,8 @@ All accept JSON over POST under `/scriptorium/`:
 | `items/restore` | `{keys}` | `{restored: [keys], failed}` (out of the trash; 0.1.7+) |
 | `items/delete` | `{key}` | `{deleted}` (moves to trash) |
 | `attachments/link` | `{parentKey, path, title?}` | `{created: [key], file}` |
+| `attachments/find` | `{parentKey, path, methods}` | `{eligible, found, url, version}` (Zotero's Find Available PDF lookup, downloading to `path`; attaches nothing; 0.1.8+) |
+| `attachments/import` | `{parentKey, path}` | `{created: [key]}` (a stored attachment; 0.1.8+) |
 | `collections/create` | `{name, parentKey?}` | `{created: [key]}` |
 | `collections/update` | `{key, name}` | `{updated, name}` (rename) |
 | `collections/delete` | `{key}` | `{deleted}` (moves to trash; items stay) |

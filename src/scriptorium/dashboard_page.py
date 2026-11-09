@@ -73,7 +73,7 @@ call, plus these web pages. Auto-syncs when Zotero's library changes.</td></tr>
 the last successful run (missed nights are caught up, up to the catch-up window) via
 Crossref, judges them in two LLM stages (Filter, Appraise) against your research profile, writes a
 report and digest, and — when enabled — adds accepts to Zotero (metadata only;
-PDFs are left to retrieve).</td></tr>
+PDFs are left to Zotero's Find Available PDF).</td></tr>
 <tr><td class="key">search</td><td>Spot searches over the library: whether a
 paper is there (DOI, arXiv ID, title), everything by an author or in a venue or
 year, counts, topical searches with filters, passages. Invoked as
@@ -81,10 +81,6 @@ year, counts, topical searches with filters, passages. Invoked as
 <tr><td class="key">interrogation</td><td>Citation-grounded answers from the
 library: retrieval, per-chunk relevance scoring, and answer writing, following
 PaperQA2's procedure. Invoked as /scriptorium:interrogate.</td></tr>
-<tr><td class="key">retrieve</td><td>PDF acquisition for items that lack one: the
-version of record downloaded from each publisher's site (from the VU network),
-staged in a run and attached to Zotero on your go; no preprint PDFs. Invoked as
-/scriptorium:retrieve.</td></tr>
 <tr><td class="key">ingest</td><td>Adding papers properly: verified metadata,
 collection placement, PDFs as linked files, indexing. Invoked as
 /scriptorium:ingest.</td></tr>
@@ -201,9 +197,9 @@ PDFS_PAGE = f"""<!DOCTYPE html>
 <body>
 <h1><a href="/" style="color:inherit">scriptorium</a> <small>missing PDFs</small></h1>
 <p class="blurb">Every regular item without a usable PDF, live from Zotero,
-including surveillance additions (which arrive metadata-only). Run
-/scriptorium:retrieve to download versions of record from publishers' sites; for
-the rest, copy the click-list, download into
+including surveillance additions (which arrive metadata-only). Select items in
+Zotero and use Find Available PDF, or run scripts/find_pdfs.py; the daemon indexes
+what arrives. For the rest, copy the click-list, download into
 <span class="key">~/Desktop/to_file/</span> with your browser, then run
 /scriptorium:ingest (mop-up) to attach and index.</p>
 <p><button id="copy">Copy click-list</button>

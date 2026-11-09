@@ -1,6 +1,6 @@
 ---
 name: search
-description: Look things up in the user's Zotero library through the scriptorium hub - is a paper there (DOI, arXiv ID, title), everything by an author or in a venue or year, how many, what the library has on a topic, which passages say something, where a PDF is. Use for any "do I have / what do I have by, in, on..." question about the library. Not for citation-grounded answers (interrogate), adding papers (ingest), getting PDFs (retrieve) or searching beyond the library (discover).
+description: Look things up in the user's Zotero library through the scriptorium hub - is a paper there (DOI, arXiv ID, title), everything by an author or in a venue or year, how many, what the library has on a topic, which passages say something, where a PDF is. Use for any "do I have / what do I have by, in, on..." question about the library. Not for citation-grounded answers (interrogate), adding papers (ingest) or searching beyond the library (discover).
 ---
 
 # search

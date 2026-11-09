@@ -28,7 +28,7 @@ I am a PhD candidate and postdoctoral researcher in Communication Science at Vri
 
 ## Roadmap
 
-**Phase 1 – the library interface.** Phase 1 provides an interface to Zotero for agents. Through it, agents can efficiently and reliably look up a paper by DOI, arXiv ID or title, list and count items by author, venue, year or folder, search by topic, read passages from full texts, and change items and folders. Three skills build on this interface: `search` for semantic spot searches and lookups, `ingest` for adding papers with Crossref-verified metadata, and `retrieve` for obtaining PDFs. 
+**Phase 1 – the library interface.** Phase 1 provides an interface to Zotero for agents. Through it, agents can efficiently and reliably look up a paper by DOI, arXiv ID or title, list and count items by author, venue, year or folder, search by topic, read passages from full texts, and change items and folders. Two skills build on this interface: `search` for semantic spot searches and lookups, and `ingest` for adding papers with Crossref-verified metadata and looking for their PDFs through Zotero. 
 
 **Phase 2 – surveillance, interrogation and discovery.** Phase 2 provides more advanced agentic workflows: surveillance (a nightly filter-then-appraise check of new publications in subscribed venues), interrogation (adaptation of FutureHouse's PaperQA2 approach to asking questions of a large-N library) and discovery (systematic literature search, still under development). 
 
@@ -44,7 +44,6 @@ I am a PhD candidate and postdoctoral researcher in Communication Science at Vri
 |---|---|---|
 | <img src="docs/assets/dog-search.svg" width="140" alt="search"><br>`/scriptorium:search` | 1 | Spot searches and lookups; picks the right search tool and resolves filter values first |
 | <img src="docs/assets/dog-ingest.svg" width="140" alt="ingest"><br>`/scriptorium:ingest` | 1 | Adds papers with verified metadata, from PDFs, DOIs or full records, keeping a paper's published version over its preprints |
-| <img src="docs/assets/dog-retrieve.svg" width="140" alt="retrieve"><br>`/scriptorium:retrieve` | 1 | Downloads versions of record from publishers' sites, checks each against its title, and attaches on approval |
 | <img src="docs/assets/dog-surveil.svg" width="140" alt="surveil"><br>`/scriptorium:surveil` | 2 | Runs one surveillance cycle: Crossref harvest, filter, appraise, digest, add |
 | <img src="docs/assets/dog-interrogate.svg" width="140" alt="interrogate"><br>`/scriptorium:interrogate` | 2 | Answers a question from the full text of the library, citing passages with page ranges |
 | <img src="docs/assets/dog-discover.svg" width="140" alt="discover"><br>`/scriptorium:discover` | 2 | Protocol-driven search of Semantic Scholar and OpenAlex, with screening and citation snowballing |
@@ -155,9 +154,8 @@ Scripts:
 
 ```sh
 uv run python scripts/surveil.py [--from YYYY-MM-DD]
-uv run python scripts/fetch_pdfs.py --plan | --pilot N | --publisher P | --keys-from <run>/added.json [--retry]
-uv run python scripts/attach_pdfs.py --run <fetch run folder> [--review | --accept KEY ... | --reject KEY ...]
 uv run python scripts/ingest_add.py --entries <entries.json> [--dry-run]
+uv run python scripts/find_pdfs.py --keys KEY ... | --keys-from <run>/added.json [--run <run folder>]
 uv run python scripts/dedupe_versions.py [--apply <run folder>]
 ```
 
@@ -165,7 +163,7 @@ The daemon serves a dashboard and settings page at `http://localhost:8765/`.
 
 ## Configuration
 
-Settings are edited at `/settings` and stored in the data directory (mode 600); API keys are never served back over HTTP. Sections: `general` (sync and idle timers, GROBID, contact email), `zotero` (Zotero's data folder, linked-attachments folder, default BibTeX format), `surveillance` (schedule, research profile, models, abstract-source keys), `interrogation` (retrieval and scoring parameters, models) and `discovery` (Semantic Scholar key, models, caps). Models are aliases (`haiku`, `sonnet`, `opus`, `fable`).
+Settings are edited at `/settings` and stored in the data directory (mode 600); API keys are never served back over HTTP. Sections: `general` (sync and idle timers, GROBID, contact email), `zotero` (Zotero's data folder, linked-attachments folder, PDF finder pace and limits, default BibTeX format), `surveillance` (schedule, research profile, models, abstract-source keys), `interrogation` (retrieval and scoring parameters, models) and `discovery` (Semantic Scholar key, models, caps). Models are aliases (`haiku`, `sonnet`, `opus`, `fable`).
 
 Environment variables read by `config.py`:
 
@@ -212,6 +210,6 @@ scriptorium is licensed under the GNU Affero General Public License v3.0 or late
 
 To cite scriptorium, see [`CITATION.cff`](CITATION.cff).
 
-scriptorium uses PaperQA2 by FutureHouse (Apache-2.0): adapted versions of its evidence-summary and answer prompts, its retrieval defaults, and two helper functions copied into the code (reading a judge's JSON reply, stripping citations). PDF text extraction uses GROBID (Apache-2.0); PyMuPDF (AGPL-3.0) checks fetched PDFs against their titles. The banner lettering is outlined from the UnifrakturMaguntia and EB Garamond fonts (SIL Open Font License 1.1; texts in `LICENSES/`).
+scriptorium uses PaperQA2 by FutureHouse (Apache-2.0): adapted versions of its evidence-summary and answer prompts, its retrieval defaults, and two helper functions copied into the code (reading a judge's JSON reply, stripping citations). PDF text extraction uses GROBID (Apache-2.0). The banner lettering is outlined from the UnifrakturMaguntia and EB Garamond fonts (SIL Open Font License 1.1; texts in `LICENSES/`).
 
 Skarlinski, M. D., Cox, S., Laurent, J. M., Braza, J. D., Hinks, M. M., Hammerling, M. J., Ponnapati, M., Rodriques, S. G., & White, A. D. (2024). *Language agents achieve superhuman synthesis of scientific knowledge*. arXiv. https://doi.org/10.48550/arXiv.2409.13740

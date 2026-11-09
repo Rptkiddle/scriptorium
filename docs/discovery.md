@@ -79,7 +79,7 @@ snowball, looped while yield] → verify → report → handoff (user gate)
     plus the include list with per-paper provenance (which query or seed
     surfaced it, which stage it survived). Additions go through the
     shared additions module on the user's confirmation, tagged
-    `discovery`; PDFs follow via /scriptorium:retrieve.
+    `discovery`; PDFs can follow via `scripts/find_pdfs.py`.
 
 ## Inputs
 
