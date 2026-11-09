@@ -50,6 +50,12 @@ DEFAULTS: dict = {
         # its storage/ folder holds the PDFs Zotero stores itself.
         "data_dir": "~/Zotero",
         "bibtex_format": "biblatex",  # default format of hub_bibtex
+        # scripts/find_pdfs.py: Zotero's Find Available PDF lookup.
+        "find_interval_seconds": 1,  # between the starts of two requests
+        "find_concurrency": 10,  # requests running at once
+        "find_timeout_seconds": 90,  # how long to wait for one item
+        "find_accept_earlier_versions": 0,  # attach accepted or submitted versions
+        "find_include_preprints": 0,  # look for PDFs of items that are preprints
     },
     "surveillance": {
         # Master switch: saving reconciles the nightly LaunchAgent, so the
@@ -101,6 +107,11 @@ _INT_BOUNDS = {
     "index_idle_minutes": (0, 1440),
     "grobid_idle_minutes": (0, 1440),
     "grobid_port": (1024, 65535),
+    "find_interval_seconds": (0, 60),
+    "find_concurrency": (1, 50),
+    "find_timeout_seconds": (10, 600),
+    "find_accept_earlier_versions": (0, 1),
+    "find_include_preprints": (0, 1),
     "nightly_hour": (0, 23),
     "catchup_days": (1, 30),
     "auto_add": (0, 1),
@@ -296,6 +307,26 @@ SCHEMA: dict = {
              "label": "BibTeX export format",
              "doc": ("Default format of hub_bibtex: biblatex (\\addbibresource)"
                      " or bibtex (\\bibliography)")},
+            {"key": "find_interval_seconds", "kind": "int",
+             "label": "PDF finder: seconds between requests",
+             "doc": ("Finding PDFs through Zotero (scripts/find_pdfs.py): the gap"
+                     " between the starts of two requests, whether or not the"
+                     " earlier one has finished")},
+            {"key": "find_concurrency", "kind": "int",
+             "label": "PDF finder: requests at once",
+             "doc": "The most requests running at the same time"},
+            {"key": "find_timeout_seconds", "kind": "int",
+             "label": "PDF finder: seconds to wait per item",
+             "doc": ("How long to wait for one item before reporting it as"
+                     " failed; nothing is attached, though Zotero may carry on"
+                     " looking in the background")},
+            {"key": "find_accept_earlier_versions", "kind": "onoff",
+             "label": "PDF finder: accept earlier versions",
+             "doc": ("Attach a copy Zotero labels as an accepted or submitted"
+                     " version when no published version is found first")},
+            {"key": "find_include_preprints", "kind": "onoff",
+             "label": "PDF finder: include preprint items",
+             "doc": "Also look for PDFs of items whose type is preprint"},
         ],
     },
     "surveillance": {

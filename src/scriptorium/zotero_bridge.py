@@ -35,14 +35,15 @@ class ZoteroBridge:
         self.base = base
         self.timeout = timeout
 
-    def _post(self, path: str, payload: dict) -> dict:
+    def _post(self, path: str, payload: dict, timeout: float | None = None) -> dict:
+        limit = timeout or self.timeout
         req = urllib.request.Request(
             f"{self.base}/{path}",
             data=json.dumps(payload).encode(),
             headers={"Content-Type": "application/json"},
         )
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as r:
+            with urllib.request.urlopen(req, timeout=limit) as r:
                 return json.loads(r.read())
         except urllib.error.HTTPError as exc:
             if exc.code == 404:  # Zotero up, plugin missing or too old
@@ -56,12 +57,12 @@ class ZoteroBridge:
             raise BridgeError(message) from exc
         except TimeoutError as exc:
             raise BridgeTimeout(
-                f"no answer from Zotero within {self.timeout:.0f}s; the write may"
+                f"no answer from Zotero within {limit:.0f}s; the write may"
                 " still have completed — check the library before retrying") from exc
         except urllib.error.URLError as exc:
             if isinstance(exc.reason, TimeoutError):
                 raise BridgeTimeout(
-                    f"no answer from Zotero within {self.timeout:.0f}s; the write may"
+                    f"no answer from Zotero within {limit:.0f}s; the write may"
                     " still have completed — check the library before retrying") from exc
             raise BridgeUnavailable(str(exc)) from exc
         except OSError as exc:
@@ -99,6 +100,17 @@ class ZoteroBridge:
             "attachments/link",
             {"parentKey": parent_key, "path": path, "title": title},
         )
+
+    def find_file(self, parent_key: str, path: str, methods: list[str] | None = None,
+                  timeout: float | None = None) -> dict:
+        return self._post(
+            "attachments/find",
+            {"parentKey": parent_key, "path": path, "methods": methods},
+            timeout=timeout,
+        )
+
+    def import_file(self, parent_key: str, path: str) -> dict:
+        return self._post("attachments/import", {"parentKey": parent_key, "path": path})
 
     def create_collection(self, name: str, parent_key: str = "") -> dict:
         return self._post(
