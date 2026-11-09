@@ -170,7 +170,7 @@ one item's outcome; `<rundir>/found.json` holds them all when it has finished.
 Items that come back as anything but `attached` stay on the `has_pdf: false`
 list. Each PDF found is placed the way this library keeps its PDFs, and the
 daemon indexes it at its next automatic sync. `earlier_version_only` means the
-only copy found is an accepted or submitted manuscript, which is not attached.
+copy Zotero found is an accepted or submitted manuscript, which is not attached.
 Zotero does not check that a file is the right paper, so list the attached
 items in the report for the user to check. On a no, the items stay
 metadata-only; the user can run Find Available PDF in Zotero at any time, and
