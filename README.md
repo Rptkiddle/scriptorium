@@ -195,7 +195,7 @@ Logs are in `~/Library/Logs/scriptorium/`.
 ## Development
 
 ```sh
-uv run pytest    # no network, Zotero or Claude needed
+uv run python -m pytest    # no network, Zotero or Claude needed
 ```
 
 Before pushing, `scripts/check_push.sh` scans the outgoing commits for secrets and personal details; install it as the pre-push hook with `ln -s ../../scripts/check_push.sh .git/hooks/pre-push`.

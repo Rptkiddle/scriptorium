@@ -408,7 +408,7 @@ SCHEMA: dict = {
                   " audit trail. See docs/discovery.md."),
         "fields": [
             {"key": "s2_api_key", "kind": "secret", "label": "Semantic Scholar API key",
-             "doc": ("Dedicated 1 req/s allowance for discovery and PDF retrieval"
+             "doc": ("Dedicated 1 req/s allowance for discovery"
                      " (anonymous access is unreliable). Stored in the local data"
                      " directory only — never in the repo or any sync")},
             {"key": "model_screen", "kind": "model", "label": "Screening model",

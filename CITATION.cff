@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "If you use scriptorium, please cite it as below."
 title: "scriptorium"
-abstract: "An experimental project exploring how AI agents can work with the research literature effectively and semi-autonomously, centred on a Zotero library and the cycle of work around it. Built on PaperQA2 and the Model Context Protocol."
+abstract: "An experimental project exploring how AI agents can work with the research literature effectively and semi-autonomously, centred on a Zotero library and the cycle of work around it. Built on Zotero, GROBID and the Model Context Protocol; the interrogation workflow adapts PaperQA2."
 type: software
 authors:
   - family-names: Kiddle

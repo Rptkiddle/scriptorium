@@ -501,7 +501,7 @@ def paw(x, y, lifted=False, dx=-7, dy=-7):
 
 
 def body_trot(ox=0, oy=0):
-    """Standing/trotting body facing left, in the reference frame of dog-retrieve (head at 60,98)."""
+    """Standing/trotting body facing left, head at 60,98."""
     parts = [plume([(150, 114), (160, 100), (160, 80), (146, 66), (128, 64), (116, 72)])]
     for d in ("M 157 100 C 158 90 154 78 146 72", "M 150 108 C 152 96 148 84 140 78"):
         parts.append(f'<path d="{d}" fill="none" stroke="{O}" stroke-width="1.8" stroke-linecap="round"/>')
@@ -595,17 +595,6 @@ def mouth_grip(hx, hy, rot=0):
             f'stroke="{O}" stroke-width="2.8" stroke-linecap="round" fill="none"/></g>')
 
 
-def scroll(cx, cy, length=56, rot=0):
-    h = length / 2
-    parts = [f'<rect x="{-h}" y="-6.5" width="{length}" height="13" rx="2" fill="{WHITE}" stroke="{O}" stroke-width="2.6"/>',
-             f'<path d="M {-h + 12} -1 L {h - 20} -1 M {-h + 12} 3 L {h - 14} 3" stroke="{O}" stroke-width="1.4" stroke-linecap="round" fill="none" stroke-opacity="0.8"/>']
-    for ex in (-h, h):
-        parts.append(f'<circle cx="{ex}" cy="0" r="7.5" fill="{VELLUM_DARK}" stroke="{O}" stroke-width="2.6"/>')
-        parts.append(f'<circle cx="{ex}" cy="0" r="2.8" fill="none" stroke="{O}" stroke-width="2"/>')
-    parts.append(f'<rect x="{h - 24}" y="-8" width="7" height="16" fill="{VERMILION}" stroke="{O}" stroke-width="1.6"/>')
-    return f'<g transform="translate({cx} {cy}) rotate({rot})">' + "".join(parts) + "</g>"
-
-
 def book_closed(cx, cy, w=30, h=22, rot=0, cover=LAPIS):
     """Closed book seen from the front cover, spine on the left."""
     parts = [
@@ -693,15 +682,6 @@ def satchel(cx, cy, rot=0):
 def wrap(inner, prefix):
     return (f'<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">\n'
             f'<g id="{prefix}-roundel">\n{inner}\n</g>\n</svg>\n')
-
-
-def dog_retrieve():
-    hx, hy = 66, 98
-    p = [roundel(), ground_line(44, 164), body_trot(6, 0), head(hx, hy)]
-    # scroll held to the left side of the mouth, angled up-forward so the beard stays visible
-    p.append(f'<g transform="translate({hx - 2} {hy + 20}) rotate(-9)">' + scroll(-24, 0, 52) + '</g>')
-    p.append(mouth_grip(hx, hy))
-    return wrap("\n".join(p), "sd-retrieve")
 
 
 def dog_search():
@@ -828,7 +808,6 @@ def divider_svg():
 
 
 DOGS = {
-    "dog-retrieve.svg": dog_retrieve,
     "dog-search.svg": dog_search,
     "dog-ingest.svg": dog_ingest,
     "dog-surveil.svg": dog_surveil,
