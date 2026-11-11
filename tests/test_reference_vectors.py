@@ -15,7 +15,11 @@ import pytest
 from scriptorium.config import Config
 from scriptorium.index import Embedder
 
-REFERENCE = json.loads((Path(__file__).parent / "data" / "reference_vectors.json").read_text())
+REFERENCE_FILE = Path(__file__).parent / "data" / "reference_vectors.json"
+if not REFERENCE_FILE.exists():
+    pytest.skip("no reference vectors (make them with scripts/make_reference_vectors.py)",
+                allow_module_level=True)
+REFERENCE = json.loads(REFERENCE_FILE.read_text())
 MIN_COSINE = 0.999
 
 

@@ -1,13 +1,12 @@
 [project]
 name = "scriptorium"
 version = "0.1.0"
-description = "Local literature hub: Zotero-grounded full-text retrieval for Claude Code sessions"
+description = "Local literature hub over a Zotero library, served to AI agents through MCP tools"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
 license-files = ["LICENSE", "LICENSES/*"]
 requires-python = ">=3.12"
 dependencies = [
-    "pymupdf==1.28.2",  # title checks of fetched PDFs (pdf_routes)
     "pyzotero>=1.13",
     "requests>=2.32",
     "fastmcp>=2",

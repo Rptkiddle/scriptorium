@@ -1,12 +1,9 @@
-"""Retrieval: dense search over the index.
+"""Search over the index: topical search of items and passages, plus
+filters, listings, facets and lookups.
 
-Unfiltered searches match PaperQA2's default retrieval exactly: cosine
-similarity top-k (PaperQA2 ships MMR but disables it by default via
-mmr_lambda=1.0). Optional metadata filters (a scriptorium extension; PaperQA2
-scopes retrieval by agentic paper selection instead) restrict the candidate
-pool before similarity ranking. Relevance scoring of retrieved chunks
-(PaperQA2's RCS step, an LLM task) is performed by Claude in-session per the
-scriptorium skill — not here.
+Topical search ranks by cosine similarity (top-k). Metadata filters restrict
+the candidate pool before ranking. Judging the relevance of what a search
+returns is the calling agent's or skill's job, not this module's.
 
 Search is exact: the query vector is compared with every admitted vector
 (scriptorium.store.VectorMatrix). The vectors are loaded into memory on

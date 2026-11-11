@@ -9,7 +9,9 @@ either is missing, operations fail with a clear error and the caller
 reports it rather than falling back.
 
 Attachment files stay local as linked files under the configured base
-directory (zotero.linked_attachments_dir); Zotero holds only the path.
+directory (zotero.linked_attachments_dir); Zotero holds only the path. With
+no base directory set, a PDF found through Zotero is a stored attachment,
+as on a default Zotero install.
 
 Every write, successful or not, is appended to <data>/writes.jsonl: time,
 source (the run or caller that asked for it), operation, request, the
@@ -24,6 +26,8 @@ import html
 import json
 import re
 import shutil
+import tempfile
+import threading
 from pathlib import Path
 
 from scriptorium.citekeys import generate_citekey, unique_key
@@ -128,6 +132,8 @@ class ZoteroWriteError(RuntimeError):
 
 
 WRITE_LOG = "writes.jsonl"
+# Labels Zotero gives a copy that is not the publisher's final version.
+EARLIER_VERSIONS = {"accepted", "acceptedVersion", "submitted", "submittedVersion"}
 # Venue folders: [✓] subscribed, [✗] decided against. Both record a decision
 # and are kept even when empty.
 VENUE_PREFIXES = ("[✓]", "[✗]")
@@ -146,6 +152,7 @@ class ZoteroWriter:
         # bring its index up to date at once).
         self._on_write = on_write
         self._bridge = ZoteroBridge()
+        self._log_lock = threading.Lock()
         # Reads (citation keys, before-states) go through a ZoteroReader and
         # its lock; the daemon passes its own so one locked client serves
         # all threads.
@@ -173,11 +180,12 @@ class ZoteroWriter:
         return data if data is not None else {"unavailable": "item not found"}
 
     def _log(self, entry: dict) -> None:
-        with (self.config.index_dir / WRITE_LOG).open("a") as log:
-            log.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        line = json.dumps(entry, ensure_ascii=False) + "\n"
+        with self._log_lock, (self.config.index_dir / WRITE_LOG).open("a") as log:
+            log.write(line)
 
     def _call(self, operation: str, fn, *args, request=None, before=None,
-              source: str | None = None, **kwargs) -> dict:
+              source: str | None = None, changes_library: bool = True, **kwargs) -> dict:
         entry = {
             "at": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
             "source": source or self.source, "operation": operation,
@@ -192,7 +200,7 @@ class ZoteroWriter:
             self._log({**entry, "error": f"{type(exc).__name__}: {exc}"})
             raise ZoteroWriteError(f"{operation} failed: {exc}") from exc
         self._log({**entry, "response": result})
-        if self._on_write is not None:
+        if changes_library and self._on_write is not None:
             self._on_write()
         return result
 
@@ -447,6 +455,57 @@ class ZoteroWriter:
                 target.unlink(missing_ok=True)
             raise
         return {**result, "file": str(target)}
+
+    def find_pdf(self, parent_key: str, source: str | None = None) -> dict:
+        """Look for an item's PDF with Zotero's Find Available PDF lookup and
+        attach what it finds the way this library keeps its PDFs: as a linked
+        file when zotero.linked_attachments_dir is set, otherwise as a stored
+        attachment. A copy Zotero labels as an accepted or submitted version
+        is refused unless zotero.find_accept_earlier_versions is on. Returns
+        {"status": "attached" | "earlier_version_only" | "not_found" |
+        "skipped" | "failed", ...}; one item's failure never raises.
+        """
+        folder = found = None
+        try:
+            settings = self._settings()
+            folder = Path(tempfile.mkdtemp(prefix="find-pdf-", dir=self.config.index_dir)).resolve()
+            pdf = folder / f"{parent_key}.pdf"
+            found = self._call(
+                "attachment find", self._bridge.find_file, parent_key, str(pdf),
+                timeout=settings["find_timeout_seconds"], request={"parent_key": parent_key},
+                source=source, changes_library=False,
+            )
+            if not found.get("eligible"):
+                return {"status": "skipped",
+                        "reason": "in the trash, already has a PDF or EPUB, or has no DOI, URL or PMCID"}
+            if not found.get("found"):
+                return {"status": "not_found"}
+            url, version = found.get("url", ""), found.get("version", "")
+            if version in EARLIER_VERSIONS and not settings["find_accept_earlier_versions"]:
+                return {"status": "earlier_version_only", "version": version, "url": url}
+            with open(pdf, "rb") as f:
+                if f.read(5) != b"%PDF-":
+                    return {"status": "failed", "error": f"the file at {url} is not a PDF"}
+            if settings["linked_attachments_dir"]:
+                attached = self.link_attachment(parent_key, str(pdf), source=source)
+            else:
+                attached = self._call(
+                    "attachment import", self._bridge.import_file, parent_key, str(pdf),
+                    request={"parent_key": parent_key, "url": url}, source=source,
+                )
+        except (ZoteroWriteError, OSError) as exc:
+            if found is None and isinstance(exc.__cause__, BridgeTimeout):
+                return {"status": "failed",
+                        "error": f"no answer within {settings['find_timeout_seconds']}s; nothing attached"}
+            return {"status": "failed", "error": str(exc)}
+        except Exception as exc:  # noqa: BLE001 — e.g. Zotero closed during the read
+            return {"status": "failed", "error": f"{type(exc).__name__}: {exc}"}
+        finally:
+            if folder is not None:
+                shutil.rmtree(folder, ignore_errors=True)
+        key = attached.get("attachment_key") or (attached.get("created") or [""])[0]
+        return {"status": "attached", "attachment_key": key, "url": url, "version": version,
+                **({"file": attached["file"]} if attached.get("file") else {})}
 
     def _attached_copy(self, parent_key: str, pdf: Path) -> dict | None:
         """The parent's attachment that already holds this file (same

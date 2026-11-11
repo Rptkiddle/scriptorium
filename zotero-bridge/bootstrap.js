@@ -23,6 +23,10 @@
  *   items/restore        {keys} -> {restored: [key], failed}   (out of the trash)
  *   items/delete         {key} -> {deleted}   (moves to trash)
  *   attachments/link     {parentKey, path, title?} -> {created: [key]}
+ *   attachments/find     {parentKey, path, methods} -> {eligible, found, url, version}
+ *                        (Zotero's Find Available PDF lookup, downloading to path;
+ *                        attaches nothing)
+ *   attachments/import   {parentKey, path} -> {created: [key]}   (a stored file)
  *   collections/create   {name, parentKey?} -> {created: [key]}
  *   collections/update   {key, name} -> {updated, name}   (rename)
  *   collections/delete   {key} -> {deleted}   (moves to trash; items stay)
@@ -233,6 +237,38 @@ function registerEndpoints(version) {
       title: data.title || undefined,
     });
     return { created: [att.key], file: data.path };
+  });
+
+  endpoint("/scriptorium/attachments/find", async function (data) {
+    var item = byKey(data.parentKey);
+    if (item.deleted || !Zotero.Attachments.canFindFileForItem(item)) {
+      return { eligible: false };
+    }
+    var found = await Zotero.Attachments.downloadFirstAvailableFile(
+      Zotero.Attachments.getFileResolvers(item, data.methods),
+      data.path,
+      { enforceFileType: true, shouldDisplayCaptcha: false }
+    );
+    if (!found || !found.url) return { eligible: true, found: false };
+    return {
+      eligible: true,
+      found: true,
+      url: found.url,
+      version: (found.props && found.props.articleVersion) || "",
+    };
+  });
+
+  endpoint("/scriptorium/attachments/import", async function (data) {
+    var parent = byKey(data.parentKey);
+    var title = Zotero.getString("attachment.fullText");
+    var att = await Zotero.Attachments.importFromFile({
+      file: data.path,
+      parentItemID: parent.id,
+      title: title,
+      fileBaseName: Zotero.Attachments.getFileBaseNameFromItem(parent, { attachmentTitle: title }),
+      contentType: "application/pdf",
+    });
+    return { created: [att.key] };
   });
 
   endpoint("/scriptorium/collections/create", async function (data) {

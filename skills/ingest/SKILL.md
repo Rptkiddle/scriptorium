@@ -22,7 +22,7 @@ Three modes, chosen by what the input is:
 - **Reference mode** — verified metadata handed over (e.g. from a discovery
   run) with no files. Items are created metadata-only (with the right item
   type: journal article, conference paper, preprint, book section, book);
-  PDFs are left to /scriptorium:retrieve.
+  on the user's yes, Zotero then looks for their PDFs (Step 4).
 - **Mop-up mode** — the user has obtained PDFs for items that already exist
   without one. Match files to items, attach, index. Nothing is created.
 
@@ -152,14 +152,29 @@ item or stays in the inbox.
 
 The items are immediately usable — proceed straight to attaching.
 
-## Step 4 — PDF (inbox and mop-up modes only)
+## Step 4 — PDF
 
-Reference mode creates items metadata-only: PDF acquisition is a separate
-concern, handled by the `/scriptorium:retrieve` skill (publisher downloads staged
-for a later attach, plus the user's browser for the rest). Note in the report
-that the new items are on the `has_pdf: false` list, and that
-`/scriptorium:retrieve` can fetch just these papers with
-`scripts/fetch_pdfs.py --keys-from <rundir>/added.json`.
+Reference mode creates items metadata-only. In the collection round of
+Step 2, ask once: "Try Zotero's Find Available PDF for the new items?" On a
+yes, run from the repo:
+
+```
+uv run python scripts/find_pdfs.py --keys-from <rundir>/added.json --run <rundir>
+```
+
+Pace and limits come from the settings page; do not work round them. It takes
+about a second per item, longer when sites do not answer, so for more than a
+few dozen items start it detached
+(`nohup ... > <rundir>/work/find.log 2>&1 &`) and follow the log. Each line is
+one item's outcome; `<rundir>/found.json` holds them all when it has finished.
+Items that come back as anything but `attached` stay on the `has_pdf: false`
+list. Each PDF found is placed the way this library keeps its PDFs, and the
+daemon indexes it at its next automatic sync. `earlier_version_only` means the
+copy Zotero found is an accepted or submitted manuscript, which is not attached.
+Zotero does not check that a file is the right paper, so list the attached
+items in the report for the user to check. On a no, the items stay
+metadata-only; the user can run Find Available PDF in Zotero at any time, and
+the daemon indexes what it adds.
 
 In inbox and mop-up modes the file is on disk already. Attach with
 `hub_attachment_link(parent_key, pdf_path)` — omit the filename; the hub
@@ -175,8 +190,9 @@ returns the existing attachment (`"existing": true`) and writes nothing.
 
 ## Step 5 — Index and report
 
-Attached papers are already indexed (Step 4); `hub_index` is needed only
-for metadata-only items (catalogue entry). Then report in one block —
+Papers attached with `hub_attachment_link` are already indexed (Step 4);
+those found through Zotero follow at the daemon's next sync (`hub_status` shows
+it). `hub_index` is needed only for metadata-only items (catalogue entry). Then report in one block —
 state the true end state; never report indexing as done when it failed.
 Write the same block to `<rundir>/report.md`, then close the run:
 `uv run python -m scriptorium.runs finish <rundir> --status ok --summary
@@ -187,7 +203,8 @@ Write the same block to `<rundir>/report.md`, then close the run:
 Created: <n> items — <key: short citation> ...
 Attached: <n> PDFs (inbox/mop-up)
 Indexed: <n> full-text · <n> catalogue-only
-Metadata-only: <list, or none> — PDFs via /scriptorium:retrieve when convenient.
+Found through Zotero: <n> — <key: short citation> ... (check these are the right papers), or not asked
+Metadata-only: <list, or none>
 Versions: <preprints recorded on their published item; preprints replaced (trashed or kept), or none>
 Flagged: <duplicates skipped, retractions, or none>
 ```
