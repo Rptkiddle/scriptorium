@@ -68,6 +68,29 @@ def worker(poll_seconds: Annotated[float, typer.Option(help="Wait between looks 
     typer.echo(f"Ran {ran} job(s).")
 
 
+@app.command()
+def serve(host: Annotated[str, typer.Option(help="The address to listen on.")] = "127.0.0.1",
+          port: Annotated[int, typer.Option(help="The port to listen on.")] = 8765) -> None:
+    """Run the web service that members' clients talk to."""
+    import uvicorn
+    from psycopg.rows import dict_row
+    from psycopg_pool import ConnectionPool
+
+    from scriptorium_server.api import create_app
+    from scriptorium_server.embedding import RealEmbedder
+    from scriptorium_server.sources import apis, crossref
+
+    current = settings.load()
+    sources = current.section("sources")
+    apis.configure(str(sources["contact_email"]), str(sources["s2_api_key"]))
+    pool = ConnectionPool(str(current["database.address"]), kwargs={"row_factory": dict_row},
+                          min_size=1, max_size=10, open=True)
+    with pool.connection() as conn:
+        db.migrate(conn)
+    uvicorn.run(create_app(pool.connection, RealEmbedder(), current, crossref.fetch),
+                host=host, port=port)
+
+
 @app.command("seed-export")
 def seed_export(
     out: Annotated[Path, typer.Argument(help="The records file to write.")],

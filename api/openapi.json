@@ -1,0 +1,764 @@
+{
+ "components": {
+  "schemas": {
+   "BibtexBody": {
+    "additionalProperties": false,
+    "properties": {
+     "abstracts": {
+      "default": false,
+      "title": "Abstracts",
+      "type": "boolean"
+     },
+     "format": {
+      "default": "biblatex",
+      "title": "Format",
+      "type": "string"
+     },
+     "keys": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Keys",
+      "type": "array"
+     }
+    },
+    "required": [
+     "keys"
+    ],
+    "title": "BibtexBody",
+    "type": "object"
+   },
+   "FacetsBody": {
+    "additionalProperties": false,
+    "properties": {
+     "contains": {
+      "default": "",
+      "title": "Contains",
+      "type": "string"
+     },
+     "count": {
+      "default": 50,
+      "minimum": 1.0,
+      "title": "Count",
+      "type": "integer"
+     },
+     "field": {
+      "title": "Field",
+      "type": "string"
+     },
+     "filters": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Filters"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "field"
+    ],
+    "title": "FacetsBody",
+    "type": "object"
+   },
+   "Filters": {
+    "additionalProperties": false,
+    "properties": {
+     "added_since": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "YYYY-MM-DD.",
+      "title": "Added Since"
+     },
+     "authors": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Any of these authors; any spelling of a surname.",
+      "title": "Authors"
+     },
+     "authors_all": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "All of these authors together.",
+      "title": "Authors All"
+     },
+     "categories": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Categories"
+     },
+     "has_fulltext": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Has Fulltext"
+     },
+     "item_keys": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Only these items (a set sent back).",
+      "title": "Item Keys"
+     },
+     "provenance": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "venue, donation, activity.",
+      "title": "Provenance"
+     },
+     "publishers": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Publishers"
+     },
+     "types": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "journalArticle, conferencePaper, preprint, ...",
+      "title": "Types"
+     },
+     "venues": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Venue names as `facets` gives them.",
+      "title": "Venues"
+     },
+     "year_from": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Year From"
+     },
+     "year_to": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Year To"
+     },
+     "years": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "integer"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Years"
+     }
+    },
+    "title": "Filters",
+    "type": "object"
+   },
+   "HTTPValidationError": {
+    "properties": {
+     "detail": {
+      "items": {
+       "$ref": "#/components/schemas/ValidationError"
+      },
+      "title": "Detail",
+      "type": "array"
+     }
+    },
+    "title": "HTTPValidationError",
+    "type": "object"
+   },
+   "ListBody": {
+    "additionalProperties": false,
+    "properties": {
+     "count": {
+      "default": 20,
+      "minimum": 0.0,
+      "title": "Count",
+      "type": "integer"
+     },
+     "fields": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Fields"
+     },
+     "filters": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Filters"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "offset": {
+      "default": 0,
+      "minimum": 0.0,
+      "title": "Offset",
+      "type": "integer"
+     },
+     "order": {
+      "default": "added",
+      "title": "Order",
+      "type": "string"
+     }
+    },
+    "title": "ListBody",
+    "type": "object"
+   },
+   "LookupBody": {
+    "additionalProperties": false,
+    "properties": {
+     "inputs": {
+      "description": "DOIs, arXiv IDs or exact titles.",
+      "items": {
+       "type": "string"
+      },
+      "title": "Inputs",
+      "type": "array"
+     }
+    },
+    "required": [
+     "inputs"
+    ],
+    "title": "LookupBody",
+    "type": "object"
+   },
+   "SearchItemsBody": {
+    "additionalProperties": false,
+    "properties": {
+     "count": {
+      "default": 20,
+      "minimum": 1.0,
+      "title": "Count",
+      "type": "integer"
+     },
+     "fields": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Fields"
+     },
+     "filters": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Filters"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "phrase": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "An exact phrase the title or abstract must hold.",
+      "title": "Phrase"
+     },
+     "query": {
+      "title": "Query",
+      "type": "string"
+     }
+    },
+    "required": [
+     "query"
+    ],
+    "title": "SearchItemsBody",
+    "type": "object"
+   },
+   "SearchPassagesBody": {
+    "additionalProperties": false,
+    "properties": {
+     "count": {
+      "default": 10,
+      "minimum": 1.0,
+      "title": "Count",
+      "type": "integer"
+     },
+     "filters": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Filters"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "phrase": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "An exact phrase the passage must hold.",
+      "title": "Phrase"
+     },
+     "query": {
+      "title": "Query",
+      "type": "string"
+     }
+    },
+    "required": [
+     "query"
+    ],
+    "title": "SearchPassagesBody",
+    "type": "object"
+   },
+   "ValidationError": {
+    "properties": {
+     "ctx": {
+      "title": "Context",
+      "type": "object"
+     },
+     "input": {
+      "title": "Input"
+     },
+     "loc": {
+      "items": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "integer"
+        }
+       ]
+      },
+      "title": "Location",
+      "type": "array"
+     },
+     "msg": {
+      "title": "Message",
+      "type": "string"
+     },
+     "type": {
+      "title": "Error Type",
+      "type": "string"
+     }
+    },
+    "required": [
+     "loc",
+     "msg",
+     "type"
+    ],
+    "title": "ValidationError",
+    "type": "object"
+   }
+  }
+ },
+ "info": {
+  "title": "Scriptorium",
+  "version": "0.1.0"
+ },
+ "openapi": "3.1.0",
+ "paths": {
+  "/v1/bibtex": {
+   "post": {
+    "operationId": "bibtex_v1_bibtex_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/BibtexBody"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "title": "Response Bibtex V1 Bibtex Post"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Bibtex"
+   }
+  },
+  "/v1/facets": {
+   "post": {
+    "operationId": "facets_v1_facets_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/FacetsBody"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "title": "Response Facets V1 Facets Post"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Facets"
+   }
+  },
+  "/v1/health": {
+   "get": {
+    "description": "Open: whether the server answers, and the size of the collection.",
+    "operationId": "health_v1_health_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "title": "Response Health V1 Health Get",
+         "type": "object"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Health"
+   }
+  },
+  "/v1/items": {
+   "post": {
+    "operationId": "list_items_v1_items_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ListBody"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "title": "Response List Items V1 Items Post"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "List Items"
+   }
+  },
+  "/v1/items/{key}": {
+   "get": {
+    "operationId": "item_v1_items__key__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "key",
+      "required": true,
+      "schema": {
+       "title": "Key",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "title": "Response Item V1 Items  Key  Get"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Item"
+   }
+  },
+  "/v1/lookup": {
+   "post": {
+    "operationId": "lookup_v1_lookup_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/LookupBody"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "title": "Response Lookup V1 Lookup Post"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Lookup"
+   }
+  },
+  "/v1/search/items": {
+   "post": {
+    "operationId": "search_items_v1_search_items_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SearchItemsBody"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "title": "Response Search Items V1 Search Items Post"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Search Items"
+   }
+  },
+  "/v1/search/passages": {
+   "post": {
+    "operationId": "search_passages_v1_search_passages_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SearchPassagesBody"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "title": "Response Search Passages V1 Search Passages Post"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Search Passages"
+   }
+  }
+ }
+}

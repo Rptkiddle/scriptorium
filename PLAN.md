@@ -133,14 +133,14 @@ The starting collection is the first member's existing library, taken in full fr
 
 ### Task 8: authentication, usage log, limits
 
-- `auth.py`: one FastAPI dependency: API key → member, else 401; rate per member, else 429 naming the limit; writes one `usage_log` row per request with inputs and the full reply. The client's version and agent name arrive as headers. No network address is stored.
+- `auth.py`: `handle(connect, request, name, inputs, run, per_minute)` wraps every request (key as `Authorization: Bearer`, client version and agent as `X-Scriptorium-Client` / `X-Scriptorium-Agent`; 426 for a client older than `MIN_CLIENT`). As planned: API key → member, else 401; rate per member, else 429 naming the limit; writes one `usage_log` row per request with inputs and the full reply. The client's version and agent name arrive as headers. No network address is stored.
 - Tests: `test_unknown_key_is_refused`, `test_log_row_holds_inputs_and_full_reply`, `test_rate_limit_names_itself`, `test_log_holds_no_address`, `test_health_needs_no_key`.
 
 ### Task 9: retrieval and the API
 
 - `retrieval.py`: `lookup`, `list_items`, `search_items`, `search_passages` (returns nothing until Step 3 fills passages), `item`, `facets`, `bibtex`. Filters: author, year, venue, publisher, category, type, has full text, added since, provenance, item keys (a set sent back). The two searches also take an exact phrase. The caller states count, fields and order; the per-request maximum is the only cap.
 - `lookup` of a DOI or arXiv ID not held: fetch from the registry, verify, `admit(..., "activity", member)`, return it. Registry unreachable or identifier unknown: say so, admit nothing.
-- `api.py`: the routes of Table 1 plus `/v1/health`; a test writes `api/openapi.json`.
+- `api.py`: `create_app(connect, embedder, settings, registry)`; the routes of Table 1 plus `/v1/health`; find requests are POST with a JSON body, unknown inputs refused; a test writes `api/openapi.json` (with `SCRIPTORIUM_WRITE_OPENAPI=1`) and fails when it is out of date. `sources/crossref.py`: `fetch(kind, value)` asks Crossref for a DOI and DataCite for an arXiv ID. `scriptorium serve --host --port` (default 127.0.0.1:8765). Vector searches pass the query vector as a value and use pgvector's iterative scan; a search within `item_keys` is exact.
 - Tests: `test_filters_combine_with_and`, `test_author_matches_any_name_form`, `test_search_within_item_keys_is_exact`, `test_lookup_of_unknown_doi_admits_it_once`, `test_lookup_with_registry_down_admits_nothing`, `test_reply_never_contains_a_member_name`, `test_request_over_maximum_names_the_limit`, `test_openapi_file_is_current`.
 
 ### Task 10: client core
