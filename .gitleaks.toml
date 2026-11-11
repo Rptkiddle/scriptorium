@@ -12,3 +12,8 @@ useDefault = true
 description = "citation keys are bibliographic identifiers"
 regexTarget = "match"
 regexes = ['''(?i)citation_?key["']?\s*[:=]\s*["'][A-Za-z0-9_-]+["']''']
+
+[[allowlists]]
+description = "the alphabet item keys are drawn from"
+regexTarget = "match"
+regexes = ['''_KEY_ALPHABET\s*=\s*"[2-9A-Z]+"''']
