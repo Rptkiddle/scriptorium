@@ -1,0 +1,28 @@
+[project]
+name = "scriptorium-server"
+version = "0.1.0"
+description = "Scriptorium server: a shared literature collection served to members' agents"
+license = "AGPL-3.0-or-later"
+requires-python = ">=3.12"
+dependencies = [
+    "requests>=2.32",
+    "sentence-transformers>=3",
+    "torch>=2",
+    "typer>=0.12",
+]
+
+[project.scripts]
+scriptorium = "scriptorium_server.admin:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = ["pytest>=9.1.1"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/scriptorium_server"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -62,10 +62,11 @@ Client modules: `settings`, `http`, `results`, `tools`, `zotero`, `cli`.
 ### Task 0: restructure the branch
 
 - Merge `main` into `collaborative` (keeps this branch's README).
-- Move into `server/src/scriptorium_server/`, as copies to develop freely: `tei.py`, `grobid.py`, `parsing.py` → `fulltext.py`, `apis.py` and `abstracts.py` → `sources/`, `versions.py` + `identifiers.py` + `names.py` → `identity.py`, `runs.py` → part of `jobs.py`, the embedding functions of `index.py` → `embedding.py`, the BibTeX formatting of `tools.py` → `retrieval.py`. Their tests move with them.
-- Delete everything else of the personal version from this branch: `app/`, `launchd/`, `skills/`, `scripts/` except `check_push.sh`, and the remaining modules and tests.
+- Move into `server/src/scriptorium_server/`, as copies to develop freely: `tei.py`, `grobid.py`, `parsing.py` → `fulltext.py` (`parse_pdf(item_key, pdf_path, content_hash, store, grobid)`), `apis.py` and `abstracts.py` → `sources/` (`apis.configure(contact_email, s2_api_key)` replaces the settings lookup), `versions.py` + `identifiers.py` + `names.py` → `identity.py`, `runs.py` → `jobs.py` (`new_run(runs_dir, kind, slug)`, `finish_run`), the embedder of `index.py` → `embedding.py` (`MODEL`, `DIM`), `citekeys.py`. Their tests move with them.
+- Not moved: BibTeX. The personal version takes entries from Zotero's exporter; Task 9 writes the server's own.
+- Delete everything else of the personal version from this branch: `app/`, `launchd/`, `skills/`, `.claude-plugin/`, `.mcp.json`, `scripts/` except `check_push.sh`, and the remaining modules and tests. They stay on `main`.
 - Two `pyproject.toml` files. Server script: `scriptorium`. Client script: `scriptorium-client`.
-- Done when: `uv run --project server pytest` and `uv run --project client pytest` both pass with the moved tests.
+- Done when: `uv run --directory server pytest` and `uv run --directory client pytest` both pass with the moved tests.
 
 Development needs PostgreSQL 17 with pgvector on the development machine and a database `scriptorium_test`.
 

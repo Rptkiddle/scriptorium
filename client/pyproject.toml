@@ -1,0 +1,25 @@
+[project]
+name = "scriptorium-client"
+version = "0.1.0"
+description = "Scriptorium client: the tools a member's agent uses to reach a Scriptorium server"
+license = "AGPL-3.0-or-later"
+requires-python = ">=3.12"
+dependencies = [
+    "typer>=0.12",
+]
+
+[project.scripts]
+scriptorium-client = "scriptorium_client.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = ["pytest>=9.1.1"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/scriptorium_client"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
