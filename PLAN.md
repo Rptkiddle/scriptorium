@@ -4,7 +4,7 @@
 
 **Architecture:** a FastAPI server over PostgreSQL with pgvector, one job worker that fills the stores, and a FastMCP client on each member's machine that is the only thing talking to the server. See the drawing and Table 1 in the spec.
 
-**Stack:** Python ≥ 3.12, uv, FastAPI, Uvicorn, psycopg 3, PostgreSQL 17 + pgvector, sentence-transformers (Qwen3-Embedding-0.6B, 256 dims), GROBID 0.9.1, FastMCP, httpx, Typer, pytest.
+**Stack:** Docker Compose, Python ≥ 3.12, uv, FastAPI, Uvicorn, psycopg 3, PostgreSQL 17 + pgvector, sentence-transformers (Qwen3-Embedding-0.6B, 256 dims), GROBID 0.9.1, FastMCP, httpx, Typer, pytest.
 
 **Spec:** `README.md` on this branch. Executors read both.
 
@@ -44,10 +44,22 @@ README.md  PLAN.md  LICENSE  LICENSES/  CITATION.cff  docs/assets/
 Server modules: `settings`, `db` (+ `schema.sql`), `items`, `identity`, `embedding`, `jobs`, `sources/{crossref,openalex,abstracts}`, `intake`, `tei`, `grobid`, `fulltext`, `retrieval`, `files`, `auth`, `api`, `admin`, `backup`.
 Client modules: `settings`, `http`, `results`, `tools`, `zotero`, `cli`.
 
-## Locations on the server
+## Deployment
 
-| What | Where |
-|---|---|
+Docker Compose (`compose.yaml`, values in `.env`; steps in `docs/deploy.md`). Containers: `db` (`pgvector/pgvector:0.8.7-pg17`), `cli` (the admin command, one-off: `docker compose run --rm cli <command>`), and, as their tasks land, `server` (Task 9), `worker` and `grobid` (`grobid/grobid:0.9.1-crf`, Task 11), all but `db` and `grobid` from one image (`server/Dockerfile`). GPU access for `server` and `worker` is added at Deploy 2.
+
+| What | On the host | In the containers |
+|---|---|---|
+| Code, `compose.yaml`, `.env` (database password) | `/opt/scriptorium` | image |
+| Database files (copy-on-write off) | `/srv/scriptorium/postgres` | `/var/lib/postgresql/data` |
+| PDFs, holding area, parsed texts, run folders, backups, model | `/srv/scriptorium/data` | `/srv/scriptorium` |
+| Settings | `/srv/scriptorium/settings/settings.toml` | `/etc/scriptorium/settings.toml` |
+| Runs as | the deploying account's uid in the containers; no system account | |
+| Web address | an entry in the server's Caddy, VU addresses only, to the `server` container on localhost | |
+
+The database address comes from `SCRIPTORIUM_DATABASE_ADDRESS` (set by Compose from `.env`). Development and tests use a local PostgreSQL, not the containers.
+
+---|---|
 | Code and Python environments | `/opt/scriptorium` |
 | Data: PDFs, holding area, run folders, backups | `/srv/scriptorium` |
 | Settings | `/etc/scriptorium/settings.toml` |
@@ -115,7 +127,7 @@ The starting collection is the first member's existing library, taken in full fr
 - `admin.py` (Typer, script `scriptorium`): `members add|list|revoke`, `venues add|list|remove`, `jobs list|show`, `settings show|set`, `migrate`, `worker` (`serve` comes with Task 9). `members add` prints the key once and stores its hash. `members.py`: `add`, `authenticate(conn, key) -> member | None`, `revoke`, `listing`. Job handlers register in `admin.HANDLERS`.
 - Tests: `test_member_key_is_shown_once_and_not_stored`, `test_revoked_key_is_refused`, `test_jobs_list_shows_failures`.
 
-**Deploy 1** (each action on the server needs approval): PostgreSQL with pgvector, the server package, settings, the worker as a service. Load the seed.
+**Deploy 1:** the `db` container, the image, the schema. Load the seed.
 
 ## Step 2: authentication, API, retrieval, limits; client tools
 
@@ -146,6 +158,7 @@ The starting collection is the first member's existing library, taken in full fr
 ### Task 11: full-text job
 
 - `scriptorium seed-files <folder>`: stores each PDF whose MD5 is in `pending_files`, stripped like a donation; other files are left alone. Test: `test_seed_files_stores_only_known_hashes`.
+- `grobid.py` becomes a client of the GROBID address in the settings (no local install to start and stop).
 - `fulltext.py`: `process(donation)`: parse with GROBID; check the parsed title and authors against the item (or, for an identifier not held, admit it first); on mismatch fail with the reason and delete the held file; strip annotations and file author details; cut passages by the existing rules; store text, then embed; move the PDF to the file store by content hash; set `has_fulltext`.
 - Tests with stored TEI: the moved passage tests, `test_wrong_document_fails_and_is_not_kept` (review focus 2), `test_annotations_are_stripped`, `test_same_file_twice_is_stored_once`, `test_donation_outside_collection_creates_item`.
 
@@ -155,7 +168,7 @@ The starting collection is the first member's existing library, taken in full fr
 - Client tools: download PDF (to the client's PDF folder), donate PDF (one file or a folder; skips what `/held` lists), donation progress.
 - Tests: `test_upload_replies_before_processing`, `test_progress_shows_only_own_donations`, `test_donate_folder_skips_held`, `test_download_saves_the_same_bytes`, `test_passage_search_finds_donated_text`.
 
-**Deploy 3:** GROBID on the server; donate a handful of PDFs end to end.
+**Deploy 3:** the `worker` and `grobid` containers; donate a handful of PDFs end to end.
 
 ## Step 4: Zotero exchange
 

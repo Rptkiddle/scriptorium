@@ -47,8 +47,11 @@ REPO = Path(__file__).resolve().parents[3]
 
 
 def git_state() -> dict:
-    """The code version in use: commit and uncommitted files (empty when
-    the code does not run from a git checkout)."""
+    """The code version in use: commit and uncommitted files. In a built
+    image there is no git checkout; the commit it was built from is in
+    SCRIPTORIUM_COMMIT."""
+    if commit := os.environ.get("SCRIPTORIUM_COMMIT"):
+        return {"commit": commit, "dirty": False, "uncommitted": []}
     def git(*args):
         return subprocess.run(["git", "-C", str(REPO), *args],
                               capture_output=True, text=True, check=False).stdout.strip()

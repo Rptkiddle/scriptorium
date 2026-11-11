@@ -75,3 +75,9 @@ def test_later_finish_keeps_finished_and_appends_history(tmp_path, monkeypatch):
 def test_new_run_records_the_code_version(tmp_path):
     m = jobs.read_manifest(jobs.new_run(tmp_path, "intake"))
     assert len(m["provenance"]["commit"]) == 40 and "dirty" in m["provenance"]
+
+
+def test_a_built_image_records_the_commit_it_was_built_from(tmp_path, monkeypatch):
+    monkeypatch.setenv("SCRIPTORIUM_COMMIT", "abc123")
+    m = jobs.read_manifest(jobs.new_run(tmp_path, "intake"))
+    assert m["provenance"] == {"commit": "abc123", "dirty": False, "uncommitted": []}

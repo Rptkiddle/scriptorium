@@ -4,7 +4,10 @@ command.
 Every setting is defined once below, with its default, the check a value
 must pass and a one-line explanation. The file holds only the values that
 differ from the defaults. Its path is the SCRIPTORIUM_SETTINGS environment
-variable, else /etc/scriptorium/settings.toml. The file can hold keys for
+variable, else /etc/scriptorium/settings.toml. One setting can also come
+from the environment: SCRIPTORIUM_DATABASE_ADDRESS, when set, is the
+database address in force, so a container deployment keeps the database
+password in one place. The file can hold keys for
 outside sources, so it is written readable by its owner only, and secret
 values are shown as "set" or "not set".
 """
@@ -17,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 DEFAULT_PATH = Path("/etc/scriptorium/settings.toml")
+DATABASE_ENV = "SCRIPTORIUM_DATABASE_ADDRESS"
 DAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 
 
@@ -49,7 +53,8 @@ def _email_or_empty(value: str) -> bool:
 SETTINGS: tuple[Setting, ...] = (
     Setting("database.address", "postgresql:///scriptorium",
             "Where the PostgreSQL database is. The default is the local database"
-            " `scriptorium`, entered as the account the server runs as.",
+            " `scriptorium`, entered as the account the server runs as. The environment"
+            " variable SCRIPTORIUM_DATABASE_ADDRESS, when set, takes its place.",
             lambda v: v.startswith(("postgresql://", "postgres://")),
             "an address starting with postgresql://"),
     Setting("data.folder", "/srv/scriptorium",
@@ -150,7 +155,10 @@ def _read(path: Path) -> dict[str, str | int]:
 def load(path: str | os.PathLike | None = None) -> Settings:
     """The settings in force: the file's values over the defaults. A file
     with an unknown name or an unacceptable value is refused, naming it."""
-    return Settings({s.name: s.default for s in SETTINGS} | _read(settings_path(path)))
+    values = {s.name: s.default for s in SETTINGS} | _read(settings_path(path))
+    if address := os.environ.get(DATABASE_ENV):
+        values["database.address"] = _valid(_BY_NAME["database.address"], address)
+    return Settings(values)
 
 
 def _shown(setting: Setting, value: str | int) -> str:

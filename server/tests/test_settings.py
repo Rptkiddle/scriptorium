@@ -108,3 +108,14 @@ def test_a_section_gives_the_short_names(path):
     set_value("sources.elsevier_api_key", "E", path)
     keys = load(path).section("sources")
     assert keys["elsevier_api_key"] == "E" and keys["springer_api_key"] == ""
+
+
+def test_the_database_address_can_come_from_the_environment(path, monkeypatch):
+    set_value("database.address", "postgresql:///from_file", path)
+    monkeypatch.setenv("SCRIPTORIUM_DATABASE_ADDRESS", "postgresql://scriptorium:pw@db/scriptorium")
+    assert load(path)["database.address"] == "postgresql://scriptorium:pw@db/scriptorium"
+    shown = dict((name, value) for name, value, _ in show(path))
+    assert shown["database.address"] == "postgresql://scriptorium:***@db/scriptorium"
+    monkeypatch.setenv("SCRIPTORIUM_DATABASE_ADDRESS", "mysql://nope")
+    with pytest.raises(SettingsError, match="database.address must be"):
+        load(path)

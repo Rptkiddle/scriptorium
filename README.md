@@ -110,6 +110,7 @@ Filters (find tools): author, year, venue, publisher, category, type, has full t
 - **Backup.** Nightly, Scriptorium data only: database dump and new PDFs, kept for a set number of days, to a separate folder on the server; off-server storage when available. Restore tested once before members rely on it.
 - **Admin command.** Members and keys; subscribed venues (adding one backfills it); job status and failures; settings.
 - **Settings.** One readable file, shown and changed through the admin command, each setting with a one-line explanation. Keys for outside sources shown as set or not set. Venues and members are data, not settings.
+- **Deployment.** Docker Compose: `db` (PostgreSQL with pgvector), `server` and `worker` (one Scriptorium image), `grobid` (GROBID's image). All data in one folder on the host, mounted into the containers; the admin command runs in a container. Steps: `docs/deploy.md`.
 
 ## 4. Client
 
