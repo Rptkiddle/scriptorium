@@ -5,6 +5,7 @@ description = "Scriptorium server: a shared literature collection served to memb
 license = "AGPL-3.0-or-later"
 requires-python = ">=3.12"
 dependencies = [
+    "psycopg[binary]>=3.2",
     "requests>=2.32",
     "sentence-transformers>=3",
     "torch>=2",

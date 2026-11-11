@@ -80,8 +80,8 @@ Development needs PostgreSQL 17 with pgvector on the development machine and a d
 
 ### Task 2: database
 
-- `schema.sql` and `db.py`: `connect()`, `migrate()` (numbered files, applied once each).
-- Tables: `items` (key, type, title, abstract, year, date, venue_id, publisher, category, doi, arxiv_id, other_ids, creators, data, provenance_kind, provenance_member, added_at, has_fulltext, embedding, tsv), `item_creators` (item, name_key, position), `passages` (item, idx, part, pages, text, artefact, embedding, tsv), `venues` (name, issns, adapter, source_id, publisher, category, subscribed, needs_filter, marker), `members` (name, key_hash, created_at, revoked_at), `files` (item, sha256, bytes, donated_by, donated_at), `jobs` (kind, payload, status, member, created_at, started_at, finished_at, error, run_dir), `usage_log` (at, member, request, inputs, reply, status, duration_ms, client_version, agent).
+- `migrations/0001_schema.sql` and `db.py`: `connect(address=None, schema=None)`, `migrate(conn)` (numbered files, applied once each). Tests take the `db` fixture: a migrated schema of their own in `scriptorium_test`.
+- Tables: `items` (key, citation_key, type, title, title_norm, abstract, year, date, venue_id, publisher, category, doi, arxiv_id, other_ids, creators, data, provenance_kind, provenance_member, added_at, has_fulltext, embedding, tsv), `item_creators` (item, name_key, position), `passages` (item, idx, part, pages, text, artefact, embedding, tsv), `venues` (name, issns, adapter, source_id, publisher, category, subscribed, needs_filter, marker), `members` (name, key_hash, created_at, revoked_at), `files` (item, sha256, bytes, donated_by, donated_at), `jobs` (kind, payload, status, member, created_at, started_at, finished_at, error, run_dir), `usage_log` (at, member, request, inputs, reply, status, duration_ms, client_version, agent).
 - Unique: `items.doi` and `items.arxiv_id` (lower-cased), `files.sha256`. Indexes: HNSW on both `embedding` columns, GIN on both `tsv` columns.
 - Tests: `test_migrate_is_repeatable`, `test_vector_extension_present`, `test_doi_is_unique_ignoring_case`.
 
