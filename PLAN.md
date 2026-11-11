@@ -148,7 +148,7 @@ The starting collection is the first member's existing library, taken in full fr
 - `settings.py`: file in the user's config folder, readable by that user only; `cli.py`: `scriptorium-client setup` (server address, API key), `scriptorium-client serve` (the MCP server).
 - `http.py`: one function per server request; sends key, client version, agent name; turns "client too old", 401, 429 and unreachable into plain messages.
 - `results.py`: `fit(reply, budget)` decides what enters the tool reply; a larger result is written whole to a file in the client's results folder, and the tool returns path, count and first page. Set tools: `set_read(path, page)`, `set_mark(path, keys, included)`, `set_export_bibtex(path)`.
-- `tools.py`: the find and inspect tools of Table 1; `status` combines `/v1/health` with client version and whether Zotero and the plugin answer.
+- `tools.py`: class `Tools` (methods are the tools; `build_server()` registers them with FastMCP and reads the agent's name from the MCP session); find tools take `within_set` (a saved result's path, sent as the `item_keys` filter); the find and inspect tools of Table 1; `status` combines `/v1/health` with client version and whether Zotero and the plugin answer.
 - Tests against a fake server: `test_each_tool_sends_the_request_in_the_contract`, `test_large_result_goes_to_a_file`, `test_set_file_round_trip`, `test_old_client_gets_one_clear_message` (review focus 4), `test_settings_file_is_private`, `test_status_reports_all_four_facts`.
 
 **Deploy 2:** the API behind the server's front door, VU addresses only. First member keys. Check from a member's machine on each operating system: setup, status, a search.
