@@ -100,7 +100,7 @@ Filters (find tools): author, year, venue, publisher, category, type, has full t
   - The server serves what the client asks for: how many results, which fields, in what order. It keeps no per-member results or sets.
   - Two protective limits: a maximum per request and a rate per member. A refused request says which limit it hit.
   - A donation is queued: the PDF to a holding area, an entry to the job queue.
-- **Database.** PostgreSQL with pgvector, run as a server: tables, keyword search and vector search in one place. Speed and match quality checked on the server at target size before building.
+- **Database.** PostgreSQL with pgvector, run as a server: tables, keyword search and vector search in one place. Revisited only if latency or other trouble appears.
 - **Jobs.** The background layer that fills the stores. One worker process takes entries from the job queue and writes results back; a run folder per job.
   - Intake job: harvest, filter (open question), store items, fill abstracts, embed title + abstract. Backfill once, at setup; weekly surveillance after. One harvester for both.
     - Sources are adapters returning one item form; each subscribed venue names its adapter. Crossref API for journals; OpenAlex for venues Crossref lacks.
