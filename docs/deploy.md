@@ -1,6 +1,6 @@
 # Deploying the Scriptorium server
 
-The server runs as a set of Docker containers described in `compose.yaml`: PostgreSQL with pgvector (`db`) and the Scriptorium image, which holds the admin command (`cli`). Everything that must outlive a container is kept in one folder on the host, so containers can be rebuilt or replaced without loss.
+The server runs as a set of Docker containers described in `compose.yaml`: PostgreSQL with pgvector (`db`), the web service (`server`) and the admin command (`cli`), the last two from one Scriptorium image. Everything that must outlive a container is kept in one folder on the host, so containers can be rebuilt or replaced without loss.
 
 ## Requirements
 
@@ -26,7 +26,21 @@ Fill in `.env`: `POSTGRES_PASSWORD` (`openssl rand -hex 24` makes one), `SCRIPTO
 docker compose build cli
 docker compose up -d db
 docker compose run --rm cli migrate
+docker compose run --rm cli model      # fetches the embedding model, once
+docker compose up -d                   # starts the web service
 ```
+
+The web service listens on `127.0.0.1:8765` only. Put the machine's web server in front of it with HTTPS, admitting only the addresses that should reach it. With Caddy:
+
+```
+scriptorium.example.org {
+    @outside not remote_ip 192.0.2.0/24
+    respond @outside 403
+    reverse_proxy 127.0.0.1:8765
+}
+```
+
+`curl http://127.0.0.1:8765/v1/health` shows whether it answers and how large the collection is.
 
 On a btrfs disk, switch copy-on-write off for the database's folder while it is still empty: `sudo chattr +C /srv/scriptorium/postgres`.
 
@@ -37,6 +51,14 @@ The folder on the host holds:
 | `postgres/` | the database's files | `/var/lib/postgresql/data` |
 | `data/` | PDFs, parsed full texts, run folders, backups, the embedding model | `/srv/scriptorium` |
 | `settings/` | `settings.toml` | `/etc/scriptorium` |
+
+## Members
+
+```sh
+docker compose run --rm cli members add <name>
+```
+
+prints the member's API key once. The member installs the client (see the README), runs `scriptorium-client setup` and enters the server's address and that key.
 
 ## Administer
 
@@ -77,5 +99,7 @@ The import can be run again: items already present are skipped. Its report is in
 ```sh
 git pull
 docker compose build cli
-docker compose run --rm cli migrate
+docker compose up -d
 ```
+
+The web service brings the schema up to date when it starts.

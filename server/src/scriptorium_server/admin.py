@@ -7,7 +7,7 @@ from typing import Annotated
 import psycopg
 import typer
 
-from scriptorium_server import __version__, db, jobs, members, settings
+from scriptorium_server import __version__, db, embedding, jobs, members, settings
 from scriptorium_server import seed as seeding
 
 app = typer.Typer(no_args_is_help=True, help="Administer a Scriptorium server.")
@@ -87,8 +87,36 @@ def serve(host: Annotated[str, typer.Option(help="The address to listen on.")] =
                           min_size=1, max_size=10, open=True)
     with pool.connection() as conn:
         db.migrate(conn)
-    uvicorn.run(create_app(pool.connection, RealEmbedder(), current, crossref.fetch),
+        revision = embedding.stored_revision(conn)
+    embedder = RealEmbedder(revision=revision)
+    try:
+        embedder.embed_query("ready")  # load now, so a missing model stops the start
+    except (RuntimeError, OSError) as exc:
+        _fail(f"the embedding model could not be loaded ({exc}); run `scriptorium model` once")
+    typer.echo(f"Embedding model revision {embedder.revision or '?'} on {embedder.device}.")
+    uvicorn.run(create_app(pool.connection, embedder, current, crossref.fetch),
                 host=host, port=port)
+
+
+@app.command()
+def model() -> None:
+    """Fetch the embedding model (the revision that made the collection's
+    vectors, when there are any) and check that it loads. Needs the network."""
+    import os
+    import time
+
+    from scriptorium_server.embedding import RealEmbedder
+
+    with connect() as conn:
+        wanted = embedding.stored_revision(conn)
+    os.environ["SCRIPTORIUM_HF_ONLINE"] = "1"
+    revision = embedding.download_model(wanted)
+    embedder = RealEmbedder(revision=revision)
+    embedder.embed_query("warm up")
+    started = time.monotonic()
+    vector = embedder.embed_query("how do news recommenders affect diversity of exposure")
+    typer.echo(f"Model revision {revision} loaded on {embedder.device}; a query takes"
+               f" {(time.monotonic() - started) * 1000:.0f} ms and has {len(vector)} numbers.")
 
 
 @app.command("seed-export")

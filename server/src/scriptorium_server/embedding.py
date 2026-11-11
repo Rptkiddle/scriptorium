@@ -9,6 +9,7 @@ means embedding the whole collection again.
 
 import hashlib
 import math
+import os
 import re
 import threading
 import time
@@ -73,11 +74,17 @@ class RealEmbedder(Embedder):
     the next encode reloads it).
     """
 
-    def __init__(self, model_name: str = MODEL, truncate_dim: int | None = DIM):
+    def __init__(self, model_name: str = MODEL, truncate_dim: int | None = DIM,
+                 revision: str | None = None, device: str | None = None):
+        """`revision` fixes the model revision to load (the one that made
+        the collection's vectors); without it, the revision in the local
+        cache is used. `device` is "cuda", "mps" or "cpu"; without it, the
+        SCRIPTORIUM_DEVICE environment variable, else the best present."""
         self.model_name = model_name
         self.truncate_dim = truncate_dim
+        self.device = device or os.environ.get("SCRIPTORIUM_DEVICE") or None
         self._model = None
-        self._revision: str | None = None
+        self._revision: str | None = revision or None
         self.last_used: float = 0.0
         # Model inference on MPS is not thread-safe; all encode calls are
         # serialized. Documents encode in sub-batches so a concurrent query
@@ -87,8 +94,6 @@ class RealEmbedder(Embedder):
     @property
     def model(self):
         if self._model is None:
-            import os
-
             # Load from the local HF cache without network checks: the hub
             # freshness ping can hang indefinitely on flaky connections.
             # Set SCRIPTORIUM_HF_ONLINE=1 to allow a first-time model download.
@@ -98,17 +103,21 @@ class RealEmbedder(Embedder):
             import torch
             from sentence_transformers import SentenceTransformer
 
-            if torch.cuda.is_available():
+            if self.device:
+                device = self.device
+            elif torch.cuda.is_available():
                 device = "cuda"
             elif torch.backends.mps.is_available():
                 device = "mps"
             else:
                 device = "cpu"
+            self.device = device
             try:
                 # truncate_dim relies on the model's Matryoshka training:
                 # vectors are cut to the leading dimensions, then normalised.
                 self._model = SentenceTransformer(
-                    self.model_name, device=device, truncate_dim=self.truncate_dim
+                    self.model_name, device=device, truncate_dim=self.truncate_dim,
+                    revision=self._revision or None,
                 )
             except OSError as exc:
                 raise RuntimeError(
@@ -254,3 +263,18 @@ def embed_pending_passages(conn: psycopg.Connection, embedder: Embedder,
             [(vector_literal(v), r["item"], r["idx"]) for r, v in zip(rows, vectors, strict=True)])
         conn.commit()
         done += len(rows)
+
+
+def download_model(revision: str | None = None, model_name: str = MODEL) -> str:
+    """Fetch the model into the local cache (the given revision, else the
+    newest) and return the revision fetched. Needs the network."""
+    from huggingface_hub import snapshot_download
+
+    path = snapshot_download(model_name, revision=revision or None)
+    return path.rstrip("/").rsplit("/", 1)[1]
+
+
+def stored_revision(conn: psycopg.Connection) -> str:
+    """The model revision that made the collection's vectors; "" when none is recorded."""
+    row = conn.execute("SELECT value FROM meta WHERE name = 'embedding_revision'").fetchone()
+    return row["value"] if row else ""

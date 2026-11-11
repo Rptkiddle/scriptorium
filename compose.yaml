@@ -5,7 +5,7 @@
 #   data/       PDFs, parsed full texts, run folders, backups, the embedding model
 #   settings/   settings.toml
 #
-#   docker compose up -d db                        start the database
+#   docker compose up -d                           start the database and the web service
 #   docker compose run --rm cli <command>          run the admin command, e.g. `cli migrate`
 
 name: scriptorium
@@ -33,6 +33,27 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+
+  # The web service members' clients talk to. It listens on this machine
+  # only; the host's web server passes requests on to it. Queries are
+  # embedded on the CPU, so the service does not depend on a GPU.
+  server:
+    image: scriptorium-server
+    restart: unless-stopped
+    user: "${SCRIPTORIUM_UID:-1000}:${SCRIPTORIUM_GID:-1000}"
+    command: ["serve", "--host", "0.0.0.0", "--port", "8765"]
+    environment:
+      SCRIPTORIUM_DATABASE_ADDRESS: postgresql://scriptorium:${POSTGRES_PASSWORD}@db/scriptorium
+      SCRIPTORIUM_DEVICE: cpu
+      TZ: ${TZ:-Europe/Amsterdam}
+    ports:
+      - "127.0.0.1:${SCRIPTORIUM_PORT:-8765}:8765"
+    volumes:
+      - ${SCRIPTORIUM_DATA}/data:/srv/scriptorium
+      - ${SCRIPTORIUM_DATA}/settings:/etc/scriptorium
+    depends_on:
+      db:
+        condition: service_healthy
 
   # The admin command, run once per call and removed afterwards.
   cli:
