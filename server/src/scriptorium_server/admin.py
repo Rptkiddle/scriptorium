@@ -8,6 +8,7 @@ import psycopg
 import typer
 
 from scriptorium_server import __version__, db, jobs, members, settings
+from scriptorium_server import seed as seeding
 
 app = typer.Typer(no_args_is_help=True, help="Administer a Scriptorium server.")
 members_app = typer.Typer(no_args_is_help=True, help="Members and their API keys.")
@@ -65,6 +66,38 @@ def worker(poll_seconds: Annotated[float, typer.Option(help="Wait between looks 
         ran = jobs.run_worker(conn, runs_dir, HANDLERS, poll_seconds=poll_seconds,
                               until_idle=until_idle)
     typer.echo(f"Ran {ran} job(s).")
+
+
+@app.command("seed-export")
+def seed_export(
+    out: Annotated[Path, typer.Argument(help="The records file to write.")],
+    api: Annotated[str, typer.Option(help="Zotero's local API.")] = seeding.ZOTERO_API,
+) -> None:
+    """On a member's machine: write their Zotero items' full records to a
+    file for `seed`. Reads only; leaves out tags, collections and notes."""
+    try:
+        count = seeding.export_records(out, api)
+    except OSError as exc:  # includes Zotero not answering
+        _fail(f"could not read Zotero at {api} (is it running?): {exc}")
+    typer.echo(f"Wrote {count} records to {out}.")
+
+
+@app.command()
+def seed(
+    index: Annotated[Path, typer.Argument(help="The personal version's index.sqlite.")],
+    member: Annotated[str, typer.Option(help="The member whose library this is.")],
+    records: Annotated[Path | None, typer.Option(help="The file `seed-export` wrote.")] = None,
+) -> None:
+    """Import a member's existing library from the personal version's index."""
+    runs_dir = Path(str(settings.load()["data.folder"])) / "runs"
+    with connect() as conn:
+        try:
+            counts = seeding.seed(conn, index, member, records, runs_dir)
+        except (ValueError, OSError) as exc:
+            _fail(str(exc))
+    typer.echo(seeding.summary_line(counts) + ".")
+    for line in counts["collisions"]:
+        typer.echo(f"skipped {line}")
 
 
 # --- members -------------------------------------------------------------------

@@ -103,11 +103,12 @@ Development needs PostgreSQL 17 with pgvector on the development machine and a d
 
 ### Task 6: seed import
 
-The starting collection is the first member's existing library, taken in full from the personal version's index.
+The starting collection is the first member's existing library, taken in full from the personal version.
 
-- `seed.py`, `scriptorium seed <index.sqlite> --member <name>`: every item is admitted with provenance "donation"; category, publisher and venue come from its folder path; item vectors, passages (text, pages, part, artefact mark) and passage vectors are copied unchanged, since model and passage rules are the same. Tags, notes and collections are not imported.
-- `scriptorium seed-files <folder>`: stores each PDF whose content hash the seed recorded; other files are left alone.
-- Tests with a small fixture index: `test_seed_counts_match_source`, `test_seed_copies_vectors_unchanged`, `test_seed_twice_changes_nothing`, `test_seed_imports_no_tags_or_notes`, `test_seed_files_stores_only_known_hashes`.
+- Two inputs. The personal index (`index.sqlite`): items, folder placement, item vectors, passages and passage vectors. A records file: each item's full Zotero record (the index lacks volume, issue, pages, ISSN, exact date, structured creators), written on the member's machine by `scriptorium seed-export <file>` from Zotero's local API, read-only, without tags, collections or notes.
+- `seed.py`, `scriptorium seed <index.sqlite> --member <name> [--records <file>]`: every item is created as it is (`items.insert`, no search for other versions) with provenance "donation"; category, publisher and venue come from its folder path; item vectors, passages (text, pages, part, artefact mark) and passage vectors are copied unchanged, since model and passage rules are the same. An item already present is skipped; one whose identifier another item holds is skipped and listed. An item missing from the records file is built from the index. Each full text's PDF hash (MD5) goes to `pending_files`. Run folder with report.
+- `scriptorium seed-files <folder>` moves to Task 11, where the file store and the stripping of annotations are built.
+- Tests with a small fixture index: `test_seed_counts_match_source`, `test_seed_copies_vectors_unchanged`, `test_seed_twice_changes_nothing`, `test_seed_imports_no_tags_or_notes`, `test_export_writes_full_records_without_tags_collections_or_notes`.
 
 ### Task 7: admin command
 
@@ -144,6 +145,7 @@ The starting collection is the first member's existing library, taken in full fr
 
 ### Task 11: full-text job
 
+- `scriptorium seed-files <folder>`: stores each PDF whose MD5 is in `pending_files`, stripped like a donation; other files are left alone. Test: `test_seed_files_stores_only_known_hashes`.
 - `fulltext.py`: `process(donation)`: parse with GROBID; check the parsed title and authors against the item (or, for an identifier not held, admit it first); on mismatch fail with the reason and delete the held file; strip annotations and file author details; cut passages by the existing rules; store text, then embed; move the PDF to the file store by content hash; set `has_fulltext`.
 - Tests with stored TEI: the moved passage tests, `test_wrong_document_fails_and_is_not_kept` (review focus 2), `test_annotations_are_stripped`, `test_same_file_twice_is_stored_once`, `test_donation_outside_collection_creates_item`.
 

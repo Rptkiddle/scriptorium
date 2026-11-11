@@ -108,9 +108,11 @@ def _columns(record: dict) -> dict:
 
 
 def _venue(conn: psycopg.Connection, record: dict, publisher: str | None,
-           category: str | None) -> dict | None:
-    """The venue row for the record's venue name, created if new."""
-    name = next((record[f].strip() for f in _VENUE_FIELDS if (record.get(f) or "").strip()), "")
+           category: str | None, venue: str | None = None) -> dict | None:
+    """The venue row for the venue name (the caller's, else the record's),
+    created if new."""
+    name = (venue or "").strip() or next(
+        (record[f].strip() for f in _VENUE_FIELDS if (record.get(f) or "").strip()), "")
     if not name:
         return None
     return conn.execute(
@@ -119,8 +121,8 @@ def _venue(conn: psycopg.Connection, record: dict, publisher: str | None,
         " RETURNING id, publisher, category", (name, publisher, category)).fetchone()
 
 
-def _placement(conn, record, publisher, category) -> dict:
-    venue = _venue(conn, record, publisher or record.get("publisher"), category)
+def _placement(conn, record, publisher, category, venue_name=None) -> dict:
+    venue = _venue(conn, record, publisher or record.get("publisher"), category, venue_name)
     return {
         "venue_id": venue["id"] if venue else None,
         "publisher": (publisher or record.get("publisher")
@@ -156,11 +158,15 @@ def _citation_key(conn: psycopg.Connection, record: dict) -> str:
     return unique_key(base, {row["citation_key"] for row in rows})
 
 
-def _insert(conn, record, provenance_kind, member, publisher, category) -> str:
+def insert(conn, record, provenance_kind, member=None, publisher=None, category=None,
+           venue=None) -> str:
+    """Create an item from a record without looking for other versions of
+    it; returns its key. For callers whose records are already one per
+    publication (the seed import); everything else goes through admit()."""
     key = (record.get("key") or "").strip() or _new_key(conn)
     values = {"key": key, "citation_key": _citation_key(conn, record),
               "provenance_kind": provenance_kind, "provenance_member": member,
-              **_columns(record), **_placement(conn, record, publisher, category)}
+              **_columns(record), **_placement(conn, record, publisher, category, venue)}
     names = ", ".join(values)
     marks = ", ".join(f"%({name})s" for name in values)
     conn.execute(f"INSERT INTO items ({names}) VALUES ({marks})", values)
@@ -241,7 +247,7 @@ def admit(conn: psycopg.Connection, record: dict, provenance_kind: str,
             if ident:
                 _record_preprint(conn, match.item, ident, line)
                 return match.item["key"], False
-        return _insert(conn, record, provenance_kind, member, publisher, category), True
+        return insert(conn, record, provenance_kind, member, publisher, category), True
 
 
 def get(conn: psycopg.Connection, key: str) -> dict | None:

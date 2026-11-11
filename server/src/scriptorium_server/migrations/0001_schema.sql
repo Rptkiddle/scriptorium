@@ -100,6 +100,13 @@ CREATE TABLE files (
 );
 CREATE INDEX files_item ON files (item);
 
+-- Full texts that arrived without their PDF (the seed import): the PDF's
+-- MD5 as the source recorded it, so the file is recognised when it comes.
+CREATE TABLE pending_files (
+    md5   text PRIMARY KEY,
+    item  text NOT NULL REFERENCES items ON DELETE CASCADE
+);
+
 CREATE TABLE jobs (
     id           bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     kind         text NOT NULL,
