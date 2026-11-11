@@ -74,7 +74,7 @@ Development needs PostgreSQL 17 with pgvector on the development machine and a d
 
 ### Task 1: server settings
 
-- `settings.py`: `load(path) -> Settings`, `show() -> list[(name, value, explanation)]`, `set(name, value)` with validation. TOML file; path from `SCRIPTORIUM_SETTINGS`. Secret fields print as `set` / `not set`.
+- `settings.py`: `load(path) -> Settings`, `show() -> list[(name, value, explanation)]`, `set_value(name, value)` with validation. TOML file holding only non-default values; path from `SCRIPTORIUM_SETTINGS`. Secret fields print as `set` / `not set`.
 - Settings defined here: database address, data folder, surveillance day and hour, backup folder and days kept, per-request maximum, rate per member per minute, embedding batch size, GROBID address, outside-source keys, contact email for outside sources.
 - Tests: `test_set_rejects_unknown_name`, `test_set_rejects_bad_value`, `test_show_masks_secrets`, `test_every_setting_has_an_explanation`.
 
