@@ -1,4 +1,14 @@
-"""Run folders: the one layout every job's outputs share.
+"""Jobs: the queue the worker takes its work from, and the run folder each
+job writes to.
+
+THE QUEUE is the table `jobs`. enqueue() adds a waiting job; the worker
+claims the oldest waiting job, runs the handler registered for its kind,
+and records it as done or failed with the error. A job that was running
+when the worker stopped is put back to waiting when the worker starts
+again, so a handler must be safe to run a second time. One worker runs at
+a time; claim() itself hands each job to one claimant only.
+
+RUN FOLDERS are the one layout every job's outputs share.
 
 Each kind of job keeps its outputs under <runs folder>/<kind>/:
 
@@ -23,7 +33,13 @@ import datetime
 import json
 import os
 import subprocess
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
+
+import psycopg
+from psycopg.types.json import Jsonb
 
 FINAL_STATUSES = ("ok", "partial", "failed")
 MANIFEST = "run.json"
@@ -141,3 +157,103 @@ def rebuild_index(kind_dir: Path) -> Path:
     index = kind_dir / "INDEX.md"
     index.write_text("\n".join(lines) + "\n")
     return index
+
+
+# --- the queue -----------------------------------------------------------------
+
+
+@dataclass
+class Job:
+    id: int
+    kind: str
+    payload: dict
+    member: int | None
+    run_dir: Path
+
+
+Handler = Callable[[psycopg.Connection, Job], str | None]  # returns a one-line summary
+
+
+def enqueue(conn: psycopg.Connection, kind: str, payload: dict,
+            member: int | None = None) -> int:
+    """Add a waiting job; returns its id."""
+    return conn.execute("INSERT INTO jobs (kind, payload, member) VALUES (%s, %s, %s)"
+                        " RETURNING id", (kind, Jsonb(payload), member)).fetchone()["id"]
+
+
+def claim(conn: psycopg.Connection, runs_dir: Path) -> Job | None:
+    """Take the oldest waiting job: mark it running, give it a run folder,
+    commit. None when nothing waits. Two claimants never get the same job."""
+    row = conn.execute(
+        "UPDATE jobs SET status = 'running', started_at = now(), finished_at = NULL,"
+        " error = NULL WHERE id = (SELECT id FROM jobs WHERE status = 'waiting'"
+        " ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING id, kind, payload, member"
+    ).fetchone()
+    if row is None:
+        conn.commit()
+        return None
+    attempt = 1
+    while True:  # a job run again within the same second gets a folder of its own
+        slug = f"job-{row['id']}" + (f"-run{attempt}" if attempt > 1 else "")
+        try:
+            run_dir = new_run(runs_dir, row["kind"], slug)
+            break
+        except FileExistsError:
+            attempt += 1
+    conn.execute("UPDATE jobs SET run_dir = %s WHERE id = %s", (str(run_dir), row["id"]))
+    conn.commit()
+    return Job(row["id"], row["kind"], row["payload"], row["member"], run_dir)
+
+
+def finish(conn: psycopg.Connection, job: Job, error: str | None = None,
+           summary: str | None = None) -> None:
+    """Record a claimed job as done, or as failed with its error, and close
+    its run folder the same way."""
+    conn.execute("UPDATE jobs SET status = %s, finished_at = now(), error = %s WHERE id = %s",
+                 ("failed" if error else "done", error, job.id))
+    conn.commit()
+    finish_run(job.run_dir, "failed" if error else "ok", error or summary)
+
+
+def requeue_unfinished(conn: psycopg.Connection) -> int:
+    """Put every job left running by a worker that stopped back to waiting,
+    and close its old run folder as failed; returns how many. Called once
+    when the worker starts."""
+    rows = conn.execute("UPDATE jobs SET status = 'waiting', started_at = NULL"
+                        " WHERE status = 'running' RETURNING run_dir").fetchall()
+    conn.commit()
+    for row in rows:
+        if row["run_dir"] and Path(row["run_dir"]).is_dir():
+            finish_run(Path(row["run_dir"]), "failed", "the worker stopped during this run")
+    return len(rows)
+
+
+def run_worker(conn: psycopg.Connection, runs_dir: Path, handlers: dict[str, Handler], *,
+               poll_seconds: float = 5.0, until_idle: bool = False,
+               stop: Callable[[], bool] = lambda: False) -> int:
+    """Run waiting jobs one at a time, oldest first, until `stop()` is true
+    (or, with until_idle, until nothing waits); returns how many ran. A
+    handler that raises fails its job with the error; the worker goes on."""
+    requeue_unfinished(conn)
+    ran = 0
+    while not stop():
+        job = claim(conn, runs_dir)
+        if job is None:
+            if until_idle:
+                return ran
+            time.sleep(poll_seconds)
+            continue
+        ran += 1
+        handler = handlers.get(job.kind)
+        if handler is None:
+            finish(conn, job, error=f"no handler for jobs of kind {job.kind!r}")
+            continue
+        try:
+            summary = handler(conn, job)
+            conn.commit()
+        except Exception as exc:  # noqa: BLE001 — any failure belongs to the job, not the worker
+            conn.rollback()
+            finish(conn, job, error=f"{type(exc).__name__}: {exc}")
+        else:
+            finish(conn, job, summary=summary)
+    return ran

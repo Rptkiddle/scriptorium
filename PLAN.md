@@ -98,7 +98,7 @@ Development needs PostgreSQL 17 with pgvector on the development machine and a d
 
 ### Task 5: jobs
 
-- `jobs.py`: `enqueue(kind, payload, member=None) -> id`, `claim() -> Job | None` (one at a time, safe with several workers), `finish(id, error=None)`, `requeue_unfinished()` at worker start, `run_worker()`; each job gets a run folder.
+- `jobs.py`: `enqueue(conn, kind, payload, member=None) -> id`, `claim(conn, runs_dir) -> Job | None` (one at a time, safe with several workers), `finish(conn, job, error=None, summary=None)`, `requeue_unfinished(conn)` at worker start, `run_worker(conn, runs_dir, handlers, poll_seconds, until_idle, stop)`; a handler is `(conn, job) -> summary` and must be safe to run twice; each job gets a run folder.
 - Tests: `test_claim_gives_each_job_once`, `test_unfinished_job_runs_again_after_restart` (review focus 3), `test_failed_job_keeps_its_error_and_run_folder`.
 
 ### Task 6: seed import
