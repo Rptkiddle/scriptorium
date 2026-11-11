@@ -88,7 +88,7 @@ Development needs PostgreSQL 17 with pgvector on the development machine and a d
 ### Task 3: items and identity
 
 - `identity.py`: the personal version's rules, unchanged in behaviour.
-- `items.py`: `admit(record, provenance_kind, member=None) -> (key, created: bool)`. Applies identity: an existing DOI or arXiv ID returns the existing item; a preprint of a held published item is recorded on it; a published version arriving after its preprint replaces it and keeps the preprint's identifier.
+- `items.py`: `admit(conn, record, provenance_kind, member=None, *, relation=None, publisher=None, category=None) -> (key, created: bool)`; a record is a dict in Zotero's field names; also `holder(conn, identifiers)`, `get(conn, key)`, `to_record(row)`. Applies identity: an existing DOI or arXiv ID returns the existing item; a preprint of a held published item is recorded on it; a published version arriving after its preprint replaces it in place (same key, citation key and provenance; vector emptied) and keeps the preprint's identifier.
 - Tests: the moved version tests, plus `test_admit_twice_gives_one_item`, `test_two_sessions_admitting_at_once_give_one_item` (review focus 1), `test_preprint_identifier_finds_published_item`, `test_provenance_kind_is_kept_from_first_admission`.
 
 ### Task 4: embedding
