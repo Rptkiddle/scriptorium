@@ -111,7 +111,7 @@ The starting collection is the first member's existing library, taken in full fr
 
 ### Task 7: admin command
 
-- `admin.py` (Typer, script `scriptorium`): `members add|list|revoke`, `venues add|list|remove`, `jobs list|show`, `settings show|set`, `serve`, `worker`. `members add` prints the key once and stores its hash.
+- `admin.py` (Typer, script `scriptorium`): `members add|list|revoke`, `venues add|list|remove`, `jobs list|show`, `settings show|set`, `migrate`, `worker` (`serve` comes with Task 9). `members add` prints the key once and stores its hash. `members.py`: `add`, `authenticate(conn, key) -> member | None`, `revoke`, `listing`. Job handlers register in `admin.HANDLERS`.
 - Tests: `test_member_key_is_shown_once_and_not_stored`, `test_revoked_key_is_refused`, `test_jobs_list_shows_failures`.
 
 **Deploy 1** (each action on the server needs approval): PostgreSQL with pgvector, the server package, settings, the worker as a service. Load the seed.
