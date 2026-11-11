@@ -40,7 +40,7 @@ scriptorium.example.org {
 }
 ```
 
-`curl http://127.0.0.1:8765/v1/health` shows whether it answers and how large the collection is.
+Nothing is served without a member's API key: `curl -H "Authorization: Bearer <key>" http://127.0.0.1:8765/v1/health` shows whether the service answers and how large the collection is.
 
 On a btrfs disk, switch copy-on-write off for the database's folder while it is still empty: `sudo chattr +C /srv/scriptorium/postgres`.
 
@@ -58,7 +58,7 @@ The folder on the host holds:
 docker compose run --rm cli members add <name>
 ```
 
-prints the member's API key once. The member installs the client (see the README), runs `scriptorium-client setup` and enters the server's address and that key.
+prints the member's API key once. The member installs the client (`docs/client.md`), runs `scriptorium-client setup` and enters the server's address and that key.
 
 ## Administer
 

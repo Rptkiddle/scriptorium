@@ -85,12 +85,16 @@ def log(world):
 # --- authentication, log, limits (Task 8) --------------------------------------
 
 
-def test_health_needs_no_key(world):
-    reply = TestClient(world.app).get("/v1/health")
-    assert reply.status_code == 200
+def test_nothing_is_served_without_a_key(world):
+    anonymous = TestClient(world.app)
+    assert anonymous.get("/v1/health").status_code == 401
+    assert anonymous.get(f"/v1/items/{world.keys[0]}").status_code == 401
+    for path in ("/", "/docs", "/openapi.json", "/v1"):
+        assert anonymous.get(path).status_code == 404  # no page describes the service
+    reply = world.client.get("/v1/health")
     assert reply.json() == {"status": "ok", "server": "0.1.0", "api": 1, "min_client": "0.1.0",
                             "items": 5, "fulltexts": 1}
-    assert log(world) == []  # and it is not logged
+    assert [r["request"] for r in log(world)][-1] == "health"
 
 
 def test_unknown_key_is_refused(world):

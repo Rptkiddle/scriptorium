@@ -96,7 +96,7 @@ Filters (find tools): author, year, venue, publisher, category, type, has full t
   - Identity: one item per publication, matched by DOI or arXiv ID, else title and authors. Published version only; a preprint's identifier is recorded on the published item and finds it.
 - **Web service.** FastAPI under Uvicorn, behind the server's HTTPS front door, which admits VU network addresses only.
   - Authentication and usage logging in one place, before any request is handled.
-  - API: one request per client tool (Table 1), plus an open health check. Addresses versioned (`/v1`); an outdated client is told to update.
+  - API: one request per client tool (Table 1). Nothing is served without an API key. Addresses versioned (`/v1`); an outdated client is told to update.
   - The server serves what the client asks for: how many results, which fields, in what order. It keeps no per-member results or sets.
   - Two protective limits: a maximum per request and a rate per member. A refused request says which limit it hit.
   - A donation is queued: the PDF to a holding area, an entry to the job queue.

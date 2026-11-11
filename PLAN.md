@@ -134,7 +134,7 @@ The starting collection is the first member's existing library, taken in full fr
 ### Task 8: authentication, usage log, limits
 
 - `auth.py`: `handle(connect, request, name, inputs, run, per_minute)` wraps every request (key as `Authorization: Bearer`, client version and agent as `X-Scriptorium-Client` / `X-Scriptorium-Agent`; 426 for a client older than `MIN_CLIENT`). As planned: API key → member, else 401; rate per member, else 429 naming the limit; writes one `usage_log` row per request with inputs and the full reply. The client's version and agent name arrive as headers. No network address is stored.
-- Tests: `test_unknown_key_is_refused`, `test_log_row_holds_inputs_and_full_reply`, `test_rate_limit_names_itself`, `test_log_holds_no_address`, `test_health_needs_no_key`.
+- Tests: `test_unknown_key_is_refused`, `test_log_row_holds_inputs_and_full_reply`, `test_rate_limit_names_itself`, `test_log_holds_no_address`, `test_nothing_is_served_without_a_key` (the health check needs a key too).
 
 ### Task 9: retrieval and the API
 

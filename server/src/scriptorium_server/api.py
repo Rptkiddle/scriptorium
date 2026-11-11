@@ -1,7 +1,7 @@
-"""The API: one request per client tool (Table 1 of the README), under /v1,
-plus an open health check.
+"""The API: one request per client tool (Table 1 of the README), under /v1.
+Nothing is served without a member's API key.
 
-Every request but the health check goes through auth.handle(), which
+Every request goes through auth.handle(), which
 authenticates, applies the limits and writes the usage log. The request
 bodies are checked against the models below; a field that does not exist
 is refused, so a mistyped input is never silently ignored.
@@ -97,12 +97,13 @@ def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
         return auth.handle(connect, request, name, inputs, run, per_minute)
 
     @app.get("/v1/health")
-    def health() -> dict:
-        """Open: whether the server answers, and the size of the collection."""
-        with connect() as conn:
-            size = retrieval.collection_size(conn)
-        return {"status": "ok", "server": __version__, "api": API_VERSION,
-                "min_client": ".".join(map(str, auth.MIN_CLIENT)), **size}
+    def health(request: Request) -> Any:
+        """Whether the server answers, and the size of the collection."""
+        def run(conn, member):
+            return {"status": "ok", "server": __version__, "api": API_VERSION,
+                    "min_client": ".".join(map(str, auth.MIN_CLIENT)),
+                    **retrieval.collection_size(conn)}
+        return serve(request, "health", {}, run)
 
     @app.post("/v1/lookup")
     def lookup(body: LookupBody, request: Request) -> Any:

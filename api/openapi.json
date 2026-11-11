@@ -550,16 +550,14 @@
   },
   "/v1/health": {
    "get": {
-    "description": "Open: whether the server answers, and the size of the collection.",
+    "description": "Whether the server answers, and the size of the collection.",
     "operationId": "health_v1_health_get",
     "responses": {
      "200": {
       "content": {
        "application/json": {
         "schema": {
-         "additionalProperties": true,
-         "title": "Response Health V1 Health Get",
-         "type": "object"
+         "title": "Response Health V1 Health Get"
         }
        }
       },
