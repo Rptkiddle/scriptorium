@@ -1,217 +1,161 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/banner-dark.svg">
-  <img src="docs/assets/banner-light.svg" alt="scriptorium" width="100%">
-</picture>
+# Scriptorium collaborative: design spec
 
-Scriptorium is an experimental project in which I explore how AI agents can work with the research literature effectively and semi-autonomously. It centres on a knowledge store (currently: Zotero) and the cycle of work around it. It is motivated by the idea that agentic workflows may be beneficial in interfacing systematically with the sheer number of publications encountered today, especially when working at interdisciplinary junctions.
+## 1. Purpose
 
-Currently, a Python daemon indexes the store (SQLite + Qwen3-Embedding-0.6B + GROBID) and serves it as 29 MCP tools for agentic workflows. It reads Zotero via local API and writes through a small Zotero plugin (also included). It also requires access to the Crossref, OpenAlex and (ideally) Semantic Scholar APIs (for now, these are all free). Currently, it also invokes some custom Claude Code 'skills' for certain tasks, but my longer-term aim is to make the package vendor-free.
+Collaborative implementation for Scriptorium with remote + client split. Server is designed to maintain a large-scale collection and embed + index + serve it efficiently via agent-facing MCP tools. Client application (FastMCP) allows for vendor-free agent interaction with optional Zotero connector for two-way library exchange. Design is subject to change during development and testing.
 
-I am a PhD candidate and postdoctoral researcher in Communication Science at Vrije Universiteit Amsterdam. I built scriptorium as a working tool for my own research, and as an experimental project in learning to interface with a voluminous interdisciplinary literature. I share it as a tool under heavy development, currently quite personalised to my own workflow, and liable to change and break. If you have questions, or want to collaborate, feel free to reach me at r.t.kiddle@vu.nl.
-
-<p align="center"><img src="docs/assets/divider.svg" width="600" alt=""></p>
-
-## Contents
-
-- [Roadmap](#roadmap)
-- [Features](#features)
-- [Architecture](#architecture)
-- [MCP tools](#mcp-tools)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Configuration](#configuration)
-- [Data layout](#data-layout)
-- [Development](#development)
-- [Licence](#licence)
-- [Citation and acknowledgements](#citation-and-acknowledgements)
-
-## Roadmap
-
-**Phase 1 – the library interface.** Phase 1 provides an interface to Zotero for agents. Through it, agents can efficiently and reliably look up a paper by DOI, arXiv ID or title, list and count items by author, venue, year or folder, search by topic, read passages from full texts, and change items and folders. Three skills build on this interface: `search` for semantic spot searches and lookups, `ingest` for adding papers with Crossref-verified metadata, and `retrieve` for obtaining PDFs. 
-
-**Phase 2 – surveillance, interrogation and discovery.** Phase 2 provides more advanced agentic workflows: surveillance (a nightly filter-then-appraise check of new publications in subscribed venues), interrogation (adaptation of FutureHouse's PaperQA2 approach to asking questions of a large-N library) and discovery (systematic literature search, still under development). 
-
-**Phase 3 – shared deployment and a concept-level knowledge base.** Phase 3 extends Scriptorium from a single researcher's installation to a research group. Scriptorium will run both locally, over one researcher's own library, and on a shared server, where colleagues contribute papers to a common index and search it together with the same tools. The longer-term aim is a semi-autonomous (human-in-the-loop) knowledge base that maintains itself alongside the library and works at the level of concepts, providing a 'map' of relevant interdisciplinary literature as regards each concept, to be utilised by the surveillance, interrogation and discovery skills.
-
-## Features
-
-**Hub.** The index holds one catalogue entry per library item (title and abstract embedded; authors, year, item type, venue, folder path, tags and date added stored as filters) and paragraph-level full-text passages for every item with a PDF, parsed by GROBID, with references, captions and tables left out. The daemon re-syncs whenever Zotero's library version changes (on any change to library items, and straight after a write through the hub), and logs every write to Zotero with the item's previous state.
-
-**Skills.**
-
-| Skill | Phase | What it does |
-|---|---|---|
-| <img src="docs/assets/dog-search.svg" width="140" alt="search"><br>`/scriptorium:search` | 1 | Spot searches and lookups; picks the right search tool and resolves filter values first |
-| <img src="docs/assets/dog-ingest.svg" width="140" alt="ingest"><br>`/scriptorium:ingest` | 1 | Adds papers with verified metadata, from PDFs, DOIs or full records, keeping a paper's published version over its preprints |
-| <img src="docs/assets/dog-retrieve.svg" width="140" alt="retrieve"><br>`/scriptorium:retrieve` | 1 | Downloads versions of record from publishers' sites, checks each against its title, and attaches on approval |
-| <img src="docs/assets/dog-surveil.svg" width="140" alt="surveil"><br>`/scriptorium:surveil` | 2 | Runs one surveillance cycle: Crossref harvest, filter, appraise, digest, add |
-| <img src="docs/assets/dog-interrogate.svg" width="140" alt="interrogate"><br>`/scriptorium:interrogate` | 2 | Answers a question from the full text of the library, citing passages with page ranges |
-| <img src="docs/assets/dog-discover.svg" width="140" alt="discover"><br>`/scriptorium:discover` | 2 | Protocol-driven search of Semantic Scholar and OpenAlex, with screening and citation snowballing |
-
-## Architecture
+## 2. Architecture
 
 ```
-Claude Code session
-  skills ──► scripts/ ──► modules in src/scriptorium/
-     │
-     │  MCP over HTTP, localhost:8765/mcp
-     ▼
-daemon (scriptorium serve)
-  tools.py    MCP tools
-  index.py    SQLite: catalogue + full-text passages
-  grobid.py   GROBID, run while PDFs need parsing
-  tei.py      its output cut into passages
-  search.py   filters, lookup, listing
-  routes.py   dashboard and settings pages
-     │                              │
-     │ read: Zotero local API       │ write: Scriptorium Bridge (localhost:23119)
-     ▼                              ▼
-Zotero (PDFs as linked files, named by citation key)
-
-launchd ──► launcher.py ──► surveillance_cycle.py ──► claude -p (judging only, no tools)
+ CLIENT (member's machine)                     SERVER (departmental Linux server)
+ macOS / Linux / Windows
+                                               ┌──────────────────────────────────────────────────┐
+┌────────────────────────────┐                 │ FRONT DOOR                                       │
+│ AGENT                      │            ┌───►│ HTTPS reverse proxy · VU network addresses only  │
+│ any agent that supports MCP│            │    └───────────────────────┬──────────────────────────┘
+└─────────────┬──────────────┘            │                            │
+              │ MCP, local                │    ┌───────────────────────┴──────────────────────────┐
+┌─────────────┴──────────────┐            │    │ SCRIPTORIUM SERVER  (Python process, FastAPI)    │
+│ SCRIPTORIUM CLIENT         │            │    │ ┌──────────────────────────────────────────────┐ │
+│ a FastMCP server (Python)  │            │    │ │ AUTHENTICATION  API key → member · usage log │ │
+│ · agent-facing tools       │◄───HTTPS───┘    │ └──────────────────────┬───────────────────────┘ │
+│ · workflow instructions    │ web service     │ ┌──────────────────────┴───────────────────────┐ │
+│ · PDF download and upload  │ + API key       │ │ API  one request per client tool (Table 1)   │ │
+│ · Zotero exchange, when    │                 │ └──────────┬───────────────────────┬───────────┘ │
+│   Zotero + plugin present  │                 │ ┌──────────┴──────────┐ ┌──────────┴───────────┐ │
+└─────────────┬──────────────┘                 │ │ RETRIEVAL           │ │ FILES                │ │
+              │ HTTP, localhost                │ │ exact lookup        │ │ receive donation     │ │
+┌─────────────┴──────────────┐                 │ │ filter, count       │ │  → job queue         │ │
+│ ZOTERO DESKTOP  (optional) │                 │ │ semantic: embed     │ │ serve PDF            │ │
+│ + Scriptorium Bridge plugin│                 │ │  query, rank vectors│ │ list held full texts │ │
+│ member's own library       │                 │ │ keyword match       │ │ donation progress    │ │
+└────────────────────────────┘                 │ └──────────┬──────────┘ └──────────┬───────────┘ │
+                                               └────────────┼───────────────────────┼─────────────┘
+┌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┐                │ reads                 │ serves, queues
+┊ FASTMCP SERVER: TOOLS AND WORKFLOWS      ┊   ┌────────────┴───────────────────────┴─────────────┐
+┊ Tools (Table 1)                          ┊   │ STORES                                           │
+┊ · find: lookup, list, search items,      ┊   │ ┌──────────────────────────────┐ ┌─────────────┐ │
+┊   search passages                        ┊   │ │ DATABASE  PostgreSQL+pgvector│ │ FILE STORE  │ │
+┊ · inspect: item, facets, BibTeX, status  ┊   │ │ items + abstracts · filters  │ │ disk        │ │
+┊ · files: download PDF, donate PDF,       ┊   │ │ passages · keyword index     │ │ PDFs by     │ │
+┊   donation progress                      ┊   │ │ vectors (items, passages)    │ │ content hash│ │
+┊ · Zotero: add items, donate PDFs         ┊   │ │ members · usage log          │ │ parsed full │ │
+┊ · workflow: return instructions          ┊   │ │ donations · job queue        │ │ texts       │ │
+┊ Workflows (after the hub)                ┊   │ └──────────────────────────────┘ └─────────────┘ │
+┊ · search (semantic retrieval)            ┊   └────────────────────────▲─────────────────────────┘
+┊ · discovery (PRISMA-style review)        ┊                            │ takes jobs, writes results
+┊ · interrogation (PaperQA2-style          ┊   ┌────────────────────────▼─────────────────────────┐
+┊   summarization)                         ┊   │ JOBS  (one worker process, one queue, a run      │
+└╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘   │ folder per job)                                  │
+                                               │ · intake: outside sources → megajournal filter   │
+                                               │   (model) → items → embed title + abstract       │
+                                               │ · full text: PDF → check against item → GROBID   │
+                                               │   → passages → embed                             │
+                                               │ Embedding: Qwen3-Embedding-0.6B (GPU)            │
+                                               │ Started by: schedule (weekly surveillance), a    │
+                                               │ donation, the admin command (one-off backfill)   │
+                                               └───────┬──────────────────────────────────────────┘
+                                                       │ HTTPS
+                                               ┌───────┴──────────────────────────────────────────┐
+                                               │ OUTSIDE SOURCES  Crossref (items) · OpenAlex,    │
+                                               │ Scopus, Springer, Semantic Scholar (abstracts)   │
+                                               │ · VU library (PDFs, TBC)                         │
+                                               └──────────────────────────────────────────────────┘
+                                               ┌──────────────────────────────────────────────────┐
+                                               │ ADMIN COMMAND (on the server)  members, keys,    │
+                                               │ subscribed venues, settings, job status          │
+                                               └──────────────────────────────────────────────────┘
 ```
 
+**Table 1. Client tools and corresponding server requests**
 
-## MCP tools
+| Group | Tool | Server request | Acts on |
+|---|---|---|---|
+| find | lookup | `/v1/lookup` | Identifiers (DOI, arXiv ID), exact titles. An identifier not held is fetched, verified and added |
+| find | list | `/v1/items` | Items by filters only; counts |
+| find | search items | `/v1/search/items` | Title + abstract vectors, within filters |
+| find | search passages | `/v1/search/passages` | Paragraph vectors of held full texts, within filters |
+| inspect | item | `/v1/items/{key}` | One item in full |
+| inspect | facets | `/v1/facets` | Values a filter can take, with counts |
+| inspect | BibTeX | `/v1/bibtex` | Chosen items, formatted |
+| inspect | status | `/v1/health` | Server reachable, collection size; plus client version and Zotero found (local) |
+| files | download PDF | `/v1/files/{key}` | Held PDF, saved to disk |
+| files | donate PDF | `/v1/files` | PDF + DOI or arXiv ID, uploaded |
+| files | donation progress | `/v1/donations` | The member's donations: waiting, done, failed |
+| Zotero | add items | `/v1/items/{key}`, `/v1/files/{key}` | Fetched, then written to Zotero locally |
+| Zotero | donate PDFs | `/v1/files/held`, `/v1/files` | Client fetches the list of held full texts, compares locally, sends only PDFs the server lacks |
+| workflow | workflow | none (local) | Returns the instruction text |
 
-| Group | Tool | Purpose |
-|---|---|---|
-| Read | `hub_lookup` | Exact match on DOI, arXiv ID or title, many at once |
-| | `hub_list_items` | Every item matching filters, paged, with a total; `limit=0` counts |
-| | `hub_search_items` | Items about a topic (title and abstract), narrowed by filters |
-| | `hub_search_chunks` | Passages from papers with an indexed PDF, optionally with their neighbouring paragraphs |
-| | `hub_search_pool` | The papers `hub_search_chunks` would draw from under a filter set |
-| | `hub_facets` | Filter values with counts |
-| | `hub_item` | One item in full, with its PDF path |
-| | `hub_children` | An item's attachments and notes |
-| | `hub_collections` | The folder tree (or folders by name), or one folder's items |
-| | `hub_tags` | Tags in the library |
-| | `hub_bibtex` | BibLaTeX or BibTeX entries for citation keys |
-| Write | `hub_item_create`, `hub_item_update`, `hub_item_delete` | Create, patch, trash items |
-| | `hub_item_tags`, `hub_item_collections` | Add or remove single tags or folders, keeping the rest |
-| | `hub_note_create` | Add a note to an item |
-| | `hub_item_type` | Change item type; fields the new type lacks go to Extra |
-| | `hub_trash`, `hub_item_restore` | List the trash (or search it by title), take items out of it |
-| | `hub_collection_create`, `_rename`, `_move`, `_delete` | Folder changes |
-| | `hub_attachment_link` | Attach a PDF as a linked file and index it |
-| Index | `hub_index`, `hub_sync`, `hub_sync_cancel`, `hub_status` | Index items, reconcile with Zotero, stop a sync, report health |
+Filters (find tools): author, year, venue, publisher, category, type, has full text, added since, provenance. The two search tools also take an exact phrase (keyword index).
 
+## 3. Server
 
-<p align="center"><img src="docs/assets/divider.svg" width="600" alt=""></p>
+- **Collection.** One item per publication, with abstract. 100k–500k items, about one in five with a PDF. Read-only for members.
+  - Sources: subscribed venues (journals, proceedings, preprint servers; 2020 onwards); members' donations from any venue; any publication a member's activity leads to (catch-all), admitted once its identifier is verified at the registry.
+  - Provenance per item, usable as a filter. Members see its kind only (subscribed venue, donation, member activity).
+  - Identity: one item per publication, matched by DOI or arXiv ID, else title and authors. Published version only; a preprint's identifier is recorded on the published item and finds it.
+- **Web service.** FastAPI under Uvicorn, behind the server's HTTPS front door, which admits VU network addresses only.
+  - Authentication and usage logging in one place, before any request is handled.
+  - API: one request per client tool (Table 1), plus an open health check. Addresses versioned (`/v1`); an outdated client is told to update.
+  - The server serves what the client asks for: how many results, which fields, in what order. It keeps no per-member results or sets.
+  - Two protective limits: a maximum per request and a rate per member. A refused request says which limit it hit.
+  - A donation is queued: the PDF to a holding area, an entry to the job queue.
+- **Database.** PostgreSQL with pgvector, run as a server: tables, keyword search and vector search in one place. Speed and match quality checked on the server at target size before building.
+- **Jobs.** The background layer that fills the stores. One worker process takes entries from the job queue and writes results back; a run folder per job.
+  - Intake job: harvest, filter (open question), store items, fill abstracts, embed title + abstract. Backfill once, at setup; weekly surveillance after. One harvester for both.
+    - Sources are adapters returning one item form; each subscribed venue names its adapter. Crossref API for journals; OpenAlex for venues Crossref lacks.
+    - Abstracts, in order: Crossref, OpenAlex, Semantic Scholar, Scopus, Springer.
+    - Harvest by index date, with a marker per venue.
+  - Full-text job: check the PDF against its item, strip annotations and file author details, parse (GROBID) into paragraph passages (references, captions and tables excluded), store, embed. A PDF outside the collection creates a verified item. In the hub, PDFs arrive by donation only.
+- **Backup.** Nightly, Scriptorium data only: database dump and new PDFs, kept for a set number of days, to a separate folder on the server; off-server storage when available. Restore tested once before members rely on it.
+- **Admin command.** Members and keys; subscribed venues (adding one backfills it); job status and failures; settings.
+- **Settings.** One readable file, shown and changed through the admin command, each setting with a one-line explanation. Keys for outside sources shown as set or not set. Venues and members are data, not settings.
 
-## Requirements
+## 4. Client
 
-- macOS; Apple Silicon recommended (for MPS)
-- Zotero 10+, with local API access enabled and the Scriptorium Bridge plugin installed
-- (currently) Claude Code, with the Crossref, OpenAlex and Semantic Scholar MCP servers (used by the skills)
-- Python 3.12+ and [uv](https://docs.astral.sh/uv/)
-- Java 21 and [GROBID](https://github.com/grobidOrg/grobid) 0.9.1
+- **Agent.** Any agent that supports MCP. Talks only to the client. Nothing else is assumed about it.
+- **Client.** Required. Local MCP program; the only thing that talks to the server.
+  - Tools: one tool, one server request, same inputs (Table 1).
+  - Results: the client decides what the agent sees. What fits goes into the reply; a large result is saved whole to a file on the member's machine, and the agent gets the path, the count and the first page.
+  - Sets: a set is such a local file. Client tools read it in pages, mark items included or excluded, export BibTeX, and send its item keys as a filter with a later request.
+  - Zotero exchange, active when Zotero and the Bridge plugin are present. All reading and writing goes through the plugin, which reads only identifiers held and PDFs with their identifiers.
+    - Add: chosen items into the member's Zotero, with PDFs where held. Skips items already present. Never edits or removes.
+    - Donate: PDFs from the member's library, part or all.
+  - Without Zotero: BibTeX file, PDFs saved to a folder, donation from a folder.
+  - Workflow instructions (after the hub): held in the client, returned to the agent by a tool. A workflow is these instructions plus server retrieval; the agent does all judging.
+- **Settings.** Made in the terminal, through the client. No web pages or panels, on either side.
+- **Repository.** One repo, three folders: server, client, Zotero plugin. Built on the `collaborative` branch; `main` stays the personal version until the switch. Parsing, passage rules, embedding, source fetching and identity rules start as copies from the personal version; nothing is shared with it. The client has its own short dependency list.
+- **Distribution.** GitHub only. Client fetched from the repo by the agent's settings entry; plugin as a release file.
+- **Setup.** (1) Install `uv`. (2) Add the client to the agent, one command. (3) Run the client's `setup`: server address and API key, stored in the client's settings file, readable by that user only. (4) Zotero users: install the plugin file in Zotero. Off campus, the university VPN must be connected.
 
-## Installation
+## 5. Collaborative features
 
-1. **Zotero.** Enable *Allow other applications on this computer to communicate with Zotero* (Settings › Advanced) and install the Scriptorium Bridge plugin ([`zotero-bridge/README.md`](zotero-bridge/README.md)).
-2. **GROBID.** `brew install openjdk@21`. Build GROBID 0.9.1 from its source release (`./gradlew clean assemble`), unpack the two zips it produces (`grobid-service`, `grobid-home`) into `~/.local/share/grobid/install`, run `chmod +x grobid-home/pdfalto/*/pdfalto*`, and add `bindHost: 127.0.0.1` under both connectors in `grobid-home/config/grobid.yaml`.
-3. **scriptorium.**
+Planned after the hub and the workflows.
 
-   ```sh
-   git clone https://github.com/Rptkiddle/scriptorium.git
-   cd scriptorium
-   uv sync --extra menubar
-   ```
+## 6. Users and data
 
-4. **Settings.** Create `data/settings.json`:
+- One API key per member, created and revoked through the admin command; shown once; stored hashed.
+- A donation sends the PDF and its DOI or arXiv ID only. Donor noted per file.
+- Member names are visible to administrators only, through the admin command. No tool reply names a member.
+- Usage log: maximal. One entry per request: time, duration, member, the request with all inputs (query text and filters included), the full reply or the error, client version, agent name. Network addresses are not logged. Conversations stay on the member's machine.
 
-   ```json
-   {
-     "general": {"contact_email": "you@example.org"},
-     "zotero": {"data_dir": "~/Zotero", "linked_attachments_dir": "~/Zotero/linked"}
-   }
-   ```
+## 7. Build order
 
-   `data_dir` is Zotero's data directory; `linked_attachments_dir` is Zotero's Linked Attachment Base Directory (needed to attach PDFs); the contact email goes with Crossref and OpenAlex requests (optional).
-5. **First index build** (Zotero open; downloads the embedding model): `SCRIPTORIUM_HF_ONLINE=1 uv run scriptorium sync`
-6. **Daemon:** `uv run scriptorium serve`
-7. **Claude Code:** `/plugin marketplace add https://github.com/Rptkiddle/scriptorium`, then `/plugin install scriptorium@scriptorium`. Skills other than `search` also use the Crossref, OpenAlex and Semantic Scholar MCP servers.
+Hub:
 
-Optional: `app/build.sh` builds a small app and installs LaunchAgents to run the daemon and menubar icon in the background; open the app once from Finder (Desktop-folder access), then load the agents with the commands it prints.
+1. Stores, settings, admin command, intake job
+2. Authentication with usage log, API, retrieval, limits; client tools
+3. Files, full-text job, passage search
+4. Zotero exchange, with the plugin's read functions
+5. Backup
 
-## Usage
+Then workflows (search, discovery, interrogation, with the workflow tool), then collaborative features, then the rest: server-side PDF retrieval (VU-specific, outside the public code) and a web route for members new to agents.
 
-In Claude Code, ask about the library in plain words or invoke a skill:
+Wish list: cross-encoder reranking of the top retrieval results (Qwen3-Reranker-0.6B), switched by a setting, adopted only if a test shows it helps.
 
-```
-/scriptorium:search  Which papers co-authored by Smith and Jones are in the library?
-/scriptorium:interrogate  What does my library say about serendipity in recommender systems?
-```
+## 8. Open questions
 
-Command line (`sync` refuses while the daemon is running):
-
-```sh
-uv run scriptorium status | parse <key> | sync | serve
-```
-
-Scripts:
-
-```sh
-uv run python scripts/surveil.py [--from YYYY-MM-DD]
-uv run python scripts/fetch_pdfs.py --plan | --pilot N | --publisher P | --keys-from <run>/added.json [--retry]
-uv run python scripts/attach_pdfs.py --run <fetch run folder> [--review | --accept KEY ... | --reject KEY ...]
-uv run python scripts/ingest_add.py --entries <entries.json> [--dry-run]
-uv run python scripts/dedupe_versions.py [--apply <run folder>]
-```
-
-The daemon serves a dashboard and settings page at `http://localhost:8765/`.
-
-## Configuration
-
-Settings are edited at `/settings` and stored in the data directory (mode 600); API keys are never served back over HTTP. Sections: `general` (sync and idle timers, GROBID, contact email), `zotero` (Zotero's data folder, linked-attachments folder, default BibTeX format), `surveillance` (schedule, research profile, models, abstract-source keys), `interrogation` (retrieval and scoring parameters, models) and `discovery` (Semantic Scholar key, models, caps). Models are aliases (`haiku`, `sonnet`, `opus`, `fable`).
-
-Environment variables read by `config.py`:
-
-| Variable | Default |
-|---|---|
-| `SCRIPTORIUM_INDEX_DIR` | `data/` in the repository |
-| `SCRIPTORIUM_EMBEDDING_MODEL`, `SCRIPTORIUM_EMBEDDING_DIM` | Qwen3-Embedding-0.6B, 256 |
-
-Changing the model requires re-indexing.
-
-## Data layout
-
-Code and data are kept apart: everything scriptorium produces goes to the git-ignored `data` folder in the repository (or wherever a `data` link or `SCRIPTORIUM_INDEX_DIR` points).
-
-```
-data/
-├── settings.json                 settings
-├── index.sqlite                  the index (catalogue, passages, sync state)
-├── tei/                          each paper's GROBID output
-├── writes.jsonl                  every write to Zotero, with the state before it
-└── <activity>/runs/<YYYY-MM-DD-HHMMSS>[-<topic>]/
-    ├── run.json                  status, summary, commit, history
-    ├── report.md
-    └── work/                     prompts, replies, verdicts, intermediate files
-```
-
-Logs are in `~/Library/Logs/scriptorium/`.
-
-## Development
-
-```sh
-uv run pytest    # no network, Zotero or Claude needed
-```
-
-Before pushing, `scripts/check_push.sh` scans the outgoing commits for secrets and personal details; install it as the pre-push hook with `ln -s ../../scripts/check_push.sh .git/hooks/pre-push`.
-
-<p align="center"><img src="docs/assets/divider.svg" width="600" alt=""></p>
-
-## Licence
-
-scriptorium is licensed under the GNU Affero General Public License v3.0 or later (`LICENSE`). A commercial licence is available on request. Prompt text adapted from PaperQA2 falls under Apache-2.0 (`LICENSES/`).
-
-## Citation and acknowledgements
-
-To cite scriptorium, see [`CITATION.cff`](CITATION.cff).
-
-scriptorium uses PaperQA2 by FutureHouse (Apache-2.0): adapted versions of its evidence-summary and answer prompts, its retrieval defaults, and two helper functions copied into the code (reading a judge's JSON reply, stripping citations). PDF text extraction uses GROBID (Apache-2.0); PyMuPDF (AGPL-3.0) checks fetched PDFs against their titles. The banner lettering is outlined from the UnifrakturMaguntia and EB Garamond fonts (SIL Open Font License 1.1; texts in `LICENSES/`).
-
-Skarlinski, M. D., Cox, S., Laurent, J. M., Braza, J. D., Hinks, M. M., Hammerling, M. J., Ponnapati, M., Rodriques, S. G., & White, A. D. (2024). *Language agents achieve superhuman synthesis of scientific knowledge*. arXiv. https://doi.org/10.48550/arXiv.2409.13740
+- Intake filter: which model; the department scope statement; whether megajournals and preprint servers pass through it or are limited another way. Settled with harvested data on the server.
+- Client settings: how reply size is scoped per agent (tentative: one reply budget with presets, set in `setup` or by a settings tool). Designed during the build.
+- Workflows: redesigned for the server and client split after the hub runs. Includes screening at scale, the catch-all for outside search hits, and personal alerts.
+- Collaborative features: planned after the workflows.
