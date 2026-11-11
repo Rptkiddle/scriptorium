@@ -8,7 +8,7 @@ from scriptorium_server import db as database
 ITEM = ("INSERT INTO items (key, type, title, title_norm, doi, arxiv_id, provenance_kind)"
         " VALUES (%s, 'journalArticle', 'A Title', 'a title', %s, %s, %s)")
 TABLES = {"items", "item_creators", "passages", "venues", "members", "files", "jobs",
-          "usage_log", "schema_migrations"}
+          "usage_log", "meta", "schema_migrations"}
 
 
 def vector(*head: float) -> str:

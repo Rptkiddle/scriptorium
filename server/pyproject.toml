@@ -27,3 +27,4 @@ packages = ["src/scriptorium_server"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["model: loads the real embedding model (skipped when it is not in the local cache)"]

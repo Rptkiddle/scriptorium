@@ -4,6 +4,12 @@
 
 CREATE EXTENSION IF NOT EXISTS vector;
 
+-- Facts about the collection as a whole, e.g. the embedding model's revision.
+CREATE TABLE meta (
+    name   text PRIMARY KEY,
+    value  text NOT NULL
+);
+
 CREATE TABLE members (
     id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name        text NOT NULL UNIQUE,
@@ -76,6 +82,7 @@ CREATE TABLE passages (
     part       text NOT NULL,           -- body | footnote | appendix
     pages      text NOT NULL DEFAULT '',
     text       text NOT NULL,
+    embed_text text,                 -- the text without citation markers, where it differs
     artefact   boolean NOT NULL DEFAULT false,  -- not prose: stored, never embedded
     embedding  halfvec(256),
     tsv        tsvector GENERATED ALWAYS AS (to_tsvector('simple', text)) STORED,

@@ -12,7 +12,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from scriptorium_server.embedding import DIM, MODEL, Embedder
+pytestmark = pytest.mark.model  # loads the real model: deselect with -m 'not model'
+
+from scriptorium_server.embedding import DIM, MODEL, RealEmbedder
 
 REFERENCE_FILE = Path(__file__).parent / "data" / "reference_vectors.json"
 if not REFERENCE_FILE.exists():
@@ -23,7 +25,7 @@ MIN_COSINE = 0.999
 
 @pytest.fixture(scope="module")
 def embedder():
-    emb = Embedder()
+    emb = RealEmbedder()
     if not emb.revision:
         pytest.skip("embedding model not in the local Hugging Face cache")
     return emb
@@ -44,8 +46,8 @@ def test_reference_vectors_come_from_the_configured_model(embedder):
 
 def test_the_local_embedder_reproduces_documents_and_queries(embedder):
     docs = REFERENCE["documents"]
-    fresh = embedder.encode_documents([d["text"] for d in docs])
+    fresh = embedder.embed([d["text"] for d in docs])
     assert cosines([d["vector"] for d in docs], fresh).min() >= MIN_COSINE
     queries = REFERENCE["queries"]
-    fresh = [embedder.encode_query(q["text"]) for q in queries]
+    fresh = [embedder.embed_query(q["text"]) for q in queries]
     assert cosines([q["vector"] for q in queries], fresh).min() >= MIN_COSINE

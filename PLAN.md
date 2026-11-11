@@ -93,7 +93,7 @@ Development needs PostgreSQL 17 with pgvector on the development machine and a d
 
 ### Task 4: embedding
 
-- `embedding.py`: `class Embedder` with `embed(texts) -> array`; `RealEmbedder` (model, GPU when present), `FakeEmbedder` (deterministic, for tests). `embed_pending_items()`, `embed_pending_passages()` fill empty vectors in batches.
+- `embedding.py`: `class Embedder` with `embed(texts)` and `embed_query(text, kind)`; `RealEmbedder` (model, GPU when present), `FakeEmbedder` (deterministic, word-sensitive, for tests). `embed_pending_items(conn, embedder, batch_size)`, `embed_pending_passages(...)` fill empty vectors in batches; `check_revision` refuses a model revision other than the one recorded in table `meta`. Passages keep `embed_text` (the text without citation markers) where it differs.
 - Tests: `test_pending_items_get_vectors`, `test_artefact_passages_get_no_vector`, and one test marked `model` comparing the real embedder with the stored reference vectors.
 
 ### Task 5: jobs
