@@ -143,11 +143,12 @@ Planned after the hub and the workflows.
 
 Hub:
 
-1. Stores, settings, admin command, intake job
+1. Stores, settings, admin command, seed import (the first member's existing library, taken in full)
 2. Authentication with usage log, API, retrieval, limits; client tools
 3. Files, full-text job, passage search
 4. Zotero exchange, with the plugin's read functions
 5. Backup
+6. Intake job: backfill and weekly surveillance
 
 Then workflows (search, discovery, interrogation, with the workflow tool), then collaborative features, then the rest: server-side PDF retrieval (VU-specific, outside the public code) and a web route for members new to agents.
 
