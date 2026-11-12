@@ -129,3 +129,11 @@ def test_one_pdf_can_belong_to_two_items_after_migrating_a_filled_database(empty
         assert [(r["md5"], r["item"]) for r in rows] == [("m1", "K1"), ("m1", "K2")]
         with pytest.raises(psycopg.errors.UniqueViolation):
             conn.execute("INSERT INTO pending_files (md5, item) VALUES ('m1', 'K1')")
+
+
+def test_the_idle_look_for_waiting_vectors_can_use_an_index(db):
+    db.execute("SET enable_seqscan = off")  # a test table is too small to prefer an index anyway
+    for sql in ("SELECT EXISTS (SELECT 1 FROM items WHERE embedding IS NULL)",
+                "SELECT EXISTS (SELECT 1 FROM passages WHERE embedding IS NULL AND NOT artefact)"):
+        plan = " ".join(r["QUERY PLAN"] for r in db.execute(f"EXPLAIN {sql}").fetchall())
+        assert "_without_vector" in plan

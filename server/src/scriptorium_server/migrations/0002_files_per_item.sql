@@ -14,3 +14,9 @@ ALTER TABLE files ADD PRIMARY KEY (sha256, item);
 -- know a PDF by it.
 ALTER TABLE files ADD COLUMN source_md5 text;
 CREATE INDEX files_source_md5 ON files (source_md5);
+
+-- Items and passages still waiting for a vector: the worker looks for them
+-- whenever its queue is empty, so the usual answer ("none") must be quick.
+CREATE INDEX items_without_vector ON items (key) WHERE embedding IS NULL;
+CREATE INDEX passages_without_vector ON passages (item, idx)
+    WHERE embedding IS NULL AND NOT artefact;
