@@ -16,7 +16,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from scriptorium_server import __version__, auth, files, retrieval
+from scriptorium_server import __version__, auth, files, members, retrieval
 from scriptorium_server.filestore import FileStore
 from scriptorium_server.embedding import Embedder
 from scriptorium_server.settings import Settings
@@ -178,19 +178,37 @@ def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
                      ) -> Any:
         """Donate a PDF (the request body, application/pdf). Replies at once;
         the PDF is processed in the background (donation progress)."""
-        body = await request.body()
-        inputs = {"identifier": identifier, "item": item, "bytes": len(body),
-                  "sha256": hashlib.sha256(body).hexdigest()}
+        # Nothing is read before the key is known and the declared size is
+        # within the limit; a body without a declared size is read only up
+        # to the limit.
+        inputs: dict = {"identifier": identifier, "item": item}
+        declared = request.headers.get("content-length", "")
+        too_big = declared.isdigit() and int(declared) > upload_bytes
+        body = b""
+        if not too_big and await run_in_threadpool(known_key, request):
+            chunks, size = [], 0
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > upload_bytes:
+                    too_big = True
+                    break
+                chunks.append(chunk)
+            body = b"".join(chunks)
+            inputs.update(bytes=size, sha256=hashlib.sha256(body).hexdigest())
 
         def run(conn, member):
-            if len(body) > upload_bytes:
-                raise auth.Refused(413, f"the PDF is {len(body) / 1048576:.0f} MB; the largest a"
-                                        f" member may donate is {upload_bytes // 1048576} MB")
+            if too_big:
+                raise auth.Refused(413, f"the PDF is larger than {upload_bytes // 1048576} MB,"
+                                        " the largest a member may donate")
             try:
                 return files.receive(conn, body, member["id"], data / "holding", identifier, item)
             except ValueError as exc:
                 raise auth.Refused(400, str(exc)) from exc
         return await run_in_threadpool(serve, request, "files/donate", inputs, run)
+
+    def known_key(request: Request) -> bool:
+        with connect() as conn:
+            return members.authenticate(conn, auth._key(request)) is not None
 
     @app.get("/v1/files/held")
     def held(request: Request) -> Any:

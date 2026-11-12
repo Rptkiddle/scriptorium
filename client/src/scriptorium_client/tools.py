@@ -182,11 +182,32 @@ class Tools:
     def _ledger(self) -> Path:
         return Path(self.settings["results_dir"]).expanduser().parent / "donations.jsonl"
 
-    def _sent(self) -> set[str]:
+    def _sent(self) -> dict[str, str]:
+        """MD5 -> "sent" or "refused", for every PDF this machine has offered."""
         ledger = self._ledger()
         if not ledger.exists():
-            return set()
-        return {json.loads(line)["md5"] for line in ledger.read_text().splitlines() if line.strip()}
+            return {}
+        entries = [json.loads(line) for line in ledger.read_text().splitlines() if line.strip()]
+        return {e["md5"]: ("refused" if e.get("refused") else "sent") for e in entries}
+
+    def _md5s(self, files: list[Path]) -> dict[Path, str]:
+        """Each file's MD5, read once: kept in hashes.json beside the ledger
+        by path, size and modification time, so a large folder is not read
+        again on every call."""
+        cache_path = self._ledger().with_name("hashes.json")
+        cache = json.loads(cache_path.read_text()) if cache_path.exists() else {}
+        out = {}
+        for f in files:
+            stat = f.stat()
+            stamp = f"{stat.st_size}:{stat.st_mtime_ns}"
+            entry = cache.get(str(f))
+            if not entry or entry[0] != stamp:
+                entry = [stamp, hashlib.md5(f.read_bytes()).hexdigest()]
+                cache[str(f)] = entry
+            out[f] = entry[1]
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps(cache))
+        return out
 
     def donate_pdf(self, path: str, identifier: str | None = None) -> dict:
         """Share PDFs with all members: one PDF (with its DOI or arXiv ID
@@ -207,33 +228,43 @@ class Tools:
         held_md5 = {m for i in held["items"] for m in i.get("md5", [])}
         held_ids = {(i.get("doi") or "").lower() for i in held["items"]} - {""}
         sent = self._sent()
-        report = {"pdfs": len(files), "sent": [], "skipped_held": 0, "skipped_sent_before": 0,
-                  "remaining": 0}
+        report = {"pdfs": len(files), "sent": [], "refused": [], "skipped_held": 0,
+                  "skipped_sent_before": 0, "skipped_refused_before": 0, "remaining": 0}
         if identifier and identifier.lower().removeprefix("https://doi.org/") in held_ids:
             report["skipped_held"] = len(files)
             return report
         todo = []
-        for f in files:
-            md5 = hashlib.md5(f.read_bytes()).hexdigest()
+        for f, md5 in self._md5s(files).items():
             if md5 in held_md5:
                 report["skipped_held"] += 1
-            elif md5 in sent:
+            elif sent.get(md5) == "sent":
                 report["skipped_sent_before"] += 1
+            elif sent.get(md5) == "refused":
+                report["skipped_refused_before"] += 1
             else:
                 todo.append((f, md5))
         ledger = self._ledger()
         ledger.parent.mkdir(parents=True, exist_ok=True)
+        tried = 0
         for f, md5 in todo[:DONATE_BATCH]:
+            entry = {"md5": md5, "file": str(f), "at": datetime.now(UTC).isoformat(timespec="seconds")}
             try:
                 reply = self.server.donate(f.read_bytes(), identifier if source.is_file() else None)
             except RateLimited as exc:
                 report["note"] = f"{exc} Call donate_pdf again in a minute to send the rest."
                 break
+            except ServerError as exc:
+                if exc.status not in (400, 413):  # not about this file: stop, nothing recorded
+                    raise
+                entry["refused"] = str(exc)
+                report["refused"].append({"file": f.name, "reason": str(exc)})
+            else:
+                entry["donation"] = reply["donation"]
+                report["sent"].append({"file": f.name, "donation": reply["donation"]})
+            tried += 1
             with open(ledger, "a") as log:
-                log.write(json.dumps({"md5": md5, "file": str(f), "donation": reply["donation"],
-                                      "at": datetime.now(UTC).isoformat(timespec="seconds")}) + "\n")
-            report["sent"].append({"file": f.name, "donation": reply["donation"]})
-        report["remaining"] = len(todo) - len(report["sent"])
+                log.write(json.dumps(entry) + "\n")
+        report["remaining"] = len(todo) - tried
         if report["remaining"] and "note" not in report:
             report["note"] = "Call donate_pdf again with the same folder to send the rest."
         return report

@@ -92,7 +92,9 @@ def _state(row: dict) -> tuple[str, str | None]:
         error = row["error"] or ""
         if error.startswith("Rejected:"):
             return "rejected", error.removeprefix("Rejected:").strip()
-        return "failed", (f"{error}. The server's administrator can run it again.")
+        return "failed", ("the server could not process it this time (for instance, its PDF"
+                          " reader was not answering); the server's administrator can run it"
+                          " again")
     summary = row["summary"] or ""
     state = summary.split(":", 1)[0] if ":" in summary else "done"
     return (state if state in ("stored", "already held") else "done"), summary

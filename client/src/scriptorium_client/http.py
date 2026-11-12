@@ -12,7 +12,12 @@ from scriptorium_client import __version__
 
 
 class ServerError(Exception):
-    """A request the server did not serve; the message is plain and complete."""
+    """A request the server did not serve; the message is plain and complete.
+    `status` is the server's HTTP status, when it answered."""
+
+    def __init__(self, message: str, status: int | None = None):
+        super().__init__(message)
+        self.status = status
 
 
 class RateLimited(ServerError):
@@ -55,11 +60,12 @@ class Server:
             raise ServerError("The server does not accept this API key. Run `scriptorium-client"
                               " setup` in a terminal to enter a valid one.")
         if reply.status_code == 429:
-            raise RateLimited(f"The server refused the request (429): {message}")
+            raise RateLimited(f"The server refused the request (429): {message}", 429)
         if reply.status_code == 426:
             raise ServerError(f"This Scriptorium client is too old for the server: {message}."
                               " Update the client, then restart the agent.")
-        raise ServerError(f"The server refused the request ({reply.status_code}): {message}")
+        raise ServerError(f"The server refused the request ({reply.status_code}): {message}",
+                          reply.status_code)
 
     def _json(self, method: str, path: str, body: dict | None = None) -> dict:
         return self._send(method, path, body).json()

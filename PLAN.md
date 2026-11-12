@@ -176,6 +176,10 @@ The starting collection is the first member's existing library, taken in full fr
   - Holding files are named by the server (`holding/<uuid>.pdf`), never from the client's file name.
   - Migration `0003`: `jobs.summary`. Donation states: waiting, processing, stored, already held, rejected (with the reason), failed (an administrator can run it again); the job payload records the item the PDF went to (`resolved`).
   - Client tools `download_pdf` (into `pdf_dir`, checked against the server's SHA-256), `donate_pdf` (one PDF with its DOI or arXiv ID, or a folder and its subfolders; skips PDFs the server holds by MD5 or identifier and PDFs this machine sent before, recorded in `donations.jsonl` beside the results folder; at most 20 per call, stops at the rate limit; call again to continue), `donation_progress`. No new packages.
+  - Upload guard: nothing is read before the key is known and the declared size is within the limit; a body without a declared size is read only up to the limit.
+  - With no identifier, the PDF's first-page DOI or arXiv ID names the publication, else its title when exactly one item has it (title of five words or more). Measured on the seed's parsed PDFs: 11,722 by DOI, 2,706 by title, 408 by neither (2.7%).
+  - A failed (not rejected) donation shows the member a fixed sentence; the error stays in the job for the administrator.
+  - `donate_pdf`: a file the server refuses (400, 413) is reported and recorded, and the batch goes on; an unreachable server stops the batch with nothing recorded; MD5s are cached in `hashes.json` by path, size and modification time. Client version 0.2.0.
 
 **Deploy 3:** the `worker` and `grobid` containers; donate a handful of PDFs end to end.
 

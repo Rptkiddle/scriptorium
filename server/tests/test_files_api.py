@@ -156,3 +156,37 @@ def test_passage_search_finds_donated_text(world):
     world.work()
     found = world.grace.post("/v1/search/passages", json={"query": "zebra crossings"}).json()
     assert found["passages"] and found["passages"][0]["item"] == world.key
+
+
+def test_nothing_is_received_or_served_without_a_key(world, tmp_path):
+    anonymous = TestClient(world.ada.app)
+    assert donate(anonymous, pdf_bytes(), identifier="10.1000/abc").status_code == 401
+    for path in ("/v1/files/held", "/v1/donations", f"/v1/files/{world.key}"):
+        assert anonymous.get(path).status_code == 401
+    assert not (tmp_path / "data" / "holding").exists()
+    assert world.db.execute("SELECT count(*) AS n FROM jobs").fetchone()["n"] == 0
+
+
+def test_a_declared_size_over_the_limit_is_refused_unread(world):
+    reply = world.ada.post("/v1/files", content=b"%PDF-", params={"identifier": "10.1000/abc"},
+                           headers={"Content-Type": "application/pdf",
+                                    "Content-Length": str(50 * 1024 * 1024)})
+    assert reply.status_code == 413
+    assert "sha256" not in last_log(world.db)["inputs"]  # the body was never read
+
+
+def test_a_pdf_without_a_doi_is_matched_by_its_title(world):
+    donate(world.ada, pdf_bytes())  # no identifier; the fake GROBID reads no DOI, only the title
+    world.work()
+    (d,) = world.ada.get("/v1/donations").json()["donations"]
+    assert d["state"] == "stored" and d["item"] == world.key
+
+
+def test_a_failed_donation_tells_the_member_plainly(world):
+    world.db.execute("INSERT INTO jobs (kind, payload, member, status, error) SELECT 'fulltext',"
+                     " '{}', id, 'failed', 'GrobidUnavailable: GROBID at http://grobid:8070 did not"
+                     " answer' FROM members WHERE name = 'ada'")
+    world.db.commit()
+    (d,) = world.ada.get("/v1/donations").json()["donations"]
+    assert d["state"] == "failed" and "grobid:8070" not in d["result"]
+    assert "administrator can run it again" in d["result"]

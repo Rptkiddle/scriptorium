@@ -27,7 +27,7 @@ Collaborative implementation for Scriptorium with remote + client split. Server 
               │ HTTP, localhost                │ │ exact lookup        │ │ receive donation     │ │
 ┌─────────────┴──────────────┐                 │ │ filter, count       │ │  → job queue         │ │
 │ ZOTERO DESKTOP  (optional) │                 │ │ semantic: embed     │ │ serve PDF            │ │
-│ + Scriptorium Bridge plugin│                 │ │  query, rank vectors│ │ list held full texts │ │
+│ + Scriptorium Bridge plugin│                 │ │  query, rank vectors│ │ list held PDFs       │ │
 │ member's own library       │                 │ │ keyword match       │ │ donation progress    │ │
 └────────────────────────────┘                 │ └──────────┬──────────┘ └──────────┬───────────┘ │
                                                └────────────┼───────────────────────┼─────────────┘
@@ -83,7 +83,7 @@ Collaborative implementation for Scriptorium with remote + client split. Server 
 | files | donate PDF | `/v1/files` | PDF + DOI or arXiv ID, uploaded |
 | files | donation progress | `/v1/donations` | The member's donations: waiting, done, failed |
 | Zotero | add items | `/v1/items/{key}`, `/v1/files/{key}` | Fetched, then written to Zotero locally |
-| Zotero | donate PDFs | `/v1/files/held`, `/v1/files` | Client fetches the list of held full texts, compares locally, sends only PDFs the server lacks |
+| Zotero | donate PDFs | `/v1/files/held`, `/v1/files` | Client fetches the list of held PDFs, compares locally, sends only PDFs the server lacks |
 | workflow | workflow | none (local) | Returns the instruction text |
 
 Filters (find tools): author, year, venue, publisher, category, type, has full text, added since, provenance. The two search tools also take an exact phrase (keyword index).

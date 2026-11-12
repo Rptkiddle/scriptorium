@@ -78,20 +78,22 @@ def parse_pdf(item_key: str, pdf_path: str | Path, content_hash: str, store: Tei
 
 
 def header(tei_xml: bytes) -> dict:
-    """What GROBID read from the PDF's first page: {"title", "surnames", "doi"}
-    (empty when GROBID found none)."""
+    """What GROBID read from the PDF's first page: {"title", "surnames",
+    "doi", "arxiv"} (empty when GROBID found none)."""
     root = ET.fromstring(tei_xml)
     head = root.find(f"{T}teiHeader")
     if head is None:
-        return {"title": "", "surnames": [], "doi": ""}
+        return {"title": "", "surnames": [], "doi": "", "arxiv": ""}
     title = head.find(f"{T}fileDesc/{T}titleStmt/{T}title")
     analytic = head.find(f".//{T}sourceDesc/{T}biblStruct/{T}analytic")
     surnames = ["".join(s.itertext()).strip() for s in
                 (analytic.iter(f"{T}surname") if analytic is not None else [])]
-    doi = next((("".join(i.itertext())).strip() for i in head.iter(f"{T}idno")
-                if (i.get("type") or "").upper() == "DOI"), "")
+    def idno(kind: str) -> str:
+        return next((("".join(i.itertext())).strip() for i in head.iter(f"{T}idno")
+                     if (i.get("type") or "").lower() == kind), "")
+
     return {"title": " ".join("".join(title.itertext()).split()) if title is not None else "",
-            "surnames": [s for s in surnames if s], "doi": doi}
+            "surnames": [s for s in surnames if s], "doi": idno("doi"), "arxiv": idno("arxiv")}
 
 
 TITLE_SAME = 0.85  # similarity of two normalised titles counted as the same title
@@ -180,7 +182,8 @@ def process(conn: psycopg.Connection, job, ctx: Context) -> str:
     """The job for one donated PDF (jobs of kind "fulltext"). The payload
     holds "file" (the PDF in the holding area) and the publication it is
     for: "item" (an item key) or "identifier" (a DOI or arXiv ID); with
-    neither, the DOI GROBID reads from the PDF's first page is used.
+    neither, the DOI or arXiv ID GROBID reads from the PDF's first page is
+    used, else the title it reads when exactly one item has that title.
 
     The item is found, or, for an identifier the collection does not hold,
     fetched from the registry and admitted (provenance "donation"). An item
@@ -263,9 +266,20 @@ def _process(conn: psycopg.Connection, job, ctx: Context, path: Path) -> str:
         status, tei_xml = ctx.grobid.parse(path)
         if status != 200:
             raise Rejected(f"GROBID could not read the PDF (HTTP {status})")
-        if not (doi := header(tei_xml)["doi"]):
-            raise Rejected("no DOI or arXiv ID was given, and none is on the PDF's first page")
-        key = _resolve(conn, doi, job.member, ctx.registry)
+        found = header(tei_xml)
+        if found["doi"] or found["arxiv"]:
+            arxiv = found["arxiv"]
+            if arxiv and not arxiv.lower().startswith("arxiv"):
+                arxiv = f"arXiv:{arxiv}"
+            key = _resolve(conn, found["doi"] or arxiv, job.member, ctx.registry)
+        else:  # no identifier on the first page: the title GROBID read, if one item has it
+            titled = conn.execute("SELECT key FROM items WHERE title_norm = %s LIMIT 2",
+                                  (normalise_title(found["title"]),)).fetchall() \
+                if len(normalise_title(found["title"]).split()) >= FRONT_TITLE_WORDS else []
+            if len(titled) != 1:
+                raise Rejected("no DOI or arXiv ID was given, none is on the PDF's first page,"
+                               " and its title does not name one item in the collection")
+            key = titled[0]["key"]
     if job.id is not None:  # the member's progress names the item the PDF went to
         conn.execute("UPDATE jobs SET payload = payload || jsonb_build_object('resolved', %s::text)"
                      " WHERE id = %s", (key, job.id))

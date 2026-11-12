@@ -30,6 +30,8 @@ class FakeFiles:
             if self.limit_after is not None and len(self.donated) >= self.limit_after:
                 return httpx.Response(429, json={"error": "rate limit"})
             assert request.headers["content-type"] == "application/pdf"
+            if request.content.endswith(b"BAD"):
+                return httpx.Response(413, json={"error": "the PDF is larger than 100 MB"})
             self.donated.append(request.content)
             return httpx.Response(200, json={"donation": len(self.donated), "status": "waiting"})
         if path == "/v1/files/held":
@@ -119,3 +121,29 @@ def test_progress_and_every_file_request_follow_the_contract(tmp_path):
         operation = CONTRACT["paths"][template][method.lower()]
         allowed = {p["name"] for p in operation.get("parameters", [])}
         assert set(params) <= allowed, (path, params)
+
+
+def test_a_refused_file_is_reported_and_the_rest_still_goes(tmp_path):
+    folder, paths = folder_of(tmp_path, 4)
+    paths[1].write_bytes(b"%PDF-1.4 too big BAD")
+    fake = FakeFiles()
+    tools = make_tools(fake, tmp_path)
+    report = tools.donate_pdf(str(folder))
+    assert len(report["sent"]) == 3 and report["remaining"] == 0
+    assert [r["file"] for r in report["refused"]] == ["p1.pdf"] and "100 MB" in report["refused"][0]["reason"]
+    again = tools.donate_pdf(str(folder))
+    assert (again["skipped_sent_before"], again["skipped_refused_before"], again["sent"]) == (3, 1, [])
+
+
+def test_an_unreachable_server_stops_the_batch_without_recording_it(tmp_path):
+    folder, paths = folder_of(tmp_path, 2)
+
+    def down(request):
+        if request.url.path == "/v1/files/held":
+            return httpx.Response(200, json={"count": 0, "items": []})
+        raise httpx.ConnectError("no route")
+
+    tools = make_tools(down, tmp_path)
+    with pytest.raises(ServerError, match="cannot be reached"):
+        tools.donate_pdf(str(folder))
+    assert tools._sent() == {}  # nothing recorded: the next call tries again

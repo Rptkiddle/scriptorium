@@ -272,3 +272,13 @@ def test_an_item_with_a_pdf_keeps_it(db, ctx, donation):
     pdf = donation()
     assert "has a PDF already" in process(db, job({"file": str(pdf), "item": key}), ctx())
     assert not pdf.exists()
+
+
+
+def test_an_arxiv_id_on_the_first_page_names_the_publication_when_none_is_given(db, ctx, donation):
+    record = {**RECORD, "itemType": "preprint", "DOI": "", "archiveID": "arXiv:2501.01234"}
+    key, _ = collection.admit(db, record, "venue")
+    db.commit()
+    arxiv_tei = tei_of(TITLE).replace(b"</biblStruct>", b'<idno type="arXiv">arXiv:2501.01234v2</idno></biblStruct>')
+    process(db, job({"file": str(donation())}), ctx(grobid=FakeTeiGrobid(arxiv_tei)))
+    assert db.execute("SELECT item FROM files").fetchone()["item"] == key
