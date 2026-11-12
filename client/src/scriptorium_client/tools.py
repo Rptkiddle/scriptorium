@@ -15,6 +15,7 @@ import httpx
 from fastmcp import FastMCP
 
 from scriptorium_client import __version__, results
+from scriptorium_client.notice import CANNOT_ASK, NOT_AGREED, NOTICE
 from scriptorium_client import settings as client_settings
 from scriptorium_client.http import RateLimited, Server, ServerError
 
@@ -320,20 +321,82 @@ def agent_name() -> str:
         return ""
 
 
+class Consent:
+    """Whether the member has agreed to the notice in this agent session.
+    One client process serves one agent session; the agreement lives only
+    as long as the process, so every session asks again.
+
+    The question goes to the member through the agent app's own dialog
+    (MCP elicitation), so the answer is theirs, not the agent's. On a
+    2026-07-28 connection the tool returns an "input required" result and
+    the agent app asks, then calls the tool again with the answer; on an
+    older connection the client asks directly."""
+
+    KEY = "scriptorium_notice"
+    SCHEMA = {"type": "object", "required": ["value"],
+              "properties": {"value": {"type": "string", "title": "Your answer"}}}
+
+    def __init__(self):
+        self.agreed = False
+
+    @staticmethod
+    def _yes(answer) -> bool:
+        if getattr(answer, "action", None) != "accept":
+            return False
+        content = getattr(answer, "content", None)
+        if content is None:  # an older connection's answer carries `data`
+            content = getattr(answer, "data", None)
+        value = content.get("value") if isinstance(content, dict) else content
+        return str(value or "").strip().lower() == "yes"
+
+    async def check(self):
+        """None when the member has agreed (now or earlier in the session); an
+        "input required" result for the tool to return when the question must
+        be asked; ServerError when they answered anything but "yes", or the
+        agent app cannot ask."""
+        import mcp.types as mt
+        from fastmcp.server.dependencies import get_context
+
+        if self.agreed:
+            return None
+        ctx = get_context()
+        if ctx._is_modern_protocol():
+            answer = (ctx.input_responses or {}).get(self.KEY)
+            if answer is None:
+                return mt.InputRequiredResult(input_requests={self.KEY: mt.ElicitRequest(
+                    params=mt.ElicitRequestFormParams(message=NOTICE,
+                                                      requested_schema=self.SCHEMA))})
+        else:
+            try:
+                answer = await ctx.elicit(NOTICE, str, response_title="Your answer")
+            except Exception as exc:  # noqa: BLE001 — the agent app cannot ask
+                raise ServerError(CANNOT_ASK) from exc
+        if not self._yes(answer):
+            raise ServerError(NOT_AGREED)
+        self.agreed = True
+        return None
+
+
 def build_server(tools: Tools | None = None) -> FastMCP:
-    """The MCP server with every tool registered. Each call first notes
-    which agent is asking, so the server's usage log can record it."""
+    """The MCP server with every tool registered. Each call first makes sure
+    the member has agreed to the notice in this session, and notes which
+    agent is asking, so the server's usage log can record it."""
     import functools
 
+    import anyio
+
     tools = tools or Tools()
+    consent = Consent()
     mcp = FastMCP("scriptorium", instructions=INSTRUCTIONS)
     for name in TOOL_NAMES:
         method = getattr(tools, name)
 
         @functools.wraps(method)
-        def tool(*args, _method=method, **kwargs):
+        async def tool(*args, _method=method, **kwargs):
+            if (ask := await consent.check()) is not None:
+                return ask  # the agent app asks the member, then calls again
             tools.server.agent = agent_name() or tools.server.agent
-            return _method(*args, **kwargs)
+            return await anyio.to_thread.run_sync(functools.partial(_method, *args, **kwargs))
 
         del tool.__wrapped__  # the tool's inputs are the method's, as wraps() copied them
         tool.__signature__ = __import__("inspect").signature(method)

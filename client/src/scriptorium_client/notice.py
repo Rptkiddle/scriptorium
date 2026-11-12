@@ -1,0 +1,40 @@
+"""The notice a member agrees to before Scriptorium answers their agent, once
+in every agent session: what Scriptorium receives and records.
+
+The client asks for it itself, through the agent app's own dialog (MCP
+elicitation), so the answer comes from the member, not from the agent. A
+session in which the member has not typed "yes" gets no Scriptorium
+results; the next request asks again.
+"""
+
+NOTICE = """\
+Welcome to Scriptorium!
+
+Your conversations with your agent are yours and yours alone. They are
+never transmitted to Scriptorium.
+
+What Scriptorium does receive and record:
+
+  • Requests your agent sends to Scriptorium (such as search terms) and
+    our response, with the time, your user name and your agent's
+    identity. Your agent may use your own words in a search. Your
+    network address is not recorded.
+
+  • Only the server's administrators can see these records. We use them
+    to understand how Scriptorium is used and to fix problems.
+
+  • If you donate a PDF, we receive only the file and its DOI or arXiv
+    ID. We remove highlights, notes and file metadata before storing it.
+    Donated PDFs are shared with all members, so please only donate
+    items that are appropriate to share (do not donate non-public
+    records). If Scriptorium is unable to reconcile a donated item with
+    a public identifier, it will be discarded.
+
+Type "yes" to agree and continue:"""
+
+NOT_AGREED = ("Scriptorium answers only after the member agrees to its notice, once per session,"
+              " and they have not agreed in this session. The next Scriptorium request asks"
+              " them again; `scriptorium-client notice` shows the text.")
+CANNOT_ASK = ("Scriptorium answers only after the member agrees to its notice, once per session,"
+              " and this agent app cannot show the member the question. Use an interactive"
+              " session of an agent app that supports MCP elicitation.")

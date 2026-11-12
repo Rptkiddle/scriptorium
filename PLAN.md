@@ -180,6 +180,7 @@ The starting collection is the first member's existing library, taken in full fr
   - With no identifier, the PDF's first-page DOI or arXiv ID names the publication, else its title when exactly one item has it (title of five words or more). Measured on the seed's parsed PDFs: 11,722 by DOI, 2,706 by title, 408 by neither (2.7%).
   - A failed (not rejected) donation shows the member a fixed sentence; the error stays in the job for the administrator.
   - `donate_pdf`: a file the server refuses (400, 413) is reported and recorded, and the batch goes on; an unreachable server stops the batch with nothing recorded; MD5s are cached in `hashes.json` by path, size and modification time. Client version 0.2.0.
+  - Notice: `client/notice.py`; `build_server` asks once per agent session, before any request reaches the server, through the agent app's dialog: on a 2026-07-28 connection by returning an "input required" result (the app asks, then calls again), on an older one by `ctx.elicit`. Only "yes" is agreement; anything else refuses and the next request asks again. `scriptorium-client notice` prints the text. Tests: `test_each_session_asks_the_member_once_before_any_request`, `test_an_agent_app_that_cannot_ask_gets_no_results`; the older-connection path is untested (the test client always speaks the newer protocol).
 
 **Deploy 3:** the `worker` and `grobid` containers; donate a handful of PDFs end to end.
 

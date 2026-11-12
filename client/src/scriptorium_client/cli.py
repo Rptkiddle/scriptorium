@@ -50,6 +50,14 @@ def setup(
 
 
 @app.command()
+def notice() -> None:
+    """Show the notice members agree to at the start of each agent session."""
+    from scriptorium_client.notice import NOTICE
+
+    typer.echo(NOTICE.rsplit("\n\n", 1)[0])
+
+
+@app.command()
 def serve() -> None:
     """Run the client for an agent (the agent starts this itself)."""
     from scriptorium_client.tools import build_server

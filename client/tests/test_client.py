@@ -187,13 +187,56 @@ def test_status_reports_all_four_facts(tools, fake):
     assert down["zotero_running"] is True  # the local facts are still reported
 
 
+async def agree(message, response_type, params, context):
+    return {"value": "yes"}
+
+
 def test_the_agents_name_reaches_the_server(tools, fake):
     tools.server.agent = ""
 
     async def call():
-        async with Client(build_server(tools)) as client:
+        async with Client(build_server(tools), elicitation_handler=agree) as client:
             return await client.call_tool("item", {"key": "K0001"})
 
     reply = asyncio.run(call())
     assert reply.data == {"key": "K0001"}
     assert fake.calls[-1][3].get("x-scriptorium-agent")  # the MCP session's client name
+
+
+
+def test_each_session_asks_the_member_once_before_any_request(tools, fake):
+    asked = []
+
+    async def answer_with(word):
+        async def handler(message, response_type, params, context):
+            asked.append(message)
+            return {"value": word}
+        return handler
+
+    async def session(word, calls=2):
+        async with Client(build_server(tools), elicitation_handler=await answer_with(word)) as client:
+            return [await client.call_tool("item", {"key": "K0001"}, raise_on_error=False)
+                    for _ in range(calls)]
+
+    replies = asyncio.run(session("yes"))
+    assert [r.data for r in replies] == [{"key": "K0001"}] * 2
+    assert len(asked) == 1 and asked[0].startswith("Welcome to Scriptorium!")
+    assert asked[0].rstrip().endswith('Type "yes" to agree and continue:')
+    sent = len(fake.calls)
+    replies = asyncio.run(session("no thanks"))  # a new session asks again
+    assert len(asked) == 3  # it asked at both calls, since the member did not agree
+    assert all(r.is_error and "agrees to its notice" in str(r.content) for r in replies)
+    assert len(fake.calls) == sent  # nothing reached the server
+
+
+def test_an_agent_app_that_cannot_ask_gets_no_results(tools, fake):
+    async def call():
+        async with Client(build_server(tools)) as client:  # no elicitation support
+            return await client.call_tool("status", {}, raise_on_error=False)
+
+    try:  # the agent app itself reports that it cannot show the question
+        reply = asyncio.run(call())
+        assert reply.is_error
+    except Exception as exc:  # noqa: BLE001
+        assert "not supported" in str(exc).lower()
+    assert fake.calls == []  # nothing reached the server

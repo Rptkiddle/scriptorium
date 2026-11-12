@@ -117,6 +117,7 @@ Filters (find tools): author, year, venue, publisher, category, type, has full t
 - **Agent.** Any agent that supports MCP. Talks only to the client. Nothing else is assumed about it.
 - **Client.** Required. Local MCP program; the only thing that talks to the server.
   - Tools: one tool, one server request, same inputs (Table 1).
+  - Notice: at the first request of every agent session, the member is shown what Scriptorium receives and records and types "yes" in the agent app's own dialog (MCP elicitation); until then no request reaches the server. Interactive sessions assumed. Text in the client (`scriptorium-client notice`); to be updated when the Zotero exchange arrives.
   - Results: the client decides what the agent sees. What fits goes into the reply; a large result is saved whole to a file on the member's machine, and the agent gets the path, the count and the first page.
   - Sets: a set is such a local file. Client tools read it in pages, mark items included or excluded, export BibTeX, and send its item keys as a filter with a later request.
   - Zotero exchange, active when Zotero and the Bridge plugin are present. All reading and writing goes through the plugin, which reads only identifiers held and PDFs with their identifiers.
