@@ -8,6 +8,7 @@ import typer
 from scriptorium_client import __version__
 from scriptorium_client import settings as client_settings
 from scriptorium_client.http import Server, ServerError
+from scriptorium_client.notice import NOTICE
 
 app = typer.Typer(no_args_is_help=True, help="Set up and run the Scriptorium client.")
 
@@ -46,15 +47,14 @@ def setup(
     stored = {k: values[k] for k in ("server", "api_key", "reply_chars")}
     path = client_settings.save(stored)
     typer.echo(f"Connected: {health['items']} items, {health['fulltexts']} with full text.")
-    typer.echo(f"Settings saved to {path}.")
+    typer.echo(f"Settings saved to {path}.\n")
+    typer.echo(NOTICE)
 
 
 @app.command()
 def notice() -> None:
     """Show the notice members agree to at the start of each agent session."""
-    from scriptorium_client.notice import NOTICE
-
-    typer.echo(NOTICE.rsplit("\n\n", 1)[0])
+    typer.echo(NOTICE)
 
 
 @app.command()

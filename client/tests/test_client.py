@@ -188,7 +188,7 @@ def test_status_reports_all_four_facts(tools, fake):
 
 
 async def agree(message, response_type, params, context):
-    return {"value": "yes"}
+    return {}
 
 
 def test_the_agents_name_reaches_the_server(tools, fake):
@@ -208,9 +208,11 @@ def test_each_session_asks_the_member_once_before_any_request(tools, fake):
     asked = []
 
     async def answer_with(word):
+        from fastmcp.client.elicitation import ElicitResult
+
         async def handler(message, response_type, params, context):
             asked.append(message)
-            return {"value": word}
+            return {} if word == "yes" else ElicitResult(action="decline")
         return handler
 
     async def session(word, calls=2):
@@ -221,11 +223,12 @@ def test_each_session_asks_the_member_once_before_any_request(tools, fake):
     replies = asyncio.run(session("yes"))
     assert [r.data for r in replies] == [{"key": "K0001"}] * 2
     assert len(asked) == 1 and asked[0].startswith("Welcome to Scriptorium!")
-    assert asked[0].rstrip().endswith('Type "yes" to agree and continue:')
+    assert len(asked[0].splitlines()) <= 3 and max(map(len, asked[0].splitlines())) <= 72
+    assert "scriptorium-client notice" in asked[0]
     sent = len(fake.calls)
-    replies = asyncio.run(session("no thanks"))  # a new session asks again
+    replies = asyncio.run(session("decline"))  # a new session asks again
     assert len(asked) == 3  # it asked at both calls, since the member did not agree
-    assert all(r.is_error and "agrees to its notice" in str(r.content) for r in replies)
+    assert all(r.is_error and "accepts its notice" in str(r.content) for r in replies)
     assert len(fake.calls) == sent  # nothing reached the server
 
 
@@ -249,7 +252,7 @@ def test_calls_at_once_ask_once(tools, fake):
     async def handler(message, response_type, params, context):
         asked.append(1)
         await asyncio.sleep(0.05)
-        return {"value": "yes"}
+        return {}
 
     async def session():
         async with Client(build_server(tools), elicitation_handler=handler) as client:
@@ -259,13 +262,15 @@ def test_calls_at_once_ask_once(tools, fake):
     assert [r.data for r in replies] == [{"key": "K0001"}] * 3 and len(asked) == 1
 
 
-@pytest.mark.parametrize("word, agreed", [("yes", True), ("no", False)])
-def test_an_older_connection_asks_the_member_directly(tools, fake, word, agreed):
+@pytest.mark.parametrize("agreed", [True, False])
+def test_an_older_connection_asks_the_member_directly(tools, fake, agreed):
+    from fastmcp.client.elicitation import ElicitResult
+
     asked = []
 
     async def handler(message, response_type, params, context):
         asked.append(message)
-        return {"value": word}
+        return {} if agreed else ElicitResult(action="decline")
 
     async def session():
         async with Client(build_server(tools), elicitation_handler=handler, mode="legacy") as client:
@@ -274,3 +279,13 @@ def test_an_older_connection_asks_the_member_directly(tools, fake, word, agreed)
     reply = asyncio.run(session())
     assert len(asked) == 1 and asked[0].startswith("Welcome to Scriptorium!")
     assert (not reply.is_error) == agreed
+
+
+
+def test_the_notice_command_prints_the_full_text():
+    from typer.testing import CliRunner
+
+    from scriptorium_client.cli import app
+
+    out = CliRunner().invoke(app, ["notice"]).output
+    assert out.startswith("Welcome to Scriptorium!") and "non-public" in out and "Accept" in out

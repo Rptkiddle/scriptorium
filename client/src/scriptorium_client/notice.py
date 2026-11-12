@@ -2,10 +2,18 @@
 in every agent session: what Scriptorium receives and records.
 
 The client asks for it itself, through the agent app's own dialog (MCP
-elicitation), so the answer comes from the member, not from the agent. A
-session in which the member has not typed "yes" gets no Scriptorium
-results; the next request asks again.
+elicitation), so the answer comes from the member, not from the agent.
+Agent apps show only the first lines of such a dialog, so the dialog holds
+a three-line DIALOG with Accept and Decline; the full NOTICE is printed in
+the terminal by `scriptorium-client notice` and by `setup`. A session in
+which the member has not accepted gets no Scriptorium results; the next
+request asks again.
 """
+
+DIALOG = """\
+Welcome to Scriptorium! Your agent conversations are never sent to us.
+We log your agent's requests and our replies; only admins see them.
+PDFs you donate are shared. Full text: `scriptorium-client notice`"""
 
 NOTICE = """\
 Welcome to Scriptorium!
@@ -30,11 +38,12 @@ What Scriptorium does receive and record:
     records). If Scriptorium is unable to reconcile a donated item with
     a public identifier, it will be discarded.
 
-Type "yes" to agree and continue:"""
+Agree by choosing Accept when Scriptorium asks, at the start of each
+agent session."""
 
-NOT_AGREED = ("Scriptorium answers only after the member agrees to its notice, once per session,"
-              " and they have not agreed in this session. The next Scriptorium request asks"
-              " them again; `scriptorium-client notice` shows the text.")
-CANNOT_ASK = ("Scriptorium answers only after the member agrees to its notice, once per session,"
+NOT_AGREED = ("Scriptorium answers only after the member accepts its notice, once per session,"
+              " and they have not accepted it in this session. The next Scriptorium request"
+              " asks them again; `scriptorium-client notice` shows the text.")
+CANNOT_ASK = ("Scriptorium answers only after the member accepts its notice, once per session,"
               " and this agent app cannot show the member the question. Use an interactive"
               " session of an agent app that supports MCP elicitation.")

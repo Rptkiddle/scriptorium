@@ -15,7 +15,7 @@ import httpx
 from fastmcp import FastMCP
 
 from scriptorium_client import __version__, results
-from scriptorium_client.notice import CANNOT_ASK, NOT_AGREED, NOTICE
+from scriptorium_client.notice import CANNOT_ASK, DIALOG, NOT_AGREED
 from scriptorium_client import settings as client_settings
 from scriptorium_client.http import RateLimited, Server, ServerError
 
@@ -334,8 +334,7 @@ class Consent:
     question is open wait for its answer instead of asking again."""
 
     KEY = "scriptorium_notice"
-    SCHEMA = {"type": "object", "required": ["value"],
-              "properties": {"value": {"type": "string", "title": "Your answer"}}}
+    SCHEMA = {"type": "object", "properties": {}}  # no fields: Accept or Decline
     WAIT_SECONDS = 600  # how long a call waits for the member to answer the open question
 
     def __init__(self):
@@ -344,13 +343,7 @@ class Consent:
 
     @staticmethod
     def _yes(answer) -> bool:
-        if getattr(answer, "action", None) != "accept":
-            return False
-        content = getattr(answer, "content", None)
-        if content is None:  # an older connection's answer carries `data`
-            content = getattr(answer, "data", None)
-        value = content.get("value") if isinstance(content, dict) else content
-        return str(value or "").strip().lower() == "yes"
+        return getattr(answer, "action", None) == "accept"
 
     def _settle(self, answer) -> None:
         """Record the member's answer and release the calls waiting for it."""
@@ -395,12 +388,15 @@ class Consent:
                 return await self._wait()
             self._open = asyncio.Event()
             return mt.InputRequiredResult(input_requests={self.KEY: mt.ElicitRequest(
-                params=mt.ElicitRequestFormParams(message=NOTICE, requested_schema=self.SCHEMA))})
+                params=mt.ElicitRequestFormParams(message=DIALOG, requested_schema=self.SCHEMA))})
         if self._open is not None:
             return await self._wait()
         self._open = asyncio.Event()
         try:
-            answer = await ctx.elicit(NOTICE, str, response_title="Your answer")
+            # ctx.elicit needs a field; the session's own request takes a form
+            # with none, which shows only Accept and Decline
+            answer = await ctx.session.elicit(message=DIALOG, requested_schema=self.SCHEMA,
+                                              related_request_id=ctx.request_id)
         except Exception as exc:  # noqa: BLE001 — the agent app cannot ask
             self._open.set()
             self._open = None
