@@ -240,3 +240,37 @@ def test_an_agent_app_that_cannot_ask_gets_no_results(tools, fake):
     except Exception as exc:  # noqa: BLE001
         assert "not supported" in str(exc).lower()
     assert fake.calls == []  # nothing reached the server
+
+
+
+def test_calls_at_once_ask_once(tools, fake):
+    asked = []
+
+    async def handler(message, response_type, params, context):
+        asked.append(1)
+        await asyncio.sleep(0.05)
+        return {"value": "yes"}
+
+    async def session():
+        async with Client(build_server(tools), elicitation_handler=handler) as client:
+            return await asyncio.gather(*[client.call_tool("item", {"key": "K0001"}) for _ in range(3)])
+
+    replies = asyncio.run(session())
+    assert [r.data for r in replies] == [{"key": "K0001"}] * 3 and len(asked) == 1
+
+
+@pytest.mark.parametrize("word, agreed", [("yes", True), ("no", False)])
+def test_an_older_connection_asks_the_member_directly(tools, fake, word, agreed):
+    asked = []
+
+    async def handler(message, response_type, params, context):
+        asked.append(message)
+        return {"value": word}
+
+    async def session():
+        async with Client(build_server(tools), elicitation_handler=handler, mode="legacy") as client:
+            return await client.call_tool("item", {"key": "K0001"}, raise_on_error=False)
+
+    reply = asyncio.run(session())
+    assert len(asked) == 1 and asked[0].startswith("Welcome to Scriptorium!")
+    assert (not reply.is_error) == agreed

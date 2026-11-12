@@ -330,14 +330,17 @@ class Consent:
     (MCP elicitation), so the answer is theirs, not the agent's. On a
     2026-07-28 connection the tool returns an "input required" result and
     the agent app asks, then calls the tool again with the answer; on an
-    older connection the client asks directly."""
+    older connection the client asks directly. Calls arriving while the
+    question is open wait for its answer instead of asking again."""
 
     KEY = "scriptorium_notice"
     SCHEMA = {"type": "object", "required": ["value"],
               "properties": {"value": {"type": "string", "title": "Your answer"}}}
+    WAIT_SECONDS = 600  # how long a call waits for the member to answer the open question
 
     def __init__(self):
         self.agreed = False
+        self._open = None  # an asyncio.Event while the question is open
 
     @staticmethod
     def _yes(answer) -> bool:
@@ -349,32 +352,60 @@ class Consent:
         value = content.get("value") if isinstance(content, dict) else content
         return str(value or "").strip().lower() == "yes"
 
+    def _settle(self, answer) -> None:
+        """Record the member's answer and release the calls waiting for it."""
+        self.agreed = self._yes(answer)
+        if self._open is not None:
+            self._open.set()
+            self._open = None
+        if not self.agreed:
+            raise ServerError(NOT_AGREED)
+
+    async def _wait(self) -> None:
+        import asyncio
+
+        try:
+            await asyncio.wait_for(self._open.wait(), self.WAIT_SECONDS)
+        except TimeoutError:
+            pass
+        if not self.agreed:
+            raise ServerError(NOT_AGREED)
+
     async def check(self):
         """None when the member has agreed (now or earlier in the session); an
         "input required" result for the tool to return when the question must
         be asked; ServerError when they answered anything but "yes", or the
         agent app cannot ask."""
+        import asyncio
+
         import mcp.types as mt
         from fastmcp.server.dependencies import get_context
+        from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 
         if self.agreed:
             return None
         ctx = get_context()
-        if ctx._is_modern_protocol():
+        context = ctx.request_context
+        modern = context is not None and context.protocol_version in MODERN_PROTOCOL_VERSIONS
+        if modern:
             answer = (ctx.input_responses or {}).get(self.KEY)
-            if answer is None:
-                return mt.InputRequiredResult(input_requests={self.KEY: mt.ElicitRequest(
-                    params=mt.ElicitRequestFormParams(message=NOTICE,
-                                                      requested_schema=self.SCHEMA))})
-        else:
-            try:
-                answer = await ctx.elicit(NOTICE, str, response_title="Your answer")
-            except Exception as exc:  # noqa: BLE001 — the agent app cannot ask
-                raise ServerError(CANNOT_ASK) from exc
-        if not self._yes(answer):
-            raise ServerError(NOT_AGREED)
-        self.agreed = True
-        return None
+            if answer is not None:  # the call that asked, sent again with the answer
+                return self._settle(answer)
+            if self._open is not None:  # another call asked; wait for that answer
+                return await self._wait()
+            self._open = asyncio.Event()
+            return mt.InputRequiredResult(input_requests={self.KEY: mt.ElicitRequest(
+                params=mt.ElicitRequestFormParams(message=NOTICE, requested_schema=self.SCHEMA))})
+        if self._open is not None:
+            return await self._wait()
+        self._open = asyncio.Event()
+        try:
+            answer = await ctx.elicit(NOTICE, str, response_title="Your answer")
+        except Exception as exc:  # noqa: BLE001 — the agent app cannot ask
+            self._open.set()
+            self._open = None
+            raise ServerError(CANNOT_ASK) from exc
+        return self._settle(answer)
 
 
 def build_server(tools: Tools | None = None) -> FastMCP:
