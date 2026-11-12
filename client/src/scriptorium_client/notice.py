@@ -11,9 +11,9 @@ request asks again.
 """
 
 DIALOG = """\
-Welcome to Scriptorium! Your agent conversations are never sent to us.
-We log your agent's requests and our replies; only admins see them.
-PDFs you donate are shared. Full text: `scriptorium-client notice`"""
+Welcome to Scriptorium! Your agent conversations are yours alone and never sent to us.
+We do log your agent's requests (e.g., search terms) and our responses (e.g., records), for improvement.
+PDFs you donate are stripped of metadata (e.g., highlights) and kept only if they match a published work (e.g., by DOI)."""
 
 NOTICE = """\
 Welcome to Scriptorium!

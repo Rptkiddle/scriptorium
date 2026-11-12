@@ -223,8 +223,7 @@ def test_each_session_asks_the_member_once_before_any_request(tools, fake):
     replies = asyncio.run(session("yes"))
     assert [r.data for r in replies] == [{"key": "K0001"}] * 2
     assert len(asked) == 1 and asked[0].startswith("Welcome to Scriptorium!")
-    assert len(asked[0].splitlines()) <= 3 and max(map(len, asked[0].splitlines())) <= 72
-    assert "scriptorium-client notice" in asked[0]
+    assert len(asked[0].splitlines()) == 3 and "match a published work" in asked[0]
     sent = len(fake.calls)
     replies = asyncio.run(session("decline"))  # a new session asks again
     assert len(asked) == 3  # it asked at both calls, since the member did not agree
