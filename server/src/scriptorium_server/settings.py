@@ -4,10 +4,10 @@ command.
 Every setting is defined once below, with its default, the check a value
 must pass and a one-line explanation. The file holds only the values that
 differ from the defaults. Its path is the SCRIPTORIUM_SETTINGS environment
-variable, else /etc/scriptorium/settings.toml. One setting can also come
-from the environment: SCRIPTORIUM_DATABASE_ADDRESS, when set, is the
-database address in force, so a container deployment keeps the database
-password in one place. The file can hold keys for
+variable, else /etc/scriptorium/settings.toml. Two settings can also come
+from the environment (ENVIRONMENT), so a container deployment sets them in
+one place: SCRIPTORIUM_DATABASE_ADDRESS (with the database password) and
+SCRIPTORIUM_GROBID_ADDRESS (GROBID's container). The file can hold keys for
 outside sources, so it is written readable by its owner only, and secret
 values are shown as "set" or "not set".
 """
@@ -21,6 +21,8 @@ from pathlib import Path
 
 DEFAULT_PATH = Path("/etc/scriptorium/settings.toml")
 DATABASE_ENV = "SCRIPTORIUM_DATABASE_ADDRESS"
+# Settings an environment variable, when set, overrides.
+ENVIRONMENT = {"database.address": DATABASE_ENV, "grobid.address": "SCRIPTORIUM_GROBID_ADDRESS"}
 DAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 
 
@@ -81,7 +83,8 @@ SETTINGS: tuple[Setting, ...] = (
             "How many texts the embedding model takes at once. Larger is faster and uses"
             " more GPU memory.", _between(1, 1024), "a whole number from 1 to 1024"),
     Setting("grobid.address", "http://127.0.0.1:8070",
-            "Where GROBID, the program that parses PDFs, answers.",
+            "Where GROBID, the program that parses PDFs, answers. The environment"
+            " variable SCRIPTORIUM_GROBID_ADDRESS, when set, takes its place.",
             lambda v: v.startswith(("http://", "https://")),
             "an address starting with http:// or https://"),
     Setting("sources.contact_email", "",
@@ -156,8 +159,9 @@ def load(path: str | os.PathLike | None = None) -> Settings:
     """The settings in force: the file's values over the defaults. A file
     with an unknown name or an unacceptable value is refused, naming it."""
     values = {s.name: s.default for s in SETTINGS} | _read(settings_path(path))
-    if address := os.environ.get(DATABASE_ENV):
-        values["database.address"] = _valid(_BY_NAME["database.address"], address)
+    for name, variable in ENVIRONMENT.items():
+        if value := os.environ.get(variable):
+            values[name] = _valid(_BY_NAME[name], value)
     return Settings(values)
 
 

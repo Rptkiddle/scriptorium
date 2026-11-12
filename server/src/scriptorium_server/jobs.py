@@ -88,6 +88,18 @@ def new_run(runs_dir: Path, kind: str, slug: str | None = None) -> Path:
     return run_dir
 
 
+def fresh_run(runs_dir: Path, kind: str, slug: str | None = None) -> Path:
+    """new_run, with "run2", "run3", ... added to the slug when a run of
+    that name was started within the same second."""
+    attempt = 1
+    while True:
+        extra = f"run{attempt}" if attempt > 1 else ""
+        try:
+            return new_run(runs_dir, kind, "-".join(p for p in (slug, extra) if p) or None)
+        except FileExistsError:
+            attempt += 1
+
+
 def work_dir(run_dir: Path) -> Path:
     """The run's folder for intermediate files (created if missing)."""
     path = run_dir / "work"
@@ -195,14 +207,8 @@ def claim(conn: psycopg.Connection, runs_dir: Path) -> Job | None:
     if row is None:
         conn.commit()
         return None
-    attempt = 1
-    while True:  # a job run again within the same second gets a folder of its own
-        slug = f"job-{row['id']}" + (f"-run{attempt}" if attempt > 1 else "")
-        try:
-            run_dir = new_run(runs_dir, row["kind"], slug)
-            break
-        except FileExistsError:
-            attempt += 1
+    # a job run again within the same second gets a folder of its own
+    run_dir = fresh_run(runs_dir, row["kind"], f"job-{row['id']}")
     conn.execute("UPDATE jobs SET run_dir = %s WHERE id = %s", (str(run_dir), row["id"]))
     conn.commit()
     return Job(row["id"], row["kind"], row["payload"], row["member"], run_dir)
@@ -216,6 +222,16 @@ def finish(conn: psycopg.Connection, job: Job, error: str | None = None,
                  ("failed" if error else "done", error, job.id))
     conn.commit()
     finish_run(job.run_dir, "failed" if error else "ok", error or summary)
+
+
+def retry(conn: psycopg.Connection, job_id: int) -> bool:
+    """Put a failed job back to waiting; False when there is no failed job
+    of that id. Its old run folder and error stay in the record of that run."""
+    row = conn.execute("UPDATE jobs SET status = 'waiting', started_at = NULL, finished_at = NULL,"
+                       " error = NULL WHERE id = %s AND status = 'failed' RETURNING id",
+                       (job_id,)).fetchone()
+    conn.commit()
+    return row is not None
 
 
 def requeue_unfinished(conn: psycopg.Connection) -> int:
@@ -233,15 +249,24 @@ def requeue_unfinished(conn: psycopg.Connection) -> int:
 
 def run_worker(conn: psycopg.Connection, runs_dir: Path, handlers: dict[str, Handler], *,
                poll_seconds: float = 5.0, until_idle: bool = False,
-               stop: Callable[[], bool] = lambda: False) -> int:
+               stop: Callable[[], bool] = lambda: False,
+               idle: Callable[[psycopg.Connection], object] | None = None) -> int:
     """Run waiting jobs one at a time, oldest first, until `stop()` is true
     (or, with until_idle, until nothing waits); returns how many ran. A
-    handler that raises fails its job with the error; the worker goes on."""
+    handler that raises fails its job with the error; the worker goes on.
+    `idle` is called whenever the queue is empty (the worker embeds what
+    waits for a vector there); an error in it is printed, not raised."""
     requeue_unfinished(conn)
     ran = 0
     while not stop():
         job = claim(conn, runs_dir)
         if job is None:
+            if idle is not None:
+                try:
+                    idle(conn)
+                except Exception as exc:  # noqa: BLE001 — the worker must keep running
+                    conn.rollback()
+                    print(f"while idle: {type(exc).__name__}: {exc}", flush=True)
             if until_idle:
                 return ran
             time.sleep(poll_seconds)

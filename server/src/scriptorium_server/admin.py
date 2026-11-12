@@ -1,5 +1,6 @@
 """The admin command (`scriptorium`): members and keys, subscribed venues,
-jobs, settings, the database schema and the worker."""
+jobs, settings, the database schema, the worker, the seed import and
+passage cleaning."""
 
 from pathlib import Path
 from typing import Annotated
@@ -15,14 +16,57 @@ members_app = typer.Typer(no_args_is_help=True, help="Members and their API keys
 venues_app = typer.Typer(no_args_is_help=True, help="The venues new items are harvested from.")
 jobs_app = typer.Typer(no_args_is_help=True, help="Background jobs and their failures.")
 settings_app = typer.Typer(no_args_is_help=True, help="The server's settings.")
+passages_app = typer.Typer(no_args_is_help=True, help="The passages of full texts.")
 app.add_typer(members_app, name="members")
 app.add_typer(venues_app, name="venues")
 app.add_typer(jobs_app, name="jobs")
 app.add_typer(settings_app, name="settings")
+app.add_typer(passages_app, name="passages")
 
 ADAPTERS = ("crossref", "openalex")
-# The handler for each kind of job; the tasks that add a job register it here.
+# Handlers added to (or replacing) the standard ones of job_handlers().
 HANDLERS: dict[str, jobs.Handler] = {}
+# Whether the worker embeds waiting items and passages when idle (off in tests).
+IDLE_EMBEDDING = True
+
+
+def _data(current: settings.Settings) -> Path:
+    return Path(str(current["data.folder"]))
+
+
+def job_handlers(current: settings.Settings) -> dict[str, jobs.Handler]:
+    """The handler for each kind of job the worker runs. Nothing heavy
+    happens here: GROBID is asked and the model loaded at the first job."""
+    from scriptorium_server import fulltext
+    from scriptorium_server.sources import apis
+
+    sources = current.section("sources")
+    apis.configure(str(sources["contact_email"]), str(sources["s2_api_key"]))
+    context: list[fulltext.Context] = []
+
+    def run_fulltext(conn, job):
+        return fulltext.process(conn, job, worker_context(conn, current, context))
+
+    return {"fulltext": run_fulltext}
+
+
+def worker_context(conn, current: settings.Settings, made: list):
+    """The full-text job's context, made once (the embedder must be the
+    collection's model revision, which the database records)."""
+    from scriptorium_server import fulltext
+    from scriptorium_server.embedding import RealEmbedder
+    from scriptorium_server.filestore import FileStore
+    from scriptorium_server.grobid import Grobid
+    from scriptorium_server.sources import crossref
+    from scriptorium_server.tei import TeiStore
+
+    if not made:
+        made.append(fulltext.Context(
+            grobid=Grobid(str(current["grobid.address"])), tei=TeiStore(_data(current) / "tei"),
+            files=FileStore(_data(current)),
+            embedder=RealEmbedder(revision=embedding.stored_revision(conn) or None),
+            registry=crossref.fetch, batch_size=int(current["embedding.batch_size"])))
+    return made[0]
 
 
 def connect() -> psycopg.Connection:
@@ -61,10 +105,17 @@ def migrate() -> None:
 def worker(poll_seconds: Annotated[float, typer.Option(help="Wait between looks at an empty queue.")] = 5.0,
            until_idle: Annotated[bool, typer.Option(help="Stop when nothing waits.")] = False) -> None:
     """Run waiting jobs, one at a time, until stopped."""
-    runs_dir = Path(str(settings.load()["data.folder"])) / "runs"
+    current = settings.load()
+    handlers = {**job_handlers(current), **HANDLERS}
+    made: list = []
+
+    def idle(conn):  # items and passages still without a vector get one
+        embedding.embed_pending(conn, worker_context(conn, current, made).embedder,
+                                int(current["embedding.batch_size"]))
+
     with connect() as conn:
-        ran = jobs.run_worker(conn, runs_dir, HANDLERS, poll_seconds=poll_seconds,
-                              until_idle=until_idle)
+        ran = jobs.run_worker(conn, _data(current) / "runs", handlers, poll_seconds=poll_seconds,
+                              until_idle=until_idle, idle=idle if IDLE_EMBEDDING else None)
     typer.echo(f"Ran {ran} job(s).")
 
 
@@ -151,6 +202,48 @@ def seed(
     typer.echo(seeding.summary_line(counts) + ".")
     for line in counts["collisions"]:
         typer.echo(f"skipped {line}")
+
+
+@app.command("seed-files")
+def seed_files(
+    folder: Annotated[Path, typer.Argument(help="A folder of the member's PDFs (searched with its subfolders).")],
+) -> None:
+    """Store the PDFs the seed import awaits (recognised by content), with
+    annotations and file metadata removed. Other files are left alone.
+    Can be stopped and run again."""
+    from scriptorium_server.filestore import FileStore
+
+    current = settings.load()
+    if not folder.is_dir():
+        _fail(f"{folder} is not a folder")
+    with connect() as conn:
+        counts = seeding.seed_files(conn, folder, FileStore(_data(current)), _data(current) / "runs")
+    typer.echo(seeding.files_summary(counts) + ".")
+    for line in counts["unreadable"]:
+        typer.echo(f"unreadable: {line}")
+
+
+# --- passages ------------------------------------------------------------------
+
+
+@passages_app.command("clean-stamps")
+def passages_clean_stamps(
+    apply: Annotated[bool, typer.Option(help="Change the passages; without it, only report.")] = False,
+) -> None:
+    """Remove publishers' download stamps ("Downloaded from ... by ... on
+    <date>") from stored passages and make the shortened passages' vectors.
+    Without --apply, report what would change. Every change is recorded in
+    the run folder."""
+    from scriptorium_server import cleanup
+    from scriptorium_server.embedding import RealEmbedder
+
+    current = settings.load()
+    with connect() as conn:
+        embedder = (RealEmbedder(revision=embedding.stored_revision(conn) or None)
+                    if apply else None)
+        counts = cleanup.clean_stamps(conn, _data(current) / "runs", apply, embedder,
+                                      int(current["embedding.batch_size"]))
+    typer.echo(cleanup.summary_line(counts, apply) + f". Report: {counts['run']}/report.md")
 
 
 # --- members -------------------------------------------------------------------
@@ -266,6 +359,20 @@ def jobs_list(
     for row in rows:
         error = f"\t{row['error'].splitlines()[0]}" if row["error"] else ""
         typer.echo(f"{row['id']}\t{row['kind']}\t{row['status']}\t{_when(row['created_at'])}{error}")
+
+
+@jobs_app.command("retry")
+def jobs_retry(job_id: int) -> None:
+    """Run a failed job again (e.g. one that failed because GROBID or a
+    registry could not be reached). A donation rejected for good is not
+    run again: its file is gone, and its reason stays for the member."""
+    with connect() as conn:
+        row = conn.execute("SELECT error FROM jobs WHERE id = %s", (job_id,)).fetchone()
+        if row and (row["error"] or "").startswith("Rejected:"):
+            _fail(f"job {job_id} was rejected for good ({row['error']}); its file is gone")
+        if not jobs.retry(conn, job_id):
+            _fail(f"no failed job {job_id}")
+    typer.echo(f"Job {job_id} is waiting again.")
 
 
 @jobs_app.command("show")

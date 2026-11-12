@@ -2,18 +2,17 @@
 
 import pytest
 
-from scriptorium_server.grobid import Grobid, GrobidUnavailable
+from scriptorium_server import grobid
 
 
 @pytest.fixture(autouse=True)
 def no_real_grobid(monkeypatch):
-    """No test may start or call the real GROBID (a 3-4 GB Java service):
-    tests that need one pass a fake."""
-    def refuse(self, *args, **kwargs):
-        raise GrobidUnavailable("tests never start the real GROBID")
+    """No test may call a real GROBID: tests that need one pass a fake
+    GROBID, or a Grobid client with a fake session."""
+    def refuse():
+        raise grobid.GrobidUnavailable("tests never call a real GROBID")
 
-    monkeypatch.setattr(Grobid, "ensure", refuse)
-    monkeypatch.setattr(Grobid, "parse", refuse)
+    monkeypatch.setattr(grobid, "default_session", refuse)
 
 
 # -- the test database ---------------------------------------------------------

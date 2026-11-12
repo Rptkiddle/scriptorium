@@ -17,8 +17,10 @@ model and the passage rules are the same. An item whose key is in the
 collection already is skipped, so the import can be run again; an item
 whose DOI or arXiv ID another item answers to is skipped and listed.
 
-The PDFs themselves arrive separately; the import records each full
-text's PDF hash in pending_files so the file is recognised when it comes.
+The PDFs themselves arrive separately (`seed-files`); the import records
+each full text's PDF hash in pending_files so the file is recognised when
+it comes. Running the import again also restores that record for an item
+already present whose PDF has not arrived, should it be missing.
 """
 
 import json
@@ -156,11 +158,20 @@ def _copy_passages(conn: psycopg.Connection, source: sqlite3.Connection, key: st
     return len(rows)
 
 
+def _await_file(conn: psycopg.Connection, md5: str, key: str) -> int:
+    """Record that the item's PDF (by its MD5) is awaited, unless a PDF is
+    stored for the item already; returns 1 when a record was added."""
+    return conn.execute(
+        "INSERT INTO pending_files (md5, item) SELECT %(md5)s, %(key)s WHERE NOT EXISTS"
+        " (SELECT 1 FROM files WHERE item = %(key)s) ON CONFLICT DO NOTHING",
+        {"md5": md5, "key": key}).rowcount
+
+
 def seed(conn: psycopg.Connection, index_path: Path, member_name: str,
          records_path: Path | None = None, runs_dir: Path | None = None) -> dict:
     """Import the index's items for the member; returns the counts
     {"source", "created", "present", "collisions": [...], "from_records",
-    "from_index", "fulltexts", "passages"}. With runs_dir, the import keeps
+    "from_index", "fulltexts", "passages", "awaited_restored"}. With runs_dir, the import keeps
     a run folder with its report."""
     member = conn.execute("SELECT id FROM members WHERE name = %s AND revoked_at IS NULL",
                           (member_name,)).fetchone()
@@ -174,13 +185,16 @@ def seed(conn: psycopg.Connection, index_path: Path, member_name: str,
         fulltext = dict(source.execute("SELECT item_key, content_hash FROM papers"))
         present = {r["key"] for r in conn.execute("SELECT key FROM items")}
         counts = {"source": 0, "created": 0, "present": 0, "collisions": [],
-                  "from_records": 0, "from_index": 0, "fulltexts": 0, "passages": 0}
+                  "from_records": 0, "from_index": 0, "fulltexts": 0, "passages": 0,
+                  "awaited_restored": 0}
         cursor = source.execute("SELECT item_key, citation_key, payload, vec FROM items"
                                 " ORDER BY item_key")
         for key, citation_key, payload_text, vec in cursor:
             counts["source"] += 1
             if key in present:
                 counts["present"] += 1
+                if key in fulltext:
+                    counts["awaited_restored"] += _await_file(conn, fulltext[key], key)
                 continue
             payload = json.loads(payload_text)
             record = records.get(key)
@@ -200,8 +214,7 @@ def seed(conn: psycopg.Connection, index_path: Path, member_name: str,
             if key in fulltext:
                 counts["fulltexts"] += 1
                 counts["passages"] += _copy_passages(conn, source, key)
-                conn.execute("INSERT INTO pending_files (md5, item) VALUES (%s, %s)"
-                             " ON CONFLICT DO NOTHING", (fulltext[key], key))
+                _await_file(conn, fulltext[key], key)
             counts["created"] += 1
             if counts["created"] % _BATCH == 0:
                 conn.commit()
@@ -230,7 +243,75 @@ def report(counts: dict) -> str:
     lines = ["# Seed import", "", summary_line(counts) + ".", "",
              f"- Full records from the records file: {counts['from_records']}",
              f"- Records built from the index alone: {counts['from_index']}"]
+    if counts.get("awaited_restored"):
+        lines.append(f"- Awaited PDFs recorded again for items already present:"
+                     f" {counts['awaited_restored']}")
     if counts["collisions"]:
         lines += ["", "## Skipped: the identifier belongs to another item", ""]
         lines += [f"- {line}" for line in counts["collisions"]]
+    return "\n".join(lines) + "\n"
+
+
+# --- the seed's PDFs -----------------------------------------------------------
+
+
+def seed_files(conn: psycopg.Connection, folder: Path, store, runs_dir: Path | None = None) -> dict:
+    """Store every PDF in `folder` (and its subfolders) that a seeded item is
+    waiting for, recognised by its MD5 (pending_files), stripped like a
+    donation; other files are left alone. The passages are seeded already,
+    so nothing is parsed. Each file is committed on its own, so the command
+    can be stopped and run again, or run on one batch of files at a time.
+    A file that cannot be read as a PDF is listed and stays awaited.
+    Returns {"files", "stored", "items", "already", "unknown", "unreadable": [...],
+    "still_awaited"}."""
+    from scriptorium_server.filestore import UnreadablePdf, digest
+
+    run_dir = jobs.fresh_run(runs_dir, "seed-files", None) if runs_dir else None
+    counts = {"files": 0, "stored": 0, "items": 0, "already": 0, "unknown": 0,
+              "unreadable": [], "still_awaited": 0}
+    for path in sorted(Path(folder).rglob("*")):
+        if not path.is_file() or path.suffix.lower() != ".pdf":
+            continue
+        counts["files"] += 1
+        md5 = digest(path, "md5")
+        awaited = conn.execute("SELECT p.item, i.provenance_member FROM pending_files p"
+                               " JOIN items i ON i.key = p.item WHERE p.md5 = %s ORDER BY p.item",
+                               (md5,)).fetchall()
+        if not awaited:
+            held = conn.execute("SELECT 1 FROM files WHERE source_md5 = %s", (md5,)).fetchone()
+            counts["already" if held else "unknown"] += 1
+            continue
+        try:
+            sha256, size = store.put(path)
+        except UnreadablePdf as exc:
+            counts["unreadable"].append(f"{path.name}: {exc}")
+            continue
+        for row in awaited:
+            conn.execute("INSERT INTO files (sha256, item, bytes, donated_by, source_md5)"
+                         " VALUES (%s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
+                         (sha256, row["item"], size, row["provenance_member"], md5))
+            conn.execute("DELETE FROM pending_files WHERE md5 = %s AND item = %s",
+                         (md5, row["item"]))
+        conn.commit()
+        counts["stored"] += 1
+        counts["items"] += len(awaited)
+    counts["still_awaited"] = conn.execute("SELECT count(*) AS n FROM pending_files").fetchone()["n"]
+    if run_dir:
+        (run_dir / "report.md").write_text(files_report(counts))
+        jobs.finish_run(run_dir, "partial" if counts["unreadable"] else "ok",
+                        files_summary(counts), counts=counts)
+    return counts
+
+
+def files_summary(counts: dict) -> str:
+    return (f"{counts['stored']} of {counts['files']} PDFs stored for {counts['items']} items"
+            f" ({counts['already']} stored before, {counts['unknown']} not awaited,"
+            f" {len(counts['unreadable'])} unreadable); {counts['still_awaited']} PDFs still awaited")
+
+
+def files_report(counts: dict) -> str:
+    lines = ["# Seed PDFs", "", files_summary(counts) + "."]
+    if counts["unreadable"]:
+        lines += ["", "## Not readable as a PDF (still awaited)", ""]
+        lines += [f"- {line}" for line in counts["unreadable"]]
     return "\n".join(lines) + "\n"

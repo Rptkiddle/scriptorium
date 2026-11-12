@@ -110,3 +110,16 @@ def test_the_worker_stops_when_told(db, tmp_path):
                stop=lambda: len(seen) >= 2)
     assert len(seen) == 2
     assert db.execute("SELECT count(*) AS n FROM jobs WHERE status = 'waiting'").fetchone()["n"] == 1
+
+
+def test_an_idle_worker_runs_the_idle_step_and_survives_its_error(db, tmp_path):
+    calls = []
+
+    def idle(conn):
+        calls.append(1)
+        raise RuntimeError("model missing")
+
+    from scriptorium_server.jobs import run_worker
+
+    assert run_worker(db, tmp_path, {}, until_idle=True, idle=idle) == 0
+    assert calls == [1]

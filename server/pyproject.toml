@@ -6,6 +6,7 @@ license = "AGPL-3.0-or-later"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
+    "pikepdf>=10.18",
     "psycopg[binary,pool]>=3.2",
     "requests>=2.32",
     "sentence-transformers>=3",

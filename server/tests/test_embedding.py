@@ -82,3 +82,19 @@ def test_an_embedder_of_another_revision_is_refused(db):
         embed_pending_items(db, Recording("rev-b"))
     assert embed_pending_items(db, Recording("rev-a")) == 1
     assert embed_pending_items(db, Recording()) == 0  # one without a revision is not checked
+
+
+def test_embed_pending_fills_items_and_passages_and_leaves_the_model_alone_otherwise(db):
+    from scriptorium_server.embedding import FakeEmbedder, embed_pending
+
+    db.execute("INSERT INTO items (key, type, title, title_norm, provenance_kind)"
+               " VALUES ('K1', 'journalArticle', 'A title', 'a title', 'activity')")
+    db.execute("INSERT INTO passages (item, idx, part, text) VALUES ('K1', 0, 'body', 'words here')")
+    db.commit()
+    assert embed_pending(db, FakeEmbedder()) == (1, 1)
+
+    class Untouchable(FakeEmbedder):
+        def embed(self, texts):
+            raise AssertionError("nothing waits; the model must not be used")
+
+    assert embed_pending(db, Untouchable()) == (0, 0)

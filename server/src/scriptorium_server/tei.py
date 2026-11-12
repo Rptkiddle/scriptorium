@@ -33,6 +33,11 @@ A passage has two texts: `text`, stored and shown, the paper's words as
 GROBID read them; and `embed_text`, the same without citation and
 footnote markers, from which its vector is made (names and years say
 nothing about what a paragraph means).
+
+Publishers' download stamps ("Downloaded from ... by ... on <date>",
+stamps.py) are cut out of both texts once a passage is formed, and a
+passage left empty is dropped; whether a passage is an artefact is judged
+on what remains.
 """
 
 import gzip
@@ -46,6 +51,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from xml.etree import ElementTree as ET
+
+from scriptorium_server.stamps import strip_stamps
 
 T = "{http://www.tei-c.org/ns/1.0}"
 MIN_WORDS = 20
@@ -225,9 +232,9 @@ def _passage(ss: list[_Sentence], part: str) -> Passage:
     pages = set().union(*(s.pages for s in ss))
     span = "" if not pages else (str(min(pages)) if min(pages) == max(pages)
                                  else f"{min(pages)}-{max(pages)}")
-    text = " ".join(s.text for s in ss)
-    return Passage(text=text, embed_text=_clean(" ".join(s.embed for s in ss)), pages=span,
-                   part=part, artefact=prose_share(text) < PROSE_MIN)
+    text = strip_stamps(" ".join(s.text for s in ss))
+    return Passage(text=text, embed_text=strip_stamps(_clean(" ".join(s.embed for s in ss))),
+                   pages=span, part=part, artefact=prose_share(text) < PROSE_MIN)
 
 
 def passages(tei_xml: bytes) -> list[Passage]:
@@ -254,7 +261,7 @@ def passages(tei_xml: bytes) -> list[Passage]:
                 runs[-1] = runs[-1] + pending
             else:
                 runs.append(pending)
-        out += [_passage(r, part) for r in runs]
+        out += [p for p in (_passage(r, part) for r in runs) if p.text]
     return out
 
 

@@ -119,3 +119,11 @@ def test_the_database_address_can_come_from_the_environment(path, monkeypatch):
     monkeypatch.setenv("SCRIPTORIUM_DATABASE_ADDRESS", "mysql://nope")
     with pytest.raises(SettingsError, match="database.address must be"):
         load(path)
+
+
+def test_the_grobid_address_can_come_from_the_environment(path, monkeypatch):
+    monkeypatch.setenv("SCRIPTORIUM_GROBID_ADDRESS", "http://grobid:8070")
+    assert settings.load(path)["grobid.address"] == "http://grobid:8070"
+    monkeypatch.setenv("SCRIPTORIUM_GROBID_ADDRESS", "grobid:8070")
+    with pytest.raises(settings.SettingsError, match="grobid.address"):
+        settings.load(path)

@@ -140,3 +140,19 @@ def test_the_request_string_matches_the_bulk_parse_record():
     assert GROBID_REQUEST == ("processFulltextDocument;consolidateHeader=0;"
                               "consolidateCitations=0;consolidateFunders=0;"
                               "segmentSentences=1;teiCoordinates=p;teiCoordinates=s")
+
+
+def test_download_stamps_are_cut_out_of_passages_and_a_stamp_only_footnote_is_dropped():
+    from scriptorium_server.tei import passages as cut
+
+    prose = ("the model of the network is a way to see how the group and its members act in"
+             " the world and how it changes")
+    stamp = ("Downloaded from https://www.pnas.org by EXAMPLE UNIVERSITY on August 24, 2026"
+             " from IP address 192.0.2.10.")
+    tei = ('<TEI xmlns="http://www.tei-c.org/ns/1.0"><teiHeader/><text><body><div>'
+           f'<p><s coords="1,1,1,1,1">{prose} {stamp}</s></p></div>'
+           f'<note place="foot"><s coords="2,1,1,1,1">{stamp}</s></note>'
+           '</body><back/></text></TEI>').encode()
+    found = cut(tei)
+    assert [(p.part, p.text) for p in found] == [("body", prose)]
+    assert found[0].embed_text == prose

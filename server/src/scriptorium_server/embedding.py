@@ -265,6 +265,21 @@ def embed_pending_passages(conn: psycopg.Connection, embedder: Embedder,
         done += len(rows)
 
 
+def embed_pending(conn: psycopg.Connection, embedder: Embedder,
+                  batch_size: int = 32) -> tuple[int, int]:
+    """Give every item and passage still without a vector its vector:
+    items admitted by a lookup or a donation, a preprint replaced by its
+    published version, shortened passages. Returns (items, passages)
+    embedded. When nothing waits, the model is not touched."""
+    waiting = conn.execute(
+        "SELECT EXISTS (SELECT 1 FROM items WHERE embedding IS NULL) AS items,"
+        " EXISTS (SELECT 1 FROM passages WHERE embedding IS NULL AND NOT artefact) AS passages"
+    ).fetchone()
+    conn.commit()
+    return (embed_pending_items(conn, embedder, batch_size) if waiting["items"] else 0,
+            embed_pending_passages(conn, embedder, batch_size) if waiting["passages"] else 0)
+
+
 def download_model(revision: str | None = None, model_name: str = MODEL) -> str:
     """Fetch the model into the local cache (the given revision, else the
     newest) and return the revision fetched. Needs the network."""

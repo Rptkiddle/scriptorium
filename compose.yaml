@@ -5,7 +5,7 @@
 #   data/       PDFs, parsed full texts, run folders, backups, the embedding model
 #   settings/   settings.toml
 #
-#   docker compose up -d                           start the database and the web service
+#   docker compose up -d                           start the database, web service, worker and GROBID
 #   docker compose run --rm cli <command>          run the admin command, e.g. `cli migrate`
 
 name: scriptorium
@@ -55,6 +55,42 @@ services:
       db:
         condition: service_healthy
 
+  # Runs the background jobs: a donated PDF is parsed, checked, stored and
+  # its passages embedded. It embeds on the CPU, which is enough for
+  # donations arriving one by one.
+  worker:
+    image: scriptorium-server
+    restart: unless-stopped
+    user: "${SCRIPTORIUM_UID:-1000}:${SCRIPTORIUM_GID:-1000}"
+    command: ["worker"]
+    environment:
+      SCRIPTORIUM_DATABASE_ADDRESS: postgresql://scriptorium:${POSTGRES_PASSWORD}@db/scriptorium
+      SCRIPTORIUM_GROBID_ADDRESS: http://grobid:8070
+      SCRIPTORIUM_DEVICE: cpu
+      TZ: ${TZ:-Europe/Amsterdam}
+    volumes:
+      - ${SCRIPTORIUM_DATA}/data:/srv/scriptorium
+      - ${SCRIPTORIUM_DATA}/settings:/etc/scriptorium
+    depends_on:
+      db:
+        condition: service_healthy
+      grobid:
+        condition: service_started
+
+  # GROBID, which parses PDFs into structured text. Only the other
+  # containers reach it (no port on the host). Run options as GROBID's
+  # documentation gives them (an init process, no core dumps); it
+  # recommends 4 GB for full texts, 6-8 GB for batches.
+  grobid:
+    image: grobid/grobid:0.9.1-crf
+    restart: unless-stopped
+    init: true
+    ulimits:
+      core: 0
+    mem_limit: ${GROBID_MEMORY:-6g}
+    environment:
+      TZ: ${TZ:-Europe/Amsterdam}
+
   # The admin command, run once per call and removed afterwards.
   cli:
     profiles: ["cli"]
@@ -66,6 +102,8 @@ services:
     user: "${SCRIPTORIUM_UID:-1000}:${SCRIPTORIUM_GID:-1000}"
     environment:
       SCRIPTORIUM_DATABASE_ADDRESS: postgresql://scriptorium:${POSTGRES_PASSWORD}@db/scriptorium
+      SCRIPTORIUM_GROBID_ADDRESS: http://grobid:8070
+      SCRIPTORIUM_DEVICE: cpu
       TZ: ${TZ:-Europe/Amsterdam}
     volumes:
       - ${SCRIPTORIUM_DATA}/data:/srv/scriptorium

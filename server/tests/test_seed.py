@@ -154,6 +154,36 @@ def test_seed_twice_changes_nothing(db, index, records, member):
     assert (table_count(db, "passages"), table_count(db, "pending_files")) == (3, 1)
 
 
+def share_pdf(index):
+    """Make BBBB3333's full text the same PDF as AAAA2222's."""
+    con = sqlite3.connect(index)
+    con.execute("INSERT INTO papers VALUES ('BBBB3333', 1, 'md5-of-a', 0, 3, 3)")
+    con.commit()
+    con.close()
+
+
+def awaited(db):
+    return [(r["md5"], r["item"]) for r in
+            db.execute("SELECT md5, item FROM pending_files ORDER BY item").fetchall()]
+
+
+def test_one_pdf_shared_by_two_items_is_awaited_for_both(db, index, records, member):
+    share_pdf(index)
+    seed(db, index, member, records)
+    assert awaited(db) == [("md5-of-a", "AAAA2222"), ("md5-of-a", "BBBB3333")]
+
+
+def test_seed_again_restores_a_missing_awaited_pdf_but_not_a_stored_one(db, index, records, member):
+    share_pdf(index)
+    seed(db, index, member, records)
+    db.execute("DELETE FROM pending_files")  # as an import before shared PDFs were handled left it
+    db.execute("INSERT INTO files (sha256, item, bytes, source_md5)"
+               " VALUES ('s1', 'AAAA2222', 9, 'md5-of-a')")  # this one has arrived since
+    counts = seed(db, index, member, records)
+    assert counts["created"] == 0 and counts["awaited_restored"] == 1
+    assert awaited(db) == [("md5-of-a", "BBBB3333")]
+
+
 def test_seed_imports_no_tags_or_notes(db, index, records, member):
     seed(db, index, member, records)
     everything = json.dumps(db.execute("SELECT data, creators, other_ids FROM items").fetchall())
@@ -222,3 +252,60 @@ def test_export_writes_full_records_without_tags_collections_or_notes(tmp_path):
     assert "private thoughts" not in out.read_text() and "own-work" not in out.read_text()
     assert [start for _, start in zotero.calls] == [0, 2, 4]
     assert zotero.calls[0][0] == "http://zotero.test/api/users/0/items/top"
+
+
+# --- seed-files ------------------------------------------------------------------
+
+
+def pdf_file(path, text: str):
+    import pikepdf
+
+    pdf = pikepdf.new()
+    pdf.add_blank_page(page_size=(100, 100))
+    pdf.docinfo["/Title"] = text  # makes each file's bytes differ
+    pdf.save(path)
+    return path
+
+
+def test_seed_files_stores_only_known_hashes(db, index, records, member, tmp_path):
+    from scriptorium_server.filestore import FileStore, digest
+    from scriptorium_server.seed import seed_files
+
+    share_pdf(index)
+    seed(db, index, member, records)
+    folder = tmp_path / "pdfs"
+    (folder / "sub").mkdir(parents=True)
+    known = pdf_file(folder / "sub" / "lovelaceNotes2025.pdf", "known")
+    pdf_file(folder / "other.pdf", "other")
+    (folder / "notes.txt").write_text("not a pdf")
+    db.execute("UPDATE pending_files SET md5 = %s", (digest(known, "md5"),))
+    db.commit()
+    store = FileStore(tmp_path / "data")
+    counts = seed_files(db, folder, store, tmp_path / "runs")
+    assert (counts["files"], counts["stored"], counts["items"], counts["unknown"]) == (2, 1, 2, 1)
+    assert counts["still_awaited"] == 0
+    rows = db.execute("SELECT sha256, item, source_md5 FROM files ORDER BY item").fetchall()
+    assert [r["item"] for r in rows] == ["AAAA2222", "BBBB3333"]
+    assert {r["source_md5"] for r in rows} == {digest(known, "md5")}
+    assert store.path(rows[0]["sha256"]).exists() and known.exists()
+    again = seed_files(db, folder, store, tmp_path / "runs")
+    assert (again["stored"], again["already"], again["unknown"]) == (0, 1, 1)
+    # a seed run after the PDF arrived does not await it again
+    assert seed(db, index, member, records)["awaited_restored"] == 0
+
+
+def test_seed_files_lists_an_unreadable_pdf_and_keeps_it_awaited(db, index, records, member, tmp_path):
+    from scriptorium_server.filestore import FileStore, digest
+    from scriptorium_server.seed import seed_files
+
+    seed(db, index, member, records)
+    bad = tmp_path / "pdfs" / "broken.pdf"
+    bad.parent.mkdir()
+    bad.write_bytes(b"%PDF-1.4 broken")
+    db.execute("UPDATE pending_files SET md5 = %s", (digest(bad, "md5"),))
+    db.commit()
+    counts = seed_files(db, bad.parent, FileStore(tmp_path / "data"), tmp_path / "runs")
+    assert counts["stored"] == 0 and len(counts["unreadable"]) == 1
+    assert counts["still_awaited"] == 1
+    (run_dir,) = (tmp_path / "runs" / "seed-files").glob("2*")
+    assert jobs.read_manifest(run_dir)["status"] == "partial"

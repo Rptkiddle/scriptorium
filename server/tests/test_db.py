@@ -105,3 +105,27 @@ def test_deleting_an_item_removes_its_passages_creators_and_files(db):
     db.execute("DELETE FROM items WHERE key = 'K1'")
     for table in ("passages", "item_creators", "files"):
         assert db.execute(f"SELECT count(*) AS n FROM {table}").fetchone()["n"] == 0
+
+
+def test_one_pdf_can_belong_to_two_items_after_migrating_a_filled_database(empty_schema):
+    """0002 is applied to a collection that already holds items and awaited
+    files (as the live server does when it starts); afterwards one PDF can
+    be recorded for two items, both as awaited and as stored."""
+    (first, first_sql), *later = database.migration_files()
+    with database.connect(*empty_schema) as conn:
+        conn.execute(first_sql)
+        conn.execute("CREATE TABLE schema_migrations (name text PRIMARY KEY,"
+                     " applied_at timestamptz NOT NULL DEFAULT now())")
+        conn.execute("INSERT INTO schema_migrations (name) VALUES (%s)", (first,))
+        conn.execute(ITEM, ("K1", None, None, "donation"))
+        conn.execute(ITEM, ("K2", None, None, "donation"))
+        conn.execute("INSERT INTO pending_files (md5, item) VALUES ('m1', 'K1')")
+        conn.commit()
+        assert database.migrate(conn) == [name for name, _ in later]
+        conn.execute("INSERT INTO pending_files (md5, item) VALUES ('m1', 'K2')")
+        conn.execute("INSERT INTO files (sha256, item, bytes, source_md5) VALUES ('s1', 'K1', 9, 'm1')")
+        conn.execute("INSERT INTO files (sha256, item, bytes, source_md5) VALUES ('s1', 'K2', 9, 'm1')")
+        rows = conn.execute("SELECT md5, item FROM pending_files ORDER BY item").fetchall()
+        assert [(r["md5"], r["item"]) for r in rows] == [("m1", "K1"), ("m1", "K2")]
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            conn.execute("INSERT INTO pending_files (md5, item) VALUES ('m1', 'K1')")

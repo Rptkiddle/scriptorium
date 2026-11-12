@@ -46,7 +46,7 @@ Client modules: `settings`, `http`, `results`, `tools`, `zotero`, `cli`.
 
 ## Deployment
 
-Docker Compose (`compose.yaml`, values in `.env`; steps in `docs/deploy.md`). Containers: `db` (`pgvector/pgvector:0.8.7-pg17`), `cli` (the admin command, one-off: `docker compose run --rm cli <command>`), and, as their tasks land, `server` (Task 9), `worker` and `grobid` (`grobid/grobid:0.9.1-crf`, Task 11), all but `db` and `grobid` from one image (`server/Dockerfile`). GPU access for `server` and `worker` is added at Deploy 2.
+Docker Compose (`compose.yaml`, values in `.env`; steps in `docs/deploy.md`). Containers: `db` (`pgvector/pgvector:0.8.7-pg17`), `cli` (the admin command, one-off: `docker compose run --rm cli <command>`), `server` (Task 9), `worker` and `grobid` (`grobid/grobid:0.9.1-crf`, Task 11), all but `db` and `grobid` from one image (`server/Dockerfile`). `server` embeds queries on the CPU; `worker` embeds on the CPU too, enough for donations one by one (SAL's containers lose the GPU nightly); GPU for bulk embedding comes with the intake job if needed. `worker` and `cli` reach GROBID at `http://grobid:8070` (`SCRIPTORIUM_GROBID_ADDRESS`).
 
 | What | On the host | In the containers |
 |---|---|---|
@@ -55,17 +55,9 @@ Docker Compose (`compose.yaml`, values in `.env`; steps in `docs/deploy.md`). Co
 | PDFs, holding area, parsed texts, run folders, backups, model | `/srv/scriptorium/data` | `/srv/scriptorium` |
 | Settings | `/srv/scriptorium/settings/settings.toml` | `/etc/scriptorium/settings.toml` |
 | Runs as | the deploying account's uid in the containers; no system account | |
-| Web address | an entry in the server's Caddy, VU addresses only, to the `server` container on localhost | |
+| Web address | an entry in the server's Caddy to the `server` container on localhost; key only (Rupert 2026-11-11: "Key only for now") | |
 
 The database address comes from `SCRIPTORIUM_DATABASE_ADDRESS` (set by Compose from `.env`). Development and tests use a local PostgreSQL, not the containers.
-
----|---|
-| Code and Python environments | `/opt/scriptorium` |
-| Data: PDFs, holding area, run folders, backups | `/srv/scriptorium` |
-| Settings | `/etc/scriptorium/settings.toml` |
-| Database files | PostgreSQL's default location |
-| Runs as | system account `scriptorium`, no login |
-| Web address | an entry in the server's Caddy, VU addresses only |
 
 ---
 
@@ -151,7 +143,7 @@ The starting collection is the first member's existing library, taken in full fr
 - `tools.py`: class `Tools` (methods are the tools; `build_server()` registers them with FastMCP and reads the agent's name from the MCP session); find tools take `within_set` (a saved result's path, sent as the `item_keys` filter); the find and inspect tools of Table 1; `status` combines `/v1/health` with client version and whether Zotero and the plugin answer.
 - Tests against a fake server: `test_each_tool_sends_the_request_in_the_contract`, `test_large_result_goes_to_a_file`, `test_set_file_round_trip`, `test_old_client_gets_one_clear_message` (review focus 4), `test_settings_file_is_private`, `test_status_reports_all_four_facts`.
 
-**Deploy 2:** the API behind the server's front door, VU addresses only. First member keys. Check from a member's machine on each operating system: setup, status, a search.
+**Deploy 2:** the API behind the server's front door, key only. First member keys. Check from a member's machine on each operating system: setup, status, a search.
 
 ## Step 3: files, full-text job, passage search
 
@@ -161,6 +153,17 @@ The starting collection is the first member's existing library, taken in full fr
 - `grobid.py` becomes a client of the GROBID address in the settings (no local install to start and stop).
 - `fulltext.py`: `process(donation)`: parse with GROBID; check the parsed title and authors against the item (or, for an identifier not held, admit it first); on mismatch fail with the reason and delete the held file; strip annotations and file author details; cut passages by the existing rules; store text, then embed; move the PDF to the file store by content hash; set `has_fulltext`.
 - Tests with stored TEI: the moved passage tests, `test_wrong_document_fails_and_is_not_kept` (review focus 2), `test_annotations_are_stripped`, `test_same_file_twice_is_stored_once`, `test_donation_outside_collection_creates_item`.
+- As built (2026-11-12):
+  - Migration `0002`: `files` and `pending_files` keyed per file AND item (one PDF can serve two items; the seed lost two awaited rows to this); `files.source_md5` = MD5 of the file as it arrived (the stored file is stripped, so its bytes differ; TEI and awaited rows know a PDF by the original). Running `seed` again restores awaited rows for items present without a stored PDF.
+  - `filestore.py` (pikepdf, MPL-2.0, with Pillow and lxml; Rupert's yes): strip = annotations except links, form, document information, XMP metadata, embedded files; same input gives the same bytes; stored by SHA-256 under `pdfs/`. Text printed on pages stays.
+  - `grobid.py`: HTTP client of `grobid.address` (waits for GROBID to answer, retries "busy"); `SCRIPTORIUM_GROBID_ADDRESS` overrides the setting.
+  - Download stamps (Rupert 2026-11-12: filter them out; the method was left to the build): `stamps.py` removes "Downloaded from/on … by/at <who> … <date>" stamps, their terms-of-use tails and split-off access lines from passages; `tei.passages` applies it (PARSER_VERSION 4); `scriptorium passages clean-stamps [--apply]` cleans the seeded passages (measured on his library: 2,428 passages in 1,503 items changed, 532 deleted; of the changed, 1,902 footnotes, 496 body, 30 appendix; about 30 stamp fragments split by GROBID remain), every change recorded in its run folder. Tests: `test_stamps.py`, `test_cleanup.py`.
+  - `fulltext.accepted_by` / `mismatch`: accepted when the PDF's first-page DOI is the item's, the title GROBID read is the same (similarity ≥ 0.85, or one begins the other), or the item's title of five words or more is on the front of the paper (header + first 300 body words; no footnotes or references, so a paper that cites the item is refused). Shared authors are not enough. Measured on his parsed PDFs: own item 237 of 14,838 rejected (1.60%: news pieces whose printed headline differs, pages holding several pieces, some wrong files in the library); against 72,277 likely wrong items (title cited in the PDF, shared author) 24 accepted (0.03%), 21 of them the same paper recorded twice. Rules dropped after measuring: near title + shared author, shared author + title words (together 690 wrong accepts against 75 right).
+  - `fulltext.process` (job kind `fulltext`; payload `file` + `item` or `identifier`, else the first-page DOI): an unknown identifier is fetched and admitted (provenance donation, kept even when the PDF is rejected); an item with a stored PDF keeps it; the seed's awaited PDF is stored without parsing; a rejected PDF (`Rejected`: not the publication, unreadable, unknown identifier) is deleted with its reason as the job's error; when GROBID or the registry cannot be reached the file stays and `scriptorium jobs retry <id>` runs the job again. The TEI is stored only for a kept PDF.
+  - `scriptorium seed-files <folder>`: stores awaited PDFs by MD5, committed per file; unreadable ones listed and still awaited.
+  - `jobs.fresh_run` gives runs started in the same second folders of their own.
+  - The worker, when its queue is empty, embeds every item and passage still without a vector (`embedding.embed_pending`): items admitted by a lookup or a donation had none until now. `jobs retry` refuses a donation rejected for good (its file is gone).
+  - `grobid` container: `init`, no core dumps, `GROBID_MEMORY` (6g), per GROBID's documentation. Stripping has not yet met a real PDF: the first real test is a small batch at Deploy 3.
 
 ### Task 12: files on both sides
 

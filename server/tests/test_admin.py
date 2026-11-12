@@ -11,6 +11,7 @@ from scriptorium_server import admin, db as database, jobs, members
 def run(db, empty_schema, tmp_path, monkeypatch):
     """Run the admin command against the test's own schema and settings file."""
     monkeypatch.setattr(admin, "connect", lambda: database.connect(*empty_schema))
+    monkeypatch.setattr(admin, "IDLE_EMBEDDING", False)  # no model in these tests
     monkeypatch.setenv("SCRIPTORIUM_SETTINGS", str(tmp_path / "settings.toml"))
 
     def invoke(*args):
@@ -115,3 +116,51 @@ def test_worker_runs_the_waiting_jobs(run, db, tmp_path, monkeypatch):
     assert run("worker", "--until-idle").output.strip() == "Ran 1 job(s)."
     row = db.execute("SELECT status, run_dir FROM jobs").fetchone()
     assert row["status"] == "done" and row["run_dir"].startswith(str(tmp_path / "runs" / "note"))
+
+
+def test_a_failed_job_can_be_retried(run, db, tmp_path, monkeypatch):
+    calls = []
+
+    def flaky(conn, job):
+        calls.append(job.id)
+        if len(calls) == 1:
+            raise RuntimeError("GROBID could not be reached")
+        return "done now"
+
+    monkeypatch.setattr(admin, "HANDLERS", {"flaky": flaky})
+    run("settings", "set", "data.folder", str(tmp_path))
+    job_id = jobs.enqueue(db, "flaky", {})
+    db.commit()
+    run("worker", "--until-idle")
+    assert db.execute("SELECT status FROM jobs").fetchone()["status"] == "failed"
+    assert run("jobs", "retry", str(job_id)).exit_code == 0
+    run("worker", "--until-idle")
+    assert db.execute("SELECT status, error FROM jobs").fetchone() == {"status": "done", "error": None}
+    assert run("jobs", "retry", str(job_id)).exit_code == 1  # only failed jobs
+
+
+def test_the_worker_knows_the_fulltext_job(run):
+    from scriptorium_server import settings
+
+    assert "fulltext" in admin.job_handlers(settings.load())
+
+
+def test_clean_stamps_reports_without_apply(run, db, tmp_path):
+    run("settings", "set", "data.folder", str(tmp_path))
+    db.execute("INSERT INTO items (key, type, title, title_norm, provenance_kind)"
+               " VALUES ('K1', 'journalArticle', 'T', 't', 'donation')")
+    db.execute("INSERT INTO passages (item, idx, part, text) VALUES ('K1', 0, 'footnote',"
+               " 'Downloaded from https://www.pnas.org by EXAMPLE UNIVERSITY on August 24, 2026')")
+    db.commit()
+    result = run("passages", "clean-stamps")
+    assert result.exit_code == 0 and "1 would be deleted" in result.output
+    assert db.execute("SELECT count(*) AS n FROM passages").fetchone()["n"] == 1
+
+
+def test_a_rejected_donation_is_not_retried(run, db):
+    job_id = jobs.enqueue(db, "fulltext", {})
+    db.execute("UPDATE jobs SET status = 'failed', error = 'Rejected: not kept: wrong paper'")
+    db.commit()
+    result = run("jobs", "retry", str(job_id))
+    assert result.exit_code == 1 and "rejected for good" in result.output
+    assert db.execute("SELECT status FROM jobs").fetchone()["status"] == "failed"
