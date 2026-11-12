@@ -223,10 +223,13 @@ def test_search_within_item_keys_is_exact(world):
         v = fake.embed([row["title"] + "\n" + row["abstract"]])[0]
         return sum(a * b for a, b in zip(q, v, strict=True))
 
-    expected = [r["key"] for r in sorted(rows.fetchall(), key=similarity, reverse=True)]
+    score = {r["key"]: similarity(r) for r in rows.fetchall()}
     reply = world.client.post("/v1/search/items", json={
         "query": query, "filters": {"item_keys": chosen}, "count": 50, "fields": ["key"]})
-    assert [i["key"] for i in reply.json()["items"]] == expected  # every chosen item, in exact order
+    found = [i["key"] for i in reply.json()["items"]]
+    assert sorted(found) == sorted(chosen)  # every chosen item ...
+    # ... best first; vectors are stored at half precision, so near-ties may swap
+    assert all(score[a] >= score[b] - 1e-3 for a, b in zip(found, found[1:]))
 
 
 def test_search_passages_skips_artefacts_and_names_the_item(world):
