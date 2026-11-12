@@ -57,7 +57,7 @@ def world(db, empty_schema, tmp_path):
 
     def client(api_key):
         return TestClient(app, headers={"Authorization": f"Bearer {api_key}",
-                                        "X-Scriptorium-Client": "0.1.0"})
+                                        "X-Scriptorium-Client": "0.2.0"})
 
     ctx = Context(grobid=FakeGrobid(), tei=TeiStore(tmp_path / "data" / "tei"),
                   files=FileStore(tmp_path / "data"), embedder=FakeEmbedder())

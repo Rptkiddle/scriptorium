@@ -71,7 +71,7 @@ def world(db, empty_schema, tmp_path):
     app = create_app(lambda: database.connect(*empty_schema), FakeEmbedder(),
                      settings.load(tmp_path / "s.toml"), registry)
     client = TestClient(app, headers={"Authorization": f"Bearer {key}",
-                                      "X-Scriptorium-Client": "0.1.0",
+                                      "X-Scriptorium-Client": "0.2.0",
                                       "X-Scriptorium-Agent": "test-agent"})
     return type("World", (), {"client": client, "keys": keys, "db": db, "key": key,
                               "other": other, "registry": registry, "app": app})
@@ -92,7 +92,7 @@ def test_nothing_is_served_without_a_key(world):
     for path in ("/", "/docs", "/openapi.json", "/v1"):
         assert anonymous.get(path).status_code == 404  # no page describes the service
     reply = world.client.get("/v1/health")
-    assert reply.json() == {"status": "ok", "server": "0.1.0", "api": 1, "min_client": "0.1.0",
+    assert reply.json() == {"status": "ok", "server": "0.1.0", "api": 1, "min_client": "0.2.0",
                             "items": 5, "fulltexts": 1}
     assert [r["request"] for r in log(world)][-1] == "health"
 
@@ -115,7 +115,7 @@ def test_log_row_holds_inputs_and_full_reply(world):
     assert row["request"] == "search/items" and row["status"] == 200
     assert row["inputs"] == body and row["reply"] == reply.json()
     assert len(row["reply"]["items"]) == 2 and row["duration_ms"] >= 0
-    assert (row["client_version"], row["agent"]) == ("0.1.0", "test-agent")
+    assert (row["client_version"], row["agent"]) == ("0.2.0", "test-agent")
     member = world.db.execute("SELECT name FROM members WHERE id = %s", (row["member"],)).fetchone()
     assert member["name"] == "ada lovelace"
 

@@ -23,7 +23,7 @@ from scriptorium_server.retrieval import BadRequest
 
 CLIENT_HEADER = "x-scriptorium-client"   # the client's version
 AGENT_HEADER = "x-scriptorium-agent"     # the name of the agent using the client
-MIN_CLIENT = (0, 1, 0)                   # the oldest client version this server serves
+MIN_CLIENT = (0, 2, 0)                   # the oldest client version this server serves (0.2.0: the notice)
 
 Connect = Callable[[], AbstractContextManager[psycopg.Connection]]
 
