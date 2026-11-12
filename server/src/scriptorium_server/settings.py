@@ -79,6 +79,9 @@ SETTINGS: tuple[Setting, ...] = (
     Setting("limits.requests_per_minute", 120,
             "The most requests one member may send in a minute.", _between(1, 100_000),
             "a whole number from 1 to 100000"),
+    Setting("limits.upload_megabytes", 100,
+            "The largest PDF a member may donate, in megabytes.", _between(1, 2000),
+            "a whole number from 1 to 2000"),
     Setting("embedding.batch_size", 32,
             "How many texts the embedding model takes at once. Larger is faster and uses"
             " more GPU memory.", _between(1, 1024), "a whole number from 1 to 1024"),

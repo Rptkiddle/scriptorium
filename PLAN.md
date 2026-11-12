@@ -170,6 +170,12 @@ The starting collection is the first member's existing library, taken in full fr
 - Server `files.py`: `POST /v1/files` (PDF and identifier → holding area and a job; replies at once), `GET /v1/files/{key}`, `GET /v1/files/held` (identifiers with full text), `GET /v1/donations` (the member's own: waiting, done, failed with reason).
 - Client tools: download PDF (to the client's PDF folder), donate PDF (one file or a folder; skips what `/held` lists), donation progress.
 - Tests: `test_upload_replies_before_processing`, `test_progress_shows_only_own_donations`, `test_donate_folder_skips_held`, `test_download_saves_the_same_bytes`, `test_passage_search_finds_donated_text`.
+- As built:
+  - Routes: `POST /v1/files?identifier=|item=` (the PDF as the request body, `application/pdf`; at most `limits.upload_megabytes`, default 100); `GET /v1/files/held` (key, DOI, arXiv ID and the MD5 of each held PDF as donated); `GET /v1/files/{key}` (item or citation key; 404 says when the full text is held but not the PDF); `GET /v1/donations?count=&offset=`. "Held" = a stored PDF (`files`), not `has_fulltext`.
+  - The usage log never holds a PDF: uploads are logged by identifier, size and SHA-256, downloads by key, SHA-256 and size, the held list by its count.
+  - Holding files are named by the server (`holding/<uuid>.pdf`), never from the client's file name.
+  - Migration `0003`: `jobs.summary`. Donation states: waiting, processing, stored, already held, rejected (with the reason), failed (an administrator can run it again); the job payload records the item the PDF went to (`resolved`).
+  - Client tools `download_pdf` (into `pdf_dir`, checked against the server's SHA-256), `donate_pdf` (one PDF with its DOI or arXiv ID, or a folder and its subfolders; skips PDFs the server holds by MD5 or identifier and PDFs this machine sent before, recorded in `donations.jsonl` beside the results folder; at most 20 per call, stops at the rate limit; call again to continue), `donation_progress`. No new packages.
 
 **Deploy 3:** the `worker` and `grobid` containers; donate a handful of PDFs end to end.
 

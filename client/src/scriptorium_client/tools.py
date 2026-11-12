@@ -6,6 +6,9 @@ file on this machine (see results.fit); the set tools read, mark and export
 such a file.
 """
 
+import hashlib
+import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -13,7 +16,9 @@ from fastmcp import FastMCP
 
 from scriptorium_client import __version__, results
 from scriptorium_client import settings as client_settings
-from scriptorium_client.http import Server, ServerError
+from scriptorium_client.http import RateLimited, Server, ServerError
+
+DONATE_BATCH = 20  # PDFs a folder donation sends per call; call again for the rest
 
 ZOTERO = "http://127.0.0.1:23119"
 INSTRUCTIONS = """Scriptorium is a shared collection of academic literature: items (publications \
@@ -35,7 +40,10 @@ filters.
 
 A large result is saved whole to a file and the reply gives its path, the count and the first \
 rows: read on with set_read, narrow a later search to it with within_set, mark items with \
-set_mark, export with set_export_bibtex."""
+set_mark, export with set_export_bibtex.
+
+PDFs: download_pdf saves a held PDF on this machine. donate_pdf shares the member's PDFs with \
+all members (only on the member's request); donation_progress shows what became of them."""
 
 
 def zotero_state(get=httpx.get, post=httpx.post) -> dict:
@@ -156,6 +164,87 @@ class Tools:
             state.update(server_reachable=False, server_problem=str(exc))
         return {**state, **self._zotero()}
 
+    # -- files ---------------------------------------------------------------------
+
+    def download_pdf(self, key: str) -> dict:
+        """Save the held PDF of an item (item or citation key) on this
+        machine, in the client's PDF folder; returns its path. Not every
+        item with full text has its PDF held."""
+        data, name, sha256 = self.server.download(key)
+        if sha256 and hashlib.sha256(data).hexdigest() != sha256:
+            raise ServerError(f"the PDF of {key} arrived damaged; try again")
+        folder = Path(self.settings["pdf_dir"]).expanduser()
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / Path(name).name
+        path.write_bytes(data)
+        return {"saved_to": str(path), "bytes": len(data)}
+
+    def _ledger(self) -> Path:
+        return Path(self.settings["results_dir"]).expanduser().parent / "donations.jsonl"
+
+    def _sent(self) -> set[str]:
+        ledger = self._ledger()
+        if not ledger.exists():
+            return set()
+        return {json.loads(line)["md5"] for line in ledger.read_text().splitlines() if line.strip()}
+
+    def donate_pdf(self, path: str, identifier: str | None = None) -> dict:
+        """Share PDFs with all members: one PDF (with its DOI or arXiv ID
+        when known), or every PDF in a folder and its subfolders. Only on
+        the member's own request: donated PDFs are shared with all members.
+        Only the file and its identifier are sent; the server removes
+        annotations and file details, checks that the PDF is the publication
+        named (else reads the DOI on its first page), and discards what it
+        cannot match. PDFs the server holds already, and ones this machine
+        has sent before, are skipped. A folder is sent in batches: call
+        again until "remaining" is 0. Follow up with donation_progress."""
+        source = Path(path).expanduser()
+        if not source.exists():
+            raise ServerError(f"{source} does not exist")
+        files = [source] if source.is_file() else sorted(
+            p for p in source.rglob("*") if p.is_file() and p.suffix.lower() == ".pdf")
+        held = self.server.held()
+        held_md5 = {m for i in held["items"] for m in i.get("md5", [])}
+        held_ids = {(i.get("doi") or "").lower() for i in held["items"]} - {""}
+        sent = self._sent()
+        report = {"pdfs": len(files), "sent": [], "skipped_held": 0, "skipped_sent_before": 0,
+                  "remaining": 0}
+        if identifier and identifier.lower().removeprefix("https://doi.org/") in held_ids:
+            report["skipped_held"] = len(files)
+            return report
+        todo = []
+        for f in files:
+            md5 = hashlib.md5(f.read_bytes()).hexdigest()
+            if md5 in held_md5:
+                report["skipped_held"] += 1
+            elif md5 in sent:
+                report["skipped_sent_before"] += 1
+            else:
+                todo.append((f, md5))
+        ledger = self._ledger()
+        ledger.parent.mkdir(parents=True, exist_ok=True)
+        for f, md5 in todo[:DONATE_BATCH]:
+            try:
+                reply = self.server.donate(f.read_bytes(), identifier if source.is_file() else None)
+            except RateLimited as exc:
+                report["note"] = f"{exc} Call donate_pdf again in a minute to send the rest."
+                break
+            with open(ledger, "a") as log:
+                log.write(json.dumps({"md5": md5, "file": str(f), "donation": reply["donation"],
+                                      "at": datetime.now(UTC).isoformat(timespec="seconds")}) + "\n")
+            report["sent"].append({"file": f.name, "donation": reply["donation"]})
+        report["remaining"] = len(todo) - len(report["sent"])
+        if report["remaining"] and "note" not in report:
+            report["note"] = "Call donate_pdf again with the same folder to send the rest."
+        return report
+
+    def donation_progress(self, count: int = 50, offset: int = 0) -> dict:
+        """The member's own donations, newest first: waiting, processing,
+        stored, already held (another copy was there first), rejected (with
+        the reason, e.g. not the publication named) or failed (the server's
+        administrator can run it again)."""
+        return self.server.donations(count, offset)
+
     # -- sets ----------------------------------------------------------------------
 
     def set_read(self, path: str, page: int = 1, page_size: int = 20) -> dict:
@@ -183,7 +272,8 @@ class Tools:
 
 
 TOOL_NAMES = ("lookup", "list_items", "search_items", "search_passages", "item", "facets",
-              "bibtex", "status", "set_read", "set_mark", "set_export_bibtex")
+              "bibtex", "status", "set_read", "set_mark", "set_export_bibtex",
+              "download_pdf", "donate_pdf", "donation_progress")
 
 
 def agent_name() -> str:

@@ -7,13 +7,17 @@ bodies are checked against the models below; a field that does not exist
 is refused, so a mistyped input is never silently ignored.
 """
 
+import hashlib
+from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Query, Request
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from scriptorium_server import __version__, auth, retrieval
+from scriptorium_server import __version__, auth, files, retrieval
+from scriptorium_server.filestore import FileStore
 from scriptorium_server.embedding import Embedder
 from scriptorium_server.settings import Settings
 
@@ -92,6 +96,9 @@ def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
                   openapi_url=None)
     per_request = int(settings["limits.per_request"])
     per_minute = int(settings["limits.requests_per_minute"])
+    upload_bytes = int(settings["limits.upload_megabytes"]) * 1024 * 1024
+    data = Path(str(settings["data.folder"]))
+    store = FileStore(data)
 
     def serve(request: Request, name: str, inputs: dict, run) -> Any:
         return auth.handle(connect, request, name, inputs, run, per_minute)
@@ -159,6 +166,66 @@ def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
             auth.check_limit(len(body.keys), per_request, "entries")
             return retrieval.bibtex(conn, body.keys, body.format, body.abstracts)
         return serve(request, "bibtex", body.model_dump(), run)
+
+    # -- files ---------------------------------------------------------------------
+    # A PDF never enters the usage log: uploads and downloads are logged by
+    # identifier, size and hash, and the list of held PDFs by its length.
+
+    @app.post("/v1/files")
+    async def donate(request: Request,
+                     identifier: str | None = Query(None, description="The PDF's DOI or arXiv ID."),
+                     item: str | None = Query(None, description="Or the key of the item it is for.")
+                     ) -> Any:
+        """Donate a PDF (the request body, application/pdf). Replies at once;
+        the PDF is processed in the background (donation progress)."""
+        body = await request.body()
+        inputs = {"identifier": identifier, "item": item, "bytes": len(body),
+                  "sha256": hashlib.sha256(body).hexdigest()}
+
+        def run(conn, member):
+            if len(body) > upload_bytes:
+                raise auth.Refused(413, f"the PDF is {len(body) / 1048576:.0f} MB; the largest a"
+                                        f" member may donate is {upload_bytes // 1048576} MB")
+            try:
+                return files.receive(conn, body, member["id"], data / "holding", identifier, item)
+            except ValueError as exc:
+                raise auth.Refused(400, str(exc)) from exc
+        return await run_in_threadpool(serve, request, "files/donate", inputs, run)
+
+    @app.get("/v1/files/held")
+    def held(request: Request) -> Any:
+        """Every item with a held PDF (key, DOI, arXiv ID, MD5 of each PDF as
+        donated), for comparing locally before donating."""
+        def run(conn, member):
+            reply = files.held(conn)
+            response = JSONResponse(reply)
+            response.logged = {"count": reply["count"]}
+            return response
+        return serve(request, "files/held", {}, run)
+
+    @app.get("/v1/donations")
+    def donations(request: Request, count: int = Query(50, ge=1), offset: int = Query(0, ge=0)) -> Any:
+        """The member's own donations, newest first, with their state."""
+        def run(conn, member):
+            auth.check_limit(count, per_request, "donations")
+            return files.donations(conn, member["id"], count, offset)
+        return serve(request, "donations", {"count": count, "offset": offset}, run)
+
+    @app.get("/v1/files/{key}")
+    def download(key: str, request: Request) -> Any:
+        """The held PDF of an item (key or citation key)."""
+        def run(conn, member):
+            try:
+                found = files.held_file(conn, key, store)
+            except files.NotHeld as exc:
+                raise auth.Refused(404, str(exc)) from exc
+            name = f"{found['citation_key'] or found['key']}.pdf"
+            response = FileResponse(found["path"], media_type="application/pdf", filename=name,
+                                    headers={"X-Scriptorium-SHA256": found["sha256"]})
+            response.logged = {"key": found["key"], "sha256": found["sha256"],
+                               "bytes": found["bytes"]}
+            return response
+        return serve(request, "files/download", {"key": key}, run)
 
     @app.exception_handler(Exception)
     def unexpected(request: Request, exc: Exception) -> JSONResponse:

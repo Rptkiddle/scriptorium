@@ -218,8 +218,9 @@ def finish(conn: psycopg.Connection, job: Job, error: str | None = None,
            summary: str | None = None) -> None:
     """Record a claimed job as done, or as failed with its error, and close
     its run folder the same way."""
-    conn.execute("UPDATE jobs SET status = %s, finished_at = now(), error = %s WHERE id = %s",
-                 ("failed" if error else "done", error, job.id))
+    conn.execute("UPDATE jobs SET status = %s, finished_at = now(), error = %s, summary = %s"
+                 " WHERE id = %s", ("failed" if error else "done", error,
+                                    None if error else summary, job.id))
     conn.commit()
     finish_run(job.run_dir, "failed" if error else "ok", error or summary)
 

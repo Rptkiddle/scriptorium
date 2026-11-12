@@ -266,13 +266,16 @@ def _process(conn: psycopg.Connection, job, ctx: Context, path: Path) -> str:
         if not (doi := header(tei_xml)["doi"]):
             raise Rejected("no DOI or arXiv ID was given, and none is on the PDF's first page")
         key = _resolve(conn, doi, job.member, ctx.registry)
+    if job.id is not None:  # the member's progress names the item the PDF went to
+        conn.execute("UPDATE jobs SET payload = payload || jsonb_build_object('resolved', %s::text)"
+                     " WHERE id = %s", (key, job.id))
     if conn.execute("SELECT 1 FROM files WHERE item = %s", (key,)).fetchone():
-        return f"{key} has a PDF already; this one was let go"
+        return f"already held: {key} has a PDF already; this one was let go"
     if conn.execute("SELECT 1 FROM pending_files WHERE item = %s AND md5 = %s",
                     (key, md5)).fetchone():
         _store_file(conn, ctx, path, key, md5, job.member)
         conn.commit()
-        return f"{key}: the PDF its full text was made from, stored"
+        return f"stored: {key}, the PDF its full text was made from"
     tei_xml = tei_xml or _parse(ctx, key, path, md5)
     item = items.get(conn, key)
     if reason := mismatch(tei_xml, item["title"], item["creators"] or [], item["doi"] or ""):
@@ -294,4 +297,4 @@ def _process(conn: psycopg.Connection, job, ctx: Context, path: Path) -> str:
     conn.commit()
     if ctx.embedder is not None:  # the passages, and the item when the donation admitted it
         embed_pending(conn, ctx.embedder, ctx.batch_size)
-    return f"{key}: {len(found)} passages from the donated PDF"
+    return f"stored: {key}, {len(found)} passages from the donated PDF"

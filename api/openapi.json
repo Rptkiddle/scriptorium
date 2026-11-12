@@ -510,6 +510,59 @@
     "summary": "Bibtex"
    }
   },
+  "/v1/donations": {
+   "get": {
+    "description": "The member's own donations, newest first, with their state.",
+    "operationId": "donations_v1_donations_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "count",
+      "required": false,
+      "schema": {
+       "default": 50,
+       "minimum": 1,
+       "title": "Count",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "query",
+      "name": "offset",
+      "required": false,
+      "schema": {
+       "default": 0,
+       "minimum": 0,
+       "title": "Offset",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "title": "Response Donations V1 Donations Get"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Donations"
+   }
+  },
   "/v1/facets": {
    "post": {
     "operationId": "facets_v1_facets_post",
@@ -546,6 +599,132 @@
      }
     },
     "summary": "Facets"
+   }
+  },
+  "/v1/files": {
+   "post": {
+    "description": "Donate a PDF (the request body, application/pdf). Replies at once;\nthe PDF is processed in the background (donation progress).",
+    "operationId": "donate_v1_files_post",
+    "parameters": [
+     {
+      "description": "The PDF's DOI or arXiv ID.",
+      "in": "query",
+      "name": "identifier",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The PDF's DOI or arXiv ID.",
+       "title": "Identifier"
+      }
+     },
+     {
+      "description": "Or the key of the item it is for.",
+      "in": "query",
+      "name": "item",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "Or the key of the item it is for.",
+       "title": "Item"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "title": "Response Donate V1 Files Post"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Donate"
+   }
+  },
+  "/v1/files/held": {
+   "get": {
+    "description": "Every item with a held PDF (key, DOI, arXiv ID, MD5 of each PDF as\ndonated), for comparing locally before donating.",
+    "operationId": "held_v1_files_held_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "title": "Response Held V1 Files Held Get"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Held"
+   }
+  },
+  "/v1/files/{key}": {
+   "get": {
+    "description": "The held PDF of an item (key or citation key).",
+    "operationId": "download_v1_files__key__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "key",
+      "required": true,
+      "schema": {
+       "title": "Key",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "title": "Response Download V1 Files  Key  Get"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Download"
    }
   },
   "/v1/health": {
