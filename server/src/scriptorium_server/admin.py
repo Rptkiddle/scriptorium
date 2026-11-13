@@ -223,6 +223,53 @@ def seed_files(
         typer.echo(f"unreadable: {line}")
 
 
+# --- backup --------------------------------------------------------------------
+
+
+@app.command()
+def backup() -> None:
+    """Write a backup of the database, the held PDFs and the parsed full
+    texts to the backup folder, and remove backups older than the days kept."""
+    from scriptorium_server import backup as backups
+
+    current = settings.load()
+    with connect() as conn:
+        result = backups.backup(conn, _data(current), Path(str(current["backup.folder"])),
+                                int(current["backup.days_kept"]))
+    typer.echo(backups.summary_line(result) + ".")
+
+
+@app.command()
+def restore(
+    run: Annotated[str, typer.Argument(help="The backup's name (its folder under runs/), or `latest`.")],
+    database_name: Annotated[str | None, typer.Option(
+        help="Restore into this database on the same database server instead of the"
+             " server's own (it must exist and be empty).")] = None,
+    data_folder: Annotated[Path | None, typer.Option(
+        help="Restore PDFs and parsed texts into this folder instead of the data folder.")] = None,
+) -> None:
+    """Fill an empty database and an empty data folder from a backup."""
+    from psycopg.conninfo import make_conninfo
+
+    from scriptorium_server import backup as backups
+
+    current = settings.load()
+    try:
+        found = backups.find(Path(str(current["backup.folder"])), run)
+        if database_name:
+            conn = db.connect(make_conninfo(str(current["database.address"]),
+                                            dbname=database_name))
+        else:
+            conn = connect()
+        with conn:
+            counts = backups.restore(conn, found, data_folder or _data(current))
+    except (backups.BackupError, psycopg.Error) as exc:
+        _fail(str(exc))
+    rows = sum(counts["tables"].values())
+    typer.echo(f"Restored {found.name}: {len(counts['tables'])} tables, {rows} rows;"
+               f" {counts['pdfs']} PDFs, {counts['tei']} parsed-text files.")
+
+
 # --- passages ------------------------------------------------------------------
 
 

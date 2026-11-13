@@ -31,9 +31,11 @@ def migration_files() -> list[tuple[str, str]]:
     return [(f.name, f.read_text()) for f in files]
 
 
-def migrate(conn: psycopg.Connection) -> list[str]:
+def migrate(conn: psycopg.Connection, only: set[str] | None = None) -> list[str]:
     """Apply the migrations not yet applied; returns their names. Safe to
-    run at every start and from two processes at once (the second waits)."""
+    run at every start and from two processes at once (the second waits).
+    `only` limits it to the migrations of those names (a restore builds the
+    schema a backup was made with before loading it)."""
     applied: list[str] = []
     with conn.transaction():
         conn.execute("SELECT pg_advisory_xact_lock(%s)", (_MIGRATION_LOCK,))
@@ -41,7 +43,7 @@ def migrate(conn: psycopg.Connection) -> list[str]:
                      " name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())")
         done = {row["name"] for row in conn.execute("SELECT name FROM schema_migrations")}
         for name, sql in migration_files():
-            if name in done:
+            if name in done or (only is not None and name not in only):
                 continue
             conn.execute(sql)
             conn.execute("INSERT INTO schema_migrations (name) VALUES (%s)", (name,))

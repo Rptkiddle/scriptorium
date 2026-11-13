@@ -205,6 +205,13 @@ The starting collection is the first member's existing library, taken in full fr
 - `backup.py`, `scriptorium backup` and a nightly timer: database dump and PDFs added since the last run, to the backup folder, older runs removed after the days kept.
 - `scriptorium restore <run>` into an empty database and file store.
 - Tests: `test_backup_then_restore_gives_the_same_counts`, `test_old_backups_are_removed`. On the server: one real restore into a scratch database before members rely on it.
+- As built (2026-11-13):
+  - `backup.py`: each table written with `COPY` inside one repeatable-read transaction (the database as it was at one moment; the server keeps running) to `runs/<YYYY-MM-DD-HHMMSS>/tables/<table>.copy.gz`; `manifest.json` written last (migrations, columns and row counts per table, file counts); a run folder without it is unfinished. No `pg_dump`: the server image holds no PostgreSQL programs, and the tests restore into a second schema.
+  - Files: `files/pdfs/` and `files/tei/` in the backup folder are one copy each of the held PDFs and the parsed full texts (added to the plan: passages can only be cut again from the parsed texts), added to by each backup; never removed from (a PDF taken out of the collection is removed there by hand). Not backed up: the holding area (unstripped donations), run folders, the model, the settings file.
+  - `prune`: run folders older than `backup.days_kept`, and unfinished ones older than a day, are removed; the newest finished backup always stays.
+  - `scriptorium restore <run|latest> [--database-name] [--data-folder]`: refuses a database with tables or a data folder with PDFs or parsed texts; builds the schema with the backup's migrations (`db.migrate(only=)`), loads the tables in the order their references need, checks every row count against the manifest, continues the numbering, applies later migrations, copies back the PDFs the database refers to and the parsed texts. A backup made with migrations this server lacks is refused.
+  - Further tests: `test_second_backup_copies_only_new_files`, `test_restore_refuses_a_target_that_is_not_empty`, `test_restore_refuses_a_backup_it_cannot_read`, `test_backup_and_restore_commands`.
+  - The nightly run is a line in the administrator's crontab (docs/deploy.md), not a timer in the containers.
 
 ## Step 6: intake job
 
