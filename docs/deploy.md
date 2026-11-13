@@ -107,6 +107,31 @@ Each PDF whose full text the import brought is recognised by its content and sto
 
 `docker compose run --rm cli passages clean-stamps` reports which stored passages hold a publisher's download stamp ("Downloaded from … by … on <date>"); with `--apply` it removes the stamps, deletes passages that held nothing else, and makes new vectors for the rest. Every change is recorded in its run folder (`runs/clean-stamps/`), which therefore holds the removed stamps. New full texts are cut without stamps.
 
+## Back up and restore
+
+```sh
+docker compose run --rm cli backup
+```
+
+writes a backup to the backup folder (setting `backup.folder`, by default `/srv/scriptorium/data/backups` on the host): every table of the database under `runs/<date-time>/`, and one copy of the held PDFs and the parsed full texts under `files/`, to which each backup adds what is new. The server keeps running meanwhile. Backups older than `backup.days_kept` days (14) are removed; the newest always stays. For a nightly backup, add a line to the crontab of an account that may run Docker:
+
+```
+30 3 * * * cd /path/to/scriptorium && docker compose run --rm -T cli backup >> $HOME/scriptorium-backup.log 2>&1
+```
+
+The backup holds what the database holds, the usage log included, for as long as backups are kept. Not in it: donations still waiting to be processed, run folders, the embedding model, `.env` and the settings file. A PDF removed from the collection stays under `files/` until it is deleted there. The backup folder is on the same machine as the data; copy it elsewhere to survive the loss of the machine.
+
+```sh
+docker compose run --rm cli restore latest
+```
+
+fills an empty database and an empty data folder from the newest backup (or the one named, e.g. `2026-11-13-033000`), and checks every table's row count against what the backup recorded. It refuses a database that holds tables. To try a restore beside the running server, create a second database and restore into it and a spare folder:
+
+```sh
+docker compose exec db createdb -U scriptorium restore_test
+docker compose run --rm cli restore latest --database-name restore_test --data-folder /srv/scriptorium/restore_test
+```
+
 ## Update
 
 ```sh
