@@ -94,6 +94,9 @@ SETTINGS: tuple[Setting, ...] = (
             "Contact address sent to Crossref and OpenAlex with each request, which they"
             " ask of regular users. Empty sends none.", _email_or_empty,
             "an email address, or empty"),
+    Setting("sources.openalex_api_key", "",
+            "OpenAlex API key, for harvesting journals (OpenAlex charges per request"
+            " beyond a small free daily allowance).", secret=True),
     Setting("sources.s2_api_key", "", "Semantic Scholar API key (abstracts).", secret=True),
     Setting("sources.elsevier_api_key", "", "Elsevier API key for Scopus (abstracts).",
             secret=True),

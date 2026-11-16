@@ -223,6 +223,8 @@ The starting collection is the first member's existing library, taken in full fr
 - The outside sources' current access terms are checked before this task starts.
 - Admin command gains `backfill [--venue] [--from]`; `venues add` enqueues that venue's backfill. Test: `test_venues_add_enqueues_backfill`.
 
+**As built (2026-11-16, first part):** the backfill source is OpenAlex, not Crossref (decided 2026-11-16: OpenAlex records carry each paper's type, language and retraction flag, which the harvest rules need; Crossref labels nearly everything "journal-article"). `sources/openalex.py`: `works()` (cursor paging by primary-location source ID and publication date), `to_record()` (as-printed author names first), `rule()` (types article and review; not retracted; English). `intake.py`: `backfill()` admits each kept work under the venue's own name and records its `openalex_id` (migration 0004), so a re-run adds only what is new, DOI or not; counts to the run folder. Admin: `venues import <csv>` (the journal list; MIXED marked needs_filter; a duplicate name gets its publisher added), `backfill --all | --source-id`, a job kind `backfill`; setting `sources.openalex_api_key`. Not built yet: the abstract fill for harvested items (not now, decided 2026-11-16), weekly surveillance (OpenAlex's "changed since" filter needs a paid plan; Crossref's index-date filter is free), the MIXED paper filter. Pilot (15 journal records, 13,644 papers): $0.014 and about 2 minutes..
+
 **Deploy 6:** the weekly surveillance timer. Subscribe the first venues and run their backfill. Data now accumulates for the intake-filter question.
 
 ---

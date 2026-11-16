@@ -47,7 +47,19 @@ def job_handlers(current: settings.Settings) -> dict[str, jobs.Handler]:
     def run_fulltext(conn, job):
         return fulltext.process(conn, job, worker_context(conn, current, context))
 
-    return {"fulltext": run_fulltext}
+    def run_backfill(conn, job):
+        from scriptorium_server import intake
+
+        venue = conn.execute("SELECT * FROM venues WHERE id = %s",
+                             (job.payload["venue_id"],)).fetchone()
+        if venue is None:
+            raise ValueError(f"no venue with id {job.payload['venue_id']}")
+        result = intake.backfill(conn, venue, job.run_dir,
+                                 api_key=str(sources["openalex_api_key"]),
+                                 since=job.payload.get("since") or intake.DEFAULT_SINCE)
+        return intake.summary(result)
+
+    return {"fulltext": run_fulltext, "backfill": run_backfill}
 
 
 def worker_context(conn, current: settings.Settings, made: list):
@@ -384,6 +396,72 @@ def venues_remove(name: str) -> None:
     if row is None:
         _fail(f"no subscribed venue named {name.strip()!r}")
     typer.echo(f"Unsubscribed from {name.strip()!r}; its items stay.")
+
+
+@venues_app.command("import")
+def venues_import(
+    path: Annotated[Path, typer.Argument(help="A journal list: CSV with the columns openalex_id,"
+                                              " journal, issns, publisher and coded_class.")],
+) -> None:
+    """Subscribe to every journal in a list, harvested through OpenAlex.
+    Journals of class MIXED are marked as needing a filter. A journal whose
+    name another journal holds already is named with its publisher added."""
+    import csv
+
+    rows = list(csv.DictReader(path.open(encoding="utf-8")))
+    added = renamed = 0
+    with connect() as conn:
+        for row in rows:
+            source_id, name = row["openalex_id"].strip(), row["journal"].strip()
+            issns = [i.strip() for i in (row.get("issns") or "").split(";") if i.strip()]
+            other = conn.execute("SELECT source_id FROM venues WHERE lower(name) = lower(%s)",
+                                 (name,)).fetchone()
+            if other and other["source_id"] not in (None, source_id):
+                name, renamed = f"{name} ({row.get('publisher') or source_id})", renamed + 1
+            conn.execute(
+                "INSERT INTO venues (name, issns, adapter, source_id, publisher, category,"
+                " subscribed, needs_filter) VALUES (%s, %s, 'openalex', %s, %s, 'Journals',"
+                " true, %s) ON CONFLICT (lower(name)) DO UPDATE SET issns = EXCLUDED.issns,"
+                " adapter = 'openalex', source_id = EXCLUDED.source_id,"
+                " publisher = coalesce(venues.publisher, EXCLUDED.publisher),"
+                " category = coalesce(venues.category, EXCLUDED.category),"
+                " subscribed = true, needs_filter = EXCLUDED.needs_filter",
+                (name, issns, source_id, row.get("publisher") or None,
+                 (row.get("coded_class") or "").strip().upper() == "MIXED"))
+            added += 1
+    typer.echo(f"Subscribed to {added} journals ({renamed} named with their publisher added,"
+               f" as another journal has the same name).")
+
+
+@app.command()
+def backfill(
+    source_id: Annotated[list[str] | None, typer.Option(help="A venue's OpenAlex source ID;"
+                                                       " repeat for several.")] = None,
+    all_venues: Annotated[bool, typer.Option("--all", help="Every subscribed OpenAlex venue"
+                                             " that needs no filter.")] = False,
+    since: Annotated[str, typer.Option(help="First publication date, YYYY-MM-DD.")] = "2020-01-01",
+) -> None:
+    """Queue a harvest of venues' papers since a date, one job per venue,
+    for the worker. Run again, it adds only what is new."""
+    if bool(source_id) == all_venues:
+        _fail("name venues with --source-id, or use --all")
+    with connect() as conn:
+        if all_venues:
+            venues = conn.execute("SELECT * FROM venues WHERE subscribed AND adapter = 'openalex'"
+                                  " AND NOT needs_filter ORDER BY id").fetchall()
+        else:
+            venues = conn.execute("SELECT * FROM venues WHERE source_id = ANY(%s)"
+                                  " AND adapter = 'openalex' ORDER BY id",
+                                  (source_id,)).fetchall()
+            missing = set(source_id) - {v["source_id"] for v in venues}
+            if missing:
+                _fail(f"no OpenAlex venue with source ID {', '.join(sorted(missing))}")
+            waiting = [v["name"] for v in venues if v["needs_filter"]]
+            if waiting:
+                _fail(f"these venues wait for a filter: {', '.join(waiting)}")
+        for venue in venues:
+            jobs.enqueue(conn, "backfill", {"venue_id": venue["id"], "since": since})
+    typer.echo(f"Queued {len(venues)} harvest jobs; the worker runs them in turn.")
 
 
 # --- jobs ----------------------------------------------------------------------

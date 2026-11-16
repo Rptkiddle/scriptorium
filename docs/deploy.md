@@ -68,11 +68,16 @@ Every admin command runs in a container of its own:
 docker compose run --rm cli members add <name>     # prints the member's API key once
 docker compose run --rm cli members list
 docker compose run --rm cli venues add "<name>" --adapter crossref --issn 1234-5678
+docker compose run --rm cli venues import /srv/scriptorium/<list>.csv   # a journal list, harvested through OpenAlex
+docker compose run --rm cli backfill --all          # queue a harvest of every such journal since 2020
+docker compose run --rm cli backfill --source-id S107737141   # or of named journals
 docker compose run --rm cli jobs list
 docker compose run --rm cli jobs retry <id>        # run a failed job again
 docker compose run --rm cli settings show
 docker compose run --rm cli settings set <name> <value>
 ```
+
+A journal list is a CSV file with the columns `openalex_id`, `journal`, `issns`, `publisher` and `coded_class`; journals of class `MIXED` are held back until a filter for them exists. The harvest needs an OpenAlex API key (`settings set sources.openalex_api_key <key>`). It admits research articles and reviews in English that are not retracted, and records each paper's OpenAlex work, so running it again adds only what is new. Each journal's counts are in its job's run folder (`runs/backfill/`).
 
 The database's address and password come from `.env`; every other setting is in `settings/settings.toml`, shown and changed with the `settings` commands.
 
