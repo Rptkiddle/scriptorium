@@ -4,6 +4,8 @@ import math
 
 import pytest
 
+from scriptorium_server import embedding
+
 from scriptorium_server.embedding import (
     DIM,
     FakeEmbedder,
@@ -24,7 +26,7 @@ class Recording(FakeEmbedder):
         self.revision = revision
         self.batches: list[list[str]] = []
 
-    def embed(self, texts):
+    def embed(self, texts, batch_size=32):
         self.batches.append(list(texts))
         return super().embed(texts)
 
@@ -43,10 +45,11 @@ def test_item_document_is_title_then_abstract_on_one_line_each():
     assert item_document("A Title", None) == "A Title"
 
 
-def test_pending_items_get_vectors(db):
+def test_pending_items_get_vectors(db, monkeypatch):
     keys = [admit(db, paper(n, "About echo chambers." if n == 0 else ""), "venue")[0]
             for n in range(5)]
     embedder = Recording()
+    monkeypatch.setattr(embedding, "BATCHES_AT_ONCE", 1)
     assert embed_pending_items(db, embedder, batch_size=2) == 5
     assert [len(batch) for batch in embedder.batches] == [2, 2, 1]
     assert "Paper number 0\nAbout echo chambers." in embedder.batches[0] + embedder.batches[1] \
@@ -170,6 +173,38 @@ def test_pending_embedding_stops_at_its_limit(db):
     for n in range(5):
         admit(db, paper(n), "venue")
     embedder = Recording()
-    assert embed_pending(db, embedder, batch_size=2, limit=3) == (4, 0)  # whole batches
-    assert embed_pending(db, embedder, batch_size=2, limit=3) == (1, 0)
+    assert embed_pending(db, embedder, batch_size=2, limit=3) == (3, 0)
+    assert embed_pending(db, embedder, batch_size=2, limit=3) == (2, 0)
     assert embed_pending(db, embedder, batch_size=2, limit=3) == (0, 0)
+
+
+class OutOfMemoryError(RuntimeError):
+    """Named as torch's error is."""
+
+
+def test_texts_are_encoded_by_length_and_returned_in_their_order(monkeypatch):
+    embedder, _ = _real(monkeypatch, "cuda")
+    seen = []
+    real = embedder._load("cuda")
+    monkeypatch.setattr(embedder, "_load", lambda device: type("M", (), {"encode": staticmethod(
+        lambda texts, **o: (seen.append(list(texts)), real.encode(texts, **o))[1])})())
+    texts = ["bb bb", "a", "dddd dddd dddd", "ccc ccc c"]
+    assert embedder.embed(texts, batch_size=2) == FakeEmbedder().embed(texts)
+    assert seen == [["dddd dddd dddd", "ccc ccc c"], ["bb bb", "a"]]
+
+
+def test_a_batch_too_large_for_the_gpu_is_encoded_in_halves_on_the_gpu(monkeypatch):
+    embedder, loaded = _real(monkeypatch, "cuda")
+    real = embedder._load("cuda")
+    sizes = []
+
+    def encode(texts, **options):
+        sizes.append(len(texts))
+        if len(texts) > 2:
+            raise OutOfMemoryError("CUDA out of memory")
+        return real.encode(texts, **options)
+
+    monkeypatch.setattr(embedder, "_load", lambda device: type("M", (), {"encode": staticmethod(encode)})())
+    texts = ["one", "two two", "three three three", "four four four four", "five"]
+    assert embedder.embed(texts, batch_size=8) == FakeEmbedder().embed(texts)
+    assert sizes == [5, 2, 3, 1, 2] and embedder.device == "cuda"

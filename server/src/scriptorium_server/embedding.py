@@ -37,8 +37,9 @@ class Embedder:
 
     revision = ""  # the model's revision; "" when the embedder has none
 
-    def embed(self, texts: list[str]) -> list[list[float]]:
-        """One vector per document text (an item's title and abstract, or a passage)."""
+    def embed(self, texts: list[str], batch_size: int = 32) -> list[list[float]]:
+        """One vector per document text (an item's title and abstract, or a
+        passage), in the texts' order; the model takes batch_size at once."""
         raise NotImplementedError
 
     def embed_query(self, text: str, kind: str = "passages") -> list[float]:
@@ -59,7 +60,7 @@ class FakeEmbedder(Embedder):
             vector[0] = 1.0
         return [x / norm for x in vector]
 
-    def embed(self, texts: list[str]) -> list[list[float]]:
+    def embed(self, texts: list[str], batch_size: int = 32) -> list[list[float]]:
         return [self._vector(text) for text in texts]
 
     def embed_query(self, text: str, kind: str = "passages") -> list[float]:
@@ -139,7 +140,7 @@ class RealEmbedder(Embedder):
         try:
             return self.model.encode(texts, normalize_embeddings=True, **options)
         except RuntimeError as exc:  # CUDA errors are RuntimeErrors
-            if self.device != "cuda":
+            if self.device != "cuda" or _out_of_memory(exc):
                 raise
             print(f"embedding: the GPU failed ({type(exc).__name__}); continuing on the CPU"
                   " until this process is restarted", flush=True)
@@ -190,14 +191,32 @@ class RealEmbedder(Embedder):
             gc.collect()
             self._empty_cache()
 
+    def _encode_fitting(self, texts: list[str]) -> list:
+        """The texts' vectors, as one batch when the GPU's memory allows,
+        else in halves (a batch is padded to its longest text, so a few
+        very long texts can need more memory than there is)."""
+        try:
+            return list(self._encode(texts, batch_size=len(texts), show_progress_bar=False))
+        except RuntimeError as exc:
+            if not _out_of_memory(exc) or len(texts) == 1:
+                raise
+        self._empty_cache()
+        half = len(texts) // 2
+        return self._encode_fitting(texts[:half]) + self._encode_fitting(texts[half:])
+
     def embed(self, texts: list[str], batch_size: int = 32) -> list[list[float]]:
         self.last_used = time.monotonic()
-        out: list[list[float]] = []
-        for i in range(0, len(texts), batch_size):
+        out: list = [None] * len(texts)
+        # Texts of similar length are encoded together, longest first: a
+        # batch is padded to its longest text, so mixed lengths waste most
+        # of the work.
+        order = sorted(range(len(texts)), key=lambda i: len(texts[i]), reverse=True)
+        for start in range(0, len(order), batch_size):
+            batch = order[start : start + batch_size]
             with self._lock:
-                vectors = self._encode(texts[i : i + batch_size], batch_size=batch_size,
-                                       show_progress_bar=False)
-            out.extend(v.tolist() for v in vectors)
+                vectors = self._encode_fitting([texts[i] for i in batch])
+            for i, vector in zip(batch, vectors, strict=True):
+                out[i] = vector.tolist()
         # Release the GPU allocator's cached buffers after each document —
         # without this a full-library sync accumulates tens of GB of cache.
         with self._lock:
@@ -210,6 +229,17 @@ class RealEmbedder(Embedder):
         with self._lock:
             vector = self._encode([prompt + text])[0]
         return vector.tolist()
+
+
+def _out_of_memory(exc: BaseException) -> bool:
+    """Whether the error is the GPU running out of memory (as opposed to
+    the GPU being gone)."""
+    return type(exc).__name__ == "OutOfMemoryError"
+
+
+# How many batches of texts are read from the database and embedded in one
+# go, so that texts of similar length can be encoded together.
+BATCHES_AT_ONCE = 32
 
 
 def item_document(title: str, abstract: str | None) -> str:
@@ -241,20 +271,28 @@ def check_revision(conn: psycopg.Connection, embedder: Embedder) -> None:
             " cannot be compared")
 
 
+def _portion(batch_size: int, limit: int | None, done: int) -> int:
+    """How many texts to read next: BATCHES_AT_ONCE batches, or what is
+    left of the limit."""
+    portion = batch_size * BATCHES_AT_ONCE
+    return portion if limit is None else min(portion, limit - done)
+
+
 def embed_pending_items(conn: psycopg.Connection, embedder: Embedder,
                         batch_size: int = 32, limit: int | None = None) -> int:
-    """Give every item without a vector one, a batch at a time, each batch
-    committed; returns how many were embedded. With `limit`, stops once
-    that many are done, leaving the rest for a later call."""
+    """Give every item without a vector one, a portion at a time, each
+    portion committed; returns how many were embedded. With `limit`, stops
+    once that many are done, leaving the rest for a later call."""
     check_revision(conn, embedder)
     done = 0
     while limit is None or done < limit:
         rows = conn.execute("SELECT key, title, abstract FROM items WHERE embedding IS NULL"
-                            " ORDER BY key LIMIT %s", (batch_size,)).fetchall()
+                            " ORDER BY key LIMIT %s", (_portion(batch_size, limit, done),)).fetchall()
         if not rows:
             conn.commit()
             return done
-        vectors = embedder.embed([item_document(r["title"], r["abstract"]) for r in rows])
+        vectors = embedder.embed([item_document(r["title"], r["abstract"]) for r in rows],
+                                 batch_size)
         conn.cursor().executemany(
             "UPDATE items SET embedding = %s WHERE key = %s",
             [(vector_literal(v), r["key"]) for r, v in zip(rows, vectors, strict=True)])
@@ -273,11 +311,11 @@ def embed_pending_passages(conn: psycopg.Connection, embedder: Embedder,
         rows = conn.execute(
             "SELECT item, idx, coalesce(embed_text, text) AS text FROM passages"
             " WHERE embedding IS NULL AND NOT artefact ORDER BY item, idx LIMIT %s",
-            (batch_size,)).fetchall()
+            (_portion(batch_size, limit, done),)).fetchall()
         if not rows:
             conn.commit()
             return done
-        vectors = embedder.embed([r["text"] for r in rows])
+        vectors = embedder.embed([r["text"] for r in rows], batch_size)
         conn.cursor().executemany(
             "UPDATE passages SET embedding = %s WHERE item = %s AND idx = %s",
             [(vector_literal(v), r["item"], r["idx"]) for r, v in zip(rows, vectors, strict=True)])
