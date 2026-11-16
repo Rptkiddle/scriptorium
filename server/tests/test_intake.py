@@ -90,7 +90,7 @@ def test_venue_not_harvested_through_openalex_is_refused(db, tmp_path):
 @pytest.fixture
 def run(db, empty_schema, tmp_path, monkeypatch):
     monkeypatch.setattr(admin, "connect", lambda: database.connect(*empty_schema))
-    monkeypatch.setattr(admin, "IDLE_EMBEDDING", False)
+    (tmp_path / "settings.toml").write_text('[embedding]\nwhen_idle = "off"\n')  # no model in these tests
     monkeypatch.setenv("SCRIPTORIUM_SETTINGS", str(tmp_path / "settings.toml"))
 
     def invoke(*args):

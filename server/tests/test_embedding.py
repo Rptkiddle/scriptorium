@@ -98,3 +98,78 @@ def test_embed_pending_fills_items_and_passages_and_leaves_the_model_alone_other
             raise AssertionError("nothing waits; the model must not be used")
 
     assert embed_pending(db, Untouchable()) == (0, 0)
+
+
+# --- the real embedder's device handling (no model: the model is replaced) ----------
+
+
+class _Model:
+    """Stands in for the sentence-transformers model on one device."""
+
+    def __init__(self, device, fails=False):
+        self.device, self.fails, self.calls = device, fails, 0
+
+    def encode(self, texts, **options):
+        self.calls += 1
+        if self.fails:
+            raise RuntimeError("CUDA error: unknown error")
+        return [FakeEmbedder()._vector(t) for t in texts]
+
+
+class _Vector(list):
+    def tolist(self):
+        return list(self)
+
+
+def _real(monkeypatch, best, fails_on=()):
+    from scriptorium_server.embedding import RealEmbedder
+
+    monkeypatch.delenv("SCRIPTORIUM_DEVICE", raising=False)
+    loaded = []
+    embedder = RealEmbedder(revision="r1")
+    monkeypatch.setattr(embedder, "_best_device", lambda: best)
+    monkeypatch.setattr(embedder, "_empty_cache", lambda: None)
+
+    def load(device):
+        model = _Model(device, fails=device in fails_on)
+        real = model.encode
+        model.encode = lambda texts, **o: [_Vector(v) for v in real(texts, **o)]
+        loaded.append(device)
+        return model
+
+    monkeypatch.setattr(embedder, "_load", load)
+    return embedder, loaded
+
+
+def test_real_embedder_uses_the_best_device(monkeypatch):
+    embedder, loaded = _real(monkeypatch, "cuda")
+    assert len(embedder.embed(["a b", "c"])) == 2
+    assert embedder.device == "cuda" and loaded == ["cuda"]
+
+
+def test_a_failing_gpu_moves_the_embedder_to_the_cpu_and_keeps_it_there(monkeypatch, capsys):
+    embedder, loaded = _real(monkeypatch, "cuda", fails_on=("cuda",))
+    assert embedder.embed_query("echo chambers") == FakeEmbedder().embed_query(
+        "Instruct: Given a research question, retrieve relevant passages from"
+        " academic papers that help answer the question\nQuery: echo chambers")
+    assert embedder.device == "cpu" and loaded == ["cuda", "cpu"]
+    assert "continuing on the CPU" in capsys.readouterr().out
+    embedder.embed(["again"])
+    assert loaded == ["cuda", "cpu"]  # no second attempt at the GPU
+
+
+def test_an_error_on_the_cpu_is_raised(monkeypatch):
+    embedder, _ = _real(monkeypatch, "cpu", fails_on=("cpu",))
+    with pytest.raises(RuntimeError):
+        embedder.embed(["a"])
+
+
+def test_pending_embedding_stops_at_its_limit(db):
+    from scriptorium_server.embedding import embed_pending
+
+    for n in range(5):
+        admit(db, paper(n), "venue")
+    embedder = Recording()
+    assert embed_pending(db, embedder, batch_size=2, limit=3) == (4, 0)  # whole batches
+    assert embed_pending(db, embedder, batch_size=2, limit=3) == (1, 0)
+    assert embed_pending(db, embedder, batch_size=2, limit=3) == (0, 0)

@@ -46,7 +46,7 @@ Client modules: `settings`, `http`, `results`, `tools`, `zotero`, `cli`.
 
 ## Deployment
 
-Docker Compose (`compose.yaml`, values in `.env`; steps in `docs/deploy.md`). Containers: `db` (`pgvector/pgvector:0.8.7-pg17`), `cli` (the admin command, one-off: `docker compose run --rm cli <command>`), `server` (Task 9), `worker` and `grobid` (`grobid/grobid:0.9.1-crf`, Task 11), all but `db` and `grobid` from one image (`server/Dockerfile`). `server` embeds queries on the CPU; `worker` embeds on the CPU too, enough for donations one by one (SAL's containers lose the GPU nightly); GPU for bulk embedding comes with the intake job if needed. `worker` and `cli` reach GROBID at `http://grobid:8070` (`SCRIPTORIUM_GROBID_ADDRESS`).
+Docker Compose (`compose.yaml`, values in `.env`; steps in `docs/deploy.md`). Containers: `db` (`pgvector/pgvector:0.8.7-pg17`), `cli` (the admin command, one-off: `docker compose run --rm cli <command>`), `server` (Task 9), `worker` and `grobid` (`grobid/grobid:0.9.1-crf`, Task 11), all but `db` and `grobid` from one image (`server/Dockerfile`). `server` and `worker` embed on the GPU when `compose.gpu.yaml` gives them one (opt-in through `COMPOSE_FILE` in `.env`), else on the CPU; a GPU lost while running (SAL's containers lose it nightly) moves the embedder to the CPU until a restart, which `scripts/gpu-check.sh` does from cron when no job runs. PyTorch on Linux is pinned to its CUDA 12.6 builds (drivers from 560). The idle worker embeds in portions (`IDLE_PORTION` texts), re-reading `embedding.when_idle` and `embedding.batch_size` between them. `worker` and `cli` reach GROBID at `http://grobid:8070` (`SCRIPTORIUM_GROBID_ADDRESS`).
 
 | What | On the host | In the containers |
 |---|---|---|

@@ -68,10 +68,13 @@ class FakeEmbedder(Embedder):
 
 class RealEmbedder(Embedder):
     """The embedding model, through sentence-transformers, on the GPU when
-    there is one.
+    there is one, else on the CPU.
 
     The model loads on first use and can be unloaded when idle (unload();
-    the next encode reloads it).
+    the next encode reloads it). A GPU that stops answering (a container
+    can lose its GPU while it runs) does not stop the embedder: the model
+    is loaded again on the CPU and the texts are encoded there. The process
+    then stays on the CPU; a restart brings it back to the GPU.
     """
 
     def __init__(self, model_name: str = MODEL, truncate_dim: int | None = DIM,
@@ -91,40 +94,70 @@ class RealEmbedder(Embedder):
         # embed waits at most one sub-batch, not a whole paper.
         self._lock = threading.Lock()
 
+    def _best_device(self) -> str:
+        import torch
+
+        if torch.cuda.is_available():
+            return "cuda"
+        if torch.backends.mps.is_available():
+            return "mps"
+        return "cpu"
+
+    def _load(self, device: str):
+        """The model on the device."""
+        # Load from the local HF cache without network checks: the hub
+        # freshness ping can hang indefinitely on flaky connections.
+        # Set SCRIPTORIUM_HF_ONLINE=1 to allow a first-time model download.
+        if os.environ.get("SCRIPTORIUM_HF_ONLINE", "") not in {"1", "true"}:
+            os.environ.setdefault("HF_HUB_OFFLINE", "1")
+
+        from sentence_transformers import SentenceTransformer
+
+        try:
+            # truncate_dim relies on the model's Matryoshka training:
+            # vectors are cut to the leading dimensions, then normalised.
+            return SentenceTransformer(
+                self.model_name, device=device, truncate_dim=self.truncate_dim,
+                revision=self._revision or None,
+            )
+        except OSError as exc:
+            raise RuntimeError(
+                f"Embedding model {self.model_name!r} not found in the local"
+                " HF cache. Run once with SCRIPTORIUM_HF_ONLINE=1 to download it."
+            ) from exc
+
     @property
     def model(self):
         if self._model is None:
-            # Load from the local HF cache without network checks: the hub
-            # freshness ping can hang indefinitely on flaky connections.
-            # Set SCRIPTORIUM_HF_ONLINE=1 to allow a first-time model download.
-            if os.environ.get("SCRIPTORIUM_HF_ONLINE", "") not in {"1", "true"}:
-                os.environ.setdefault("HF_HUB_OFFLINE", "1")
-
-            import torch
-            from sentence_transformers import SentenceTransformer
-
-            if self.device:
-                device = self.device
-            elif torch.cuda.is_available():
-                device = "cuda"
-            elif torch.backends.mps.is_available():
-                device = "mps"
-            else:
-                device = "cpu"
-            self.device = device
-            try:
-                # truncate_dim relies on the model's Matryoshka training:
-                # vectors are cut to the leading dimensions, then normalised.
-                self._model = SentenceTransformer(
-                    self.model_name, device=device, truncate_dim=self.truncate_dim,
-                    revision=self._revision or None,
-                )
-            except OSError as exc:
-                raise RuntimeError(
-                    f"Embedding model {self.model_name!r} not found in the local"
-                    " HF cache. Run once with SCRIPTORIUM_HF_ONLINE=1 to download it."
-                ) from exc
+            self.device = self.device or self._best_device()
+            self._model = self._load(self.device)
         return self._model
+
+    def _encode(self, texts: list[str], **options):
+        """The texts' vectors (call with the lock held). When the GPU fails,
+        the model moves to the CPU and the texts are encoded there."""
+        try:
+            return self.model.encode(texts, normalize_embeddings=True, **options)
+        except RuntimeError as exc:  # CUDA errors are RuntimeErrors
+            if self.device != "cuda":
+                raise
+            print(f"embedding: the GPU failed ({type(exc).__name__}); continuing on the CPU"
+                  " until this process is restarted", flush=True)
+            self._model = None
+            self.device = "cpu"
+            return self.model.encode(texts, normalize_embeddings=True, **options)
+
+    def _empty_cache(self) -> None:
+        """Release the accelerator's cached buffers (a shared GPU gets its
+        memory back between requests)."""
+        if self.device not in ("cuda", "mps"):
+            return
+        import torch
+
+        try:
+            (torch.cuda if self.device == "cuda" else torch.mps).empty_cache()
+        except RuntimeError:  # a lost GPU has nothing to release
+            pass
 
     @property
     def revision(self) -> str:  # noqa: F811 (replaces the base's empty value)
@@ -155,42 +188,27 @@ class RealEmbedder(Embedder):
                 return
             self._model = None
             gc.collect()
-            import torch
-
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            elif torch.backends.mps.is_available():
-                torch.mps.empty_cache()
+            self._empty_cache()
 
     def embed(self, texts: list[str], batch_size: int = 32) -> list[list[float]]:
         self.last_used = time.monotonic()
         out: list[list[float]] = []
         for i in range(0, len(texts), batch_size):
             with self._lock:
-                vectors = self.model.encode(
-                    texts[i : i + batch_size],
-                    batch_size=batch_size,
-                    normalize_embeddings=True,
-                    show_progress_bar=False,
-                )
+                vectors = self._encode(texts[i : i + batch_size], batch_size=batch_size,
+                                       show_progress_bar=False)
             out.extend(v.tolist() for v in vectors)
         # Release the GPU allocator's cached buffers after each document —
         # without this a full-library sync accumulates tens of GB of cache.
-        import torch
-
-        if torch.cuda.is_available():
-            with self._lock:
-                torch.cuda.empty_cache()
-        elif torch.backends.mps.is_available():
-            with self._lock:
-                torch.mps.empty_cache()
+        with self._lock:
+            self._empty_cache()
         return out
 
     def embed_query(self, text: str, kind: str = "passages") -> list[float]:
         prompt = {"passages": _QUERY_PROMPT, "items": _ITEM_QUERY_PROMPT}[kind]
         self.last_used = time.monotonic()
         with self._lock:
-            vector = self.model.encode([prompt + text], normalize_embeddings=True)[0]
+            vector = self._encode([prompt + text])[0]
         return vector.tolist()
 
 
@@ -224,12 +242,13 @@ def check_revision(conn: psycopg.Connection, embedder: Embedder) -> None:
 
 
 def embed_pending_items(conn: psycopg.Connection, embedder: Embedder,
-                        batch_size: int = 32) -> int:
+                        batch_size: int = 32, limit: int | None = None) -> int:
     """Give every item without a vector one, a batch at a time, each batch
-    committed; returns how many were embedded."""
+    committed; returns how many were embedded. With `limit`, stops once
+    that many are done, leaving the rest for a later call."""
     check_revision(conn, embedder)
     done = 0
-    while True:
+    while limit is None or done < limit:
         rows = conn.execute("SELECT key, title, abstract FROM items WHERE embedding IS NULL"
                             " ORDER BY key LIMIT %s", (batch_size,)).fetchall()
         if not rows:
@@ -241,15 +260,16 @@ def embed_pending_items(conn: psycopg.Connection, embedder: Embedder,
             [(vector_literal(v), r["key"]) for r, v in zip(rows, vectors, strict=True)])
         conn.commit()
         done += len(rows)
+    return done
 
 
 def embed_pending_passages(conn: psycopg.Connection, embedder: Embedder,
-                           batch_size: int = 32) -> int:
+                           batch_size: int = 32, limit: int | None = None) -> int:
     """Give every passage without a vector one, except artefacts, which
-    never get one; returns how many were embedded."""
+    never get one; returns how many were embedded. `limit` as for items."""
     check_revision(conn, embedder)
     done = 0
-    while True:
+    while limit is None or done < limit:
         rows = conn.execute(
             "SELECT item, idx, coalesce(embed_text, text) AS text FROM passages"
             " WHERE embedding IS NULL AND NOT artefact ORDER BY item, idx LIMIT %s",
@@ -263,21 +283,34 @@ def embed_pending_passages(conn: psycopg.Connection, embedder: Embedder,
             [(vector_literal(v), r["item"], r["idx"]) for r, v in zip(rows, vectors, strict=True)])
         conn.commit()
         done += len(rows)
+    return done
 
 
-def embed_pending(conn: psycopg.Connection, embedder: Embedder,
-                  batch_size: int = 32) -> tuple[int, int]:
-    """Give every item and passage still without a vector its vector:
-    items admitted by a lookup or a donation, a preprint replaced by its
-    published version, shortened passages. Returns (items, passages)
-    embedded. When nothing waits, the model is not touched."""
+def pending(conn: psycopg.Connection) -> dict:
+    """Whether any item ("items") or passage ("passages") waits for a vector."""
     waiting = conn.execute(
         "SELECT EXISTS (SELECT 1 FROM items WHERE embedding IS NULL) AS items,"
         " EXISTS (SELECT 1 FROM passages WHERE embedding IS NULL AND NOT artefact) AS passages"
     ).fetchone()
     conn.commit()
-    return (embed_pending_items(conn, embedder, batch_size) if waiting["items"] else 0,
-            embed_pending_passages(conn, embedder, batch_size) if waiting["passages"] else 0)
+    return waiting
+
+
+def embed_pending(conn: psycopg.Connection, embedder: Embedder,
+                  batch_size: int = 32, limit: int | None = None) -> tuple[int, int]:
+    """Give every item and passage still without a vector its vector:
+    items admitted by a lookup, a donation or a harvest, a preprint
+    replaced by its published version, shortened passages. Returns (items,
+    passages) embedded. With `limit`, about that many texts are embedded
+    and the rest wait for a later call. When nothing waits, the model is
+    not touched."""
+    waiting = pending(conn)
+    items = embed_pending_items(conn, embedder, batch_size, limit) if waiting["items"] else 0
+    if limit is not None:
+        limit = max(limit - items, 0)
+    passages = (embed_pending_passages(conn, embedder, batch_size, limit)
+                if waiting["passages"] and limit != 0 else 0)
+    return items, passages
 
 
 def download_model(revision: str | None = None, model_name: str = MODEL) -> str:

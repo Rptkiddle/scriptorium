@@ -36,7 +36,8 @@ services:
 
   # The web service members' clients talk to. It listens on this machine
   # only; the host's web server passes requests on to it. Queries are
-  # embedded on the CPU, so the service does not depend on a GPU.
+  # embedded on the GPU when the container has one (compose.gpu.yaml), else
+  # on the CPU; SCRIPTORIUM_DEVICE in .env (cpu, cuda) fixes the choice.
   server:
     image: scriptorium-server
     restart: unless-stopped
@@ -44,7 +45,7 @@ services:
     command: ["serve", "--host", "0.0.0.0", "--port", "8765"]
     environment:
       SCRIPTORIUM_DATABASE_ADDRESS: postgresql://scriptorium:${POSTGRES_PASSWORD}@db/scriptorium
-      SCRIPTORIUM_DEVICE: cpu
+      SCRIPTORIUM_DEVICE: ${SCRIPTORIUM_DEVICE:-}
       TZ: ${TZ:-Europe/Amsterdam}
     ports:
       - "127.0.0.1:${SCRIPTORIUM_PORT:-8765}:8765"
@@ -56,8 +57,10 @@ services:
         condition: service_healthy
 
   # Runs the background jobs: a donated PDF is parsed, checked, stored and
-  # its passages embedded. It embeds on the CPU, which is enough for
-  # donations arriving one by one.
+  # its passages embedded; journals are harvested. With nothing to do it
+  # embeds the items and passages that have no vector yet. The CPU is
+  # enough for donations arriving one by one; a harvest of many items
+  # needs a GPU (compose.gpu.yaml).
   worker:
     image: scriptorium-server
     restart: unless-stopped
@@ -66,7 +69,7 @@ services:
     environment:
       SCRIPTORIUM_DATABASE_ADDRESS: postgresql://scriptorium:${POSTGRES_PASSWORD}@db/scriptorium
       SCRIPTORIUM_GROBID_ADDRESS: http://grobid:8070
-      SCRIPTORIUM_DEVICE: cpu
+      SCRIPTORIUM_DEVICE: ${SCRIPTORIUM_DEVICE:-}
       TZ: ${TZ:-Europe/Amsterdam}
     volumes:
       - ${SCRIPTORIUM_DATA}/data:/srv/scriptorium
@@ -103,7 +106,7 @@ services:
     environment:
       SCRIPTORIUM_DATABASE_ADDRESS: postgresql://scriptorium:${POSTGRES_PASSWORD}@db/scriptorium
       SCRIPTORIUM_GROBID_ADDRESS: http://grobid:8070
-      SCRIPTORIUM_DEVICE: cpu
+      SCRIPTORIUM_DEVICE: ${SCRIPTORIUM_DEVICE:-}
       TZ: ${TZ:-Europe/Amsterdam}
     volumes:
       - ${SCRIPTORIUM_DATA}/data:/srv/scriptorium

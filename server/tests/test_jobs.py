@@ -81,3 +81,14 @@ def test_a_built_image_records_the_commit_it_was_built_from(tmp_path, monkeypatc
     monkeypatch.setenv("SCRIPTORIUM_COMMIT", "abc123")
     m = jobs.read_manifest(jobs.new_run(tmp_path, "intake"))
     assert m["provenance"] == {"commit": "abc123", "dirty": False, "uncommitted": []}
+
+
+def test_idle_work_repeats_until_none_is_left(db, tmp_path):
+    left = [3]
+
+    def idle(conn):
+        left[0] -= 1
+        return left[0] > 0
+
+    assert jobs.run_worker(db, tmp_path, {}, until_idle=True, idle=idle) == 0
+    assert left[0] == 0

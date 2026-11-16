@@ -28,7 +28,9 @@ ADAPTERS = ("crossref", "openalex")
 # Handlers added to (or replacing) the standard ones of job_handlers().
 HANDLERS: dict[str, jobs.Handler] = {}
 # Whether the worker embeds waiting items and passages when idle (off in tests).
-IDLE_EMBEDDING = True
+# How many texts the idle worker embeds before it looks at the job queue
+# and the settings again.
+IDLE_PORTION = 2000
 
 
 def _data(current: settings.Settings) -> Path:
@@ -122,13 +124,23 @@ def worker(poll_seconds: Annotated[float, typer.Option(help="Wait between looks 
     handlers = {**job_handlers(current), **HANDLERS}
     made: list = []
 
-    def idle(conn):  # items and passages still without a vector get one
-        embedding.embed_pending(conn, worker_context(conn, current, made).embedder,
-                                int(current["embedding.batch_size"]))
+    def idle(conn) -> bool:
+        """Items and passages still without a vector get one, a portion at
+        a time; true when a portion was embedded. The settings are read on
+        each call, so embedding.when_idle and embedding.batch_size take
+        effect without a restart."""
+        now = settings.load()
+        if now["embedding.when_idle"] != "on":
+            return False
+        if not any(embedding.pending(conn).values()):
+            return False
+        return any(embedding.embed_pending(
+            conn, worker_context(conn, current, made).embedder,
+            int(now["embedding.batch_size"]), limit=IDLE_PORTION))
 
     with connect() as conn:
         ran = jobs.run_worker(conn, _data(current) / "runs", handlers, poll_seconds=poll_seconds,
-                              until_idle=until_idle, idle=idle if IDLE_EMBEDDING else None)
+                              until_idle=until_idle, idle=idle)
     typer.echo(f"Ran {ran} job(s).")
 
 

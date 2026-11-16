@@ -11,7 +11,7 @@ from scriptorium_server import admin, db as database, jobs, members
 def run(db, empty_schema, tmp_path, monkeypatch):
     """Run the admin command against the test's own schema and settings file."""
     monkeypatch.setattr(admin, "connect", lambda: database.connect(*empty_schema))
-    monkeypatch.setattr(admin, "IDLE_EMBEDDING", False)  # no model in these tests
+    (tmp_path / "settings.toml").write_text('[embedding]\nwhen_idle = "off"\n')  # no model in these tests
     monkeypatch.setenv("SCRIPTORIUM_SETTINGS", str(tmp_path / "settings.toml"))
 
     def invoke(*args):

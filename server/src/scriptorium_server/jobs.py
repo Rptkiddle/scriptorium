@@ -256,7 +256,9 @@ def run_worker(conn: psycopg.Connection, runs_dir: Path, handlers: dict[str, Han
     (or, with until_idle, until nothing waits); returns how many ran. A
     handler that raises fails its job with the error; the worker goes on.
     `idle` is called whenever the queue is empty (the worker embeds what
-    waits for a vector there); an error in it is printed, not raised."""
+    waits for a vector there, a portion at a time); when it returns
+    something true it did work and more may wait, so the queue is looked at
+    again at once. An error in it is printed, not raised."""
     requeue_unfinished(conn)
     ran = 0
     while not stop():
@@ -264,7 +266,8 @@ def run_worker(conn: psycopg.Connection, runs_dir: Path, handlers: dict[str, Han
         if job is None:
             if idle is not None:
                 try:
-                    idle(conn)
+                    if idle(conn):
+                        continue
                 except Exception as exc:  # noqa: BLE001 — the worker must keep running
                     conn.rollback()
                     print(f"while idle: {type(exc).__name__}: {exc}", flush=True)

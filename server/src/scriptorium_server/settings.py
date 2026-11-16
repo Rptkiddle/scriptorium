@@ -85,6 +85,11 @@ SETTINGS: tuple[Setting, ...] = (
     Setting("embedding.batch_size", 32,
             "How many texts the embedding model takes at once. Larger is faster and uses"
             " more GPU memory.", _between(1, 1024), "a whole number from 1 to 1024"),
+    Setting("embedding.when_idle", "on",
+            "Whether the worker, when no job waits, embeds the items and passages that"
+            " have no vector yet. Set to off to pause it (for instance to leave the GPU"
+            " to others); it takes effect within a minute, without a restart.",
+            lambda v: v in ("on", "off"), "on or off"),
     Setting("grobid.address", "http://127.0.0.1:8070",
             "Where GROBID, the program that parses PDFs, answers. The environment"
             " variable SCRIPTORIUM_GROBID_ADDRESS, when set, takes its place.",

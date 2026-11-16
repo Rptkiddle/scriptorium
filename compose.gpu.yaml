@@ -1,0 +1,24 @@
+# Gives the web service and the worker the machine's NVIDIA GPU, for
+# embedding. Needs the NVIDIA Container Toolkit. Switched on by this line
+# in .env:
+#   COMPOSE_FILE=compose.yaml:compose.gpu.yaml
+# When the GPU stops answering, both go on embedding on the CPU until they
+# are restarted (scripts/gpu-check.sh does that).
+
+services:
+  server:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+  worker:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

@@ -6,7 +6,7 @@ The server runs as a set of Docker containers described in `compose.yaml`: Postg
 
 - Linux with Docker and Docker Compose.
 - A folder for the data (`/srv/scriptorium` below). Plan for about 175 GB at 500,000 items with one PDF in five.
-- A GPU is used for embedding when present.
+- Optional: an NVIDIA GPU (driver 560 or newer) with the NVIDIA Container Toolkit. Searching and donations work without one; embedding a large harvest needs one (see [GPU](#gpu)).
 
 ## Set up
 
@@ -51,6 +51,20 @@ The folder on the host holds:
 | `postgres/` | the database's files | `/var/lib/postgresql/data` |
 | `data/` | PDFs (`pdfs/`), parsed full texts (`tei/`), run folders (`runs/`), backups, the embedding model | `/srv/scriptorium` |
 | `settings/` | `settings.toml` | `/etc/scriptorium` |
+
+## GPU
+
+Every item and passage is embedded (turned into the vector that searching compares), and so is every search query. Without a GPU this runs on the CPU, which is enough for searching and for donations arriving one by one. Embedding a harvest of hundreds of thousands of items on the CPU takes weeks.
+
+To use the machine's NVIDIA GPU, remove the `#` before `COMPOSE_FILE=compose.yaml:compose.gpu.yaml` in `.env` and run `docker compose up -d`. The web service and the worker then embed on the GPU; `docker compose logs server` names the device in its first lines.
+
+The worker embeds what has no vector yet whenever no job waits, a portion at a time. `settings set embedding.when_idle off` pauses that, for instance to leave a shared GPU to others, and `on` resumes it; `embedding.batch_size` sets how many texts the model takes at once. Both take effect within a minute, without a restart.
+
+A container that loses the GPU while it runs goes on embedding on the CPU until it is restarted. On machines where this happens, `scripts/gpu-check.sh` restarts the web service and the worker when they have lost the GPU and no job is running. Run it from the crontab of an account that may run Docker, after the hours in which the GPU tends to be lost:
+
+```
+10 3,5 * * * /path/to/scriptorium/scripts/gpu-check.sh >> $HOME/scriptorium-gpu-check.log 2>&1
+```
 
 ## Members
 
