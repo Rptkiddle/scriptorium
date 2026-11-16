@@ -77,7 +77,7 @@ docker compose run --rm cli settings show
 docker compose run --rm cli settings set <name> <value>
 ```
 
-A journal list is a CSV file with the columns `openalex_id`, `journal`, `issns`, `publisher` and `coded_class`; journals of class `MIXED` are held back until a filter for them exists. The harvest needs an OpenAlex API key (`settings set sources.openalex_api_key <key>`). It admits research articles and reviews in English that are not retracted, and records each paper's OpenAlex work, so running it again adds only what is new. Each journal's counts are in its job's run folder (`runs/backfill/`).
+A journal list is a CSV file with the columns `openalex_id`, `journal`, `issns`, `publisher` and `coded_class`; journals of class `MIXED` are held back until a filter for them exists. The harvest needs an OpenAlex API key (`settings set sources.openalex_api_key <key>`). It admits research papers (OpenAlex types article, review, conference paper and software paper) in English that are not retracted, and records each paper's OpenAlex work, so running it again adds only what is new. Each journal's counts are in its job's run folder (`runs/backfill/`).
 
 The database's address and password come from `.env`; every other setting is in `settings/settings.toml`, shown and changed with the `settings` commands.
 

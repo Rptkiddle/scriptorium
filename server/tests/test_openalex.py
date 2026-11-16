@@ -47,6 +47,9 @@ def test_names_split_with_particles():
 def test_rules():
     assert openalex.rule(WORK) is None
     assert openalex.rule({**WORK, "type": "review"}) is None
+    assert openalex.rule({**WORK, "type": "conference-paper"}) is None
+    assert openalex.rule({**WORK, "type": "software-paper"}) is None
+    assert openalex.rule({**WORK, "type": "peer-review"}) == "type: peer-review"
     assert openalex.rule({**WORK, "type": "editorial"}) == "type: editorial"
     assert openalex.rule({**WORK, "type": "book-review"}) == "type: book-review"
     assert openalex.rule({**WORK, "is_retracted": True}) == "retracted"

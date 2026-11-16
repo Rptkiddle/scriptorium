@@ -8,7 +8,9 @@ api_key request parameter, so a request URL is never written to a log or a
 run folder: errors are recorded by HTTP status or class name only.
 
 Harvest rules (a work failing one is not admitted; the reason is counted):
-  type        research papers only: OpenAlex types "article" and "review"
+  type        research papers only: OpenAlex types "article", "review",
+              "conference-paper" (also proceedings in the list, and journals
+              OpenAlex mislabels) and "software-paper" (software journals)
   retracted   no retracted papers
   language    English only
 A possible book review that OpenAlex types as an article is flagged
@@ -24,7 +26,7 @@ from scriptorium_server.identity import norm_doi
 from scriptorium_server.sources.abstracts import clean_abstract, openalex_abstract
 from scriptorium_server.sources.apis import OPENALEX, request_json
 
-KEPT_TYPES = ("article", "review")
+KEPT_TYPES = ("article", "review", "conference-paper", "software-paper")
 PER_PAGE = 100
 FIELDS = ("id,doi,title,publication_date,publication_year,type,language,is_retracted,"
           "authorships,biblio,primary_location,abstract_inverted_index")
