@@ -2,6 +2,7 @@
 jobs, settings, the database schema, the worker, the seed import and
 passage cleaning."""
 
+import collections
 from pathlib import Path
 from typing import Annotated
 
@@ -431,6 +432,38 @@ def venues_import(
             added += 1
     typer.echo(f"Subscribed to {added} journals ({renamed} named with their publisher added,"
                f" as another journal has the same name).")
+
+
+@app.command()
+def fetch(
+    path: Annotated[Path, typer.Argument(help="A journal list: CSV with the columns"
+                                              " openalex_id and journal.")],
+    out: Annotated[Path, typer.Option(help="Folder for the fetched files and checklist.")],
+    since: Annotated[str, typer.Option(help="First publication date, YYYY-MM-DD.")] = "2020-01-01",
+    parallel: Annotated[int, typer.Option(help="Journals fetched at once.")] = 8,
+    max_cost: Annotated[float, typer.Option(help="Stop starting journals at this cost (USD).")] = 4.0,
+) -> None:
+    """Fetch every listed journal's works from OpenAlex to files, without
+    touching the database: one compressed file per journal, as OpenAlex
+    returns them, and a checklist (checklist.jsonl). The key is the
+    OPENALEX_API_KEY environment variable, else the setting. Run again,
+    it fetches only the journals not yet complete."""
+    import csv
+    import os
+
+    from scriptorium_server import intake
+
+    key = os.environ.get("OPENALEX_API_KEY") or str(settings.load()["sources.openalex_api_key"])
+    if not key:
+        _fail("no OpenAlex key: set OPENALEX_API_KEY or sources.openalex_api_key")
+    journals = [{"source_id": r["openalex_id"].strip(), "journal": r.get("journal", "").strip()}
+                for r in csv.DictReader(path.open(encoding="utf-8"))]
+    rows = intake.fetch_list(journals, out, since=since, api_key=key, parallel=parallel,
+                             max_cost=max_cost, report=typer.echo)
+    states = collections.Counter(r["status"] for r in rows)
+    cost = sum(float(r.get("cost_usd") or 0) for r in rows)
+    typer.echo(f"Done: {dict(states)}; {sum(r.get('fetched', 0) for r in rows)} works;"
+               f" ${cost:.2f}; files in {out}")
 
 
 @app.command()

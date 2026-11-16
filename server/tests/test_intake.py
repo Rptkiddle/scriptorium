@@ -152,3 +152,44 @@ def test_a_held_preprint_is_counted_as_replaced(db, venue, tmp_path, monkeypatch
     serve(monkeypatch, [WORK])
     result = intake.backfill(db, venue, tmp_path)
     assert result["replaced another version"] == 1
+
+
+# --- fetching to files ------------------------------------------------------------
+
+import gzip
+
+
+def test_fetch_venue_saves_works_and_checks_completeness(tmp_path, monkeypatch):
+    serve(monkeypatch, [WORK, NO_DOI, EDITORIAL])
+    row = intake.fetch_venue("S1", tmp_path, api_key="SECRET")
+    assert row["status"] == "ok" and row["fetched"] == row["unique"] == 3
+    lines = gzip.open(tmp_path / "S1.jsonl.gz", "rt").read().splitlines()
+    assert [json.loads(l)["id"] for l in lines] == [WORK["id"], NO_DOI["id"], EDITORIAL["id"]]
+    assert "SECRET" not in json.dumps(row)
+
+
+def test_fetch_venue_flags_repeats_and_keeps_no_final_file(tmp_path, monkeypatch):
+    serve(monkeypatch, [WORK, WORK])
+    row = intake.fetch_venue("S1", tmp_path)
+    assert row["status"] == "incomplete" and row["duplicates"] == 1
+    assert not (tmp_path / "S1.jsonl.gz").exists()
+
+
+def test_fetch_venue_failure_names_only_the_error_class(tmp_path, monkeypatch):
+    def broken(*args, **kwargs):
+        raise RuntimeError("https://api.openalex.org/works?api_key=SECRET")
+        yield  # pragma: no cover
+    monkeypatch.setattr(openalex, "works", broken)
+    row = intake.fetch_venue("S1", tmp_path, api_key="SECRET")
+    assert row["status"] == "failed" and row["problem"] == "RuntimeError"
+    assert not list(tmp_path.iterdir())
+
+
+def test_fetch_list_skips_complete_journals_and_writes_a_checklist(tmp_path, monkeypatch):
+    serve(monkeypatch, [WORK])
+    journals = [{"source_id": "S1", "journal": "One"}, {"source_id": "S2", "journal": "Two"}]
+    first = intake.fetch_list(journals, tmp_path, parallel=2, report=lambda m: None)
+    assert {r["source_id"] for r in first} == {"S1", "S2"}
+    again = intake.fetch_list(journals, tmp_path, report=lambda m: None)
+    assert again == []
+    assert len((tmp_path / "checklist.jsonl").read_text().splitlines()) == 2

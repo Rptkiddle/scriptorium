@@ -15,6 +15,8 @@ items when it has nothing else to do.
 """
 
 import collections
+import datetime
+import gzip
 import json
 import time
 from pathlib import Path
@@ -27,6 +29,8 @@ from scriptorium_server.sources import openalex
 from scriptorium_server.sources.apis import http_session
 
 DEFAULT_SINCE = "2020-01-01"
+FETCH_FIELDS = ("source_id", "journal", "status", "openalex_count", "fetched", "unique",
+                "duplicates", "requests", "cost_usd", "bytes", "seconds", "fetched_at", "problem")
 
 
 class HarvestError(RuntimeError):
@@ -126,3 +130,79 @@ def summary(result: dict) -> str:
             f" {result.get('replaced another version', 0)} replaced a preprint,"
             f" {result.get('harvested before', 0)} harvested before, {dropped} not admitted"
             f" (of {result.get('fetched', 0)})")
+
+
+# --- fetching to files (the backfill's first step) ------------------------------
+
+
+def fetch_venue(source_id: str, out_dir: Path, *, since: str = DEFAULT_SINCE,
+                api_key: str = "", session=None) -> dict:
+    """Save every work of one OpenAlex source published since `since`, of
+    any type and as OpenAlex returns it, to <out_dir>/<source_id>.jsonl.gz
+    (one work per line). The file is written under a temporary name and
+    renamed when complete. Returns the source's checklist row: OpenAlex's
+    count, works fetched, unique and repeated work IDs, requests, cost,
+    bytes, seconds, date; status "ok" only when every work arrived once."""
+    session = session or http_session("fetch")
+    final = out_dir / f"{source_id}.jsonl.gz"
+    part = out_dir / f"{source_id}.jsonl.gz.part"
+    metas, ids, fetched = [], set(), 0
+    started = time.time()
+    row = {"source_id": source_id, "fetched_at": datetime.date.today().isoformat()}
+    try:
+        with gzip.open(part, "wt", encoding="utf-8") as f:
+            for work in openalex.works(session, source_id, since, api_key, on_page=metas.append):
+                fetched += 1
+                ids.add(work.get("id"))
+                f.write(json.dumps(work, ensure_ascii=False) + "\n")
+    except Exception as exc:  # noqa: BLE001 — the message may hold the key
+        part.unlink(missing_ok=True)
+        return {**row, "status": "failed", "fetched": fetched, "requests": len(metas),
+                "problem": type(exc).__name__}
+    count = metas[0].get("count", 0) if metas else 0
+    complete = fetched == count == len(ids)
+    if complete:
+        part.rename(final)
+    return {**row, "status": "ok" if complete else "incomplete", "openalex_count": count,
+            "fetched": fetched, "unique": len(ids), "duplicates": fetched - len(ids),
+            "requests": len(metas),
+            "cost_usd": round(sum(float(m.get("cost_usd") or 0) for m in metas), 4),
+            "bytes": (final if complete else part).stat().st_size,
+            "seconds": round(time.time() - started, 1),
+            "problem": "" if complete else "fetched differs from OpenAlex's count, or repeats"}
+
+
+def fetch_list(journals: list[dict], out_dir: Path, *, since: str = DEFAULT_SINCE,
+               api_key: str = "", parallel: int = 8, max_cost: float = 4.0,
+               report=print) -> list[dict]:
+    """fetch_venue for every journal ({"source_id", "journal"}), `parallel`
+    at a time, skipping those whose file is complete already. Each finished
+    row is appended to <out_dir>/checklist.jsonl as it comes, so a stopped
+    run can be started again. Stops starting new journals once the cost so
+    far reaches max_cost (US dollars)."""
+    import concurrent.futures
+    import threading
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    checklist = out_dir / "checklist.jsonl"
+    todo = [j for j in journals if not (out_dir / f"{j['source_id']}.jsonl.gz").exists()]
+    lock, spent, rows = threading.Lock(), [0.0], []
+
+    def one(journal):
+        with lock:
+            if spent[0] >= max_cost:
+                return None
+        row = {"journal": journal.get("journal", ""),
+               **fetch_venue(journal["source_id"], out_dir, since=since, api_key=api_key)}
+        with lock:
+            spent[0] += float(row.get("cost_usd") or 0)
+            rows.append(row)
+            with checklist.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+            report(f"{len(rows)}/{len(todo)} {row['status']:10} {row.get('fetched', 0):7}"
+                   f"  {journal.get('journal', '')[:60]}")
+        return row
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=parallel) as pool:
+        list(pool.map(one, todo))
+    return rows
