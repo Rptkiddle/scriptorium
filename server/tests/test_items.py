@@ -15,12 +15,12 @@ def record(item_type, title, surname, doi="", **fields):
             **fields}
 
 
-PUBLISHED = record("journalArticle", "Echo Chambers Revisited", "Trilling", "10.1000/journal.1",
+PUBLISHED = record("journalArticle", "Echo Chambers Revisited", "Terpstra", "10.1000/journal.1",
                    publicationTitle="Journal of Tests", abstractNote="What we found.",
                    volume="12")
-PREPRINT = record("preprint", "Echo chambers revisited!", "Trilling", "10.31235/osf.io/abcde",
+PREPRINT = record("preprint", "Echo chambers revisited!", "Terpstra", "10.31235/osf.io/abcde",
                   repository="SocArXiv")
-ARXIV = record("preprint", "Echo Chambers Revisited", "Trilling", archiveID="arXiv:2603.13270v2",
+ARXIV = record("preprint", "Echo Chambers Revisited", "Terpstra", archiveID="arXiv:2603.13270v2",
                repository="arXiv")
 
 
@@ -35,7 +35,7 @@ def test_a_new_record_becomes_an_item_with_its_fields(db):
     assert (row["type"], row["title"], row["year"], row["doi"]) == (
         "journalArticle", "Echo Chambers Revisited", 2026, "10.1000/journal.1")
     assert row["abstract"] == "What we found." and row["category"] == "Journals"
-    assert row["citation_key"] == "trillingEchoChambersRevisited2026"
+    assert row["citation_key"] == "terpstraEchoChambersRevisited2026"
     assert row["data"] == {"publicationTitle": "Journal of Tests", "volume": "12"}
     assert row["embedding"] is None and row["has_fulltext"] is False
     venue = db.execute("SELECT name FROM venues WHERE id = %s", (row["venue_id"],)).fetchone()
@@ -146,7 +146,7 @@ def test_provenance_kind_is_kept_from_first_admission(db):
 
 def test_registry_links_match_whatever_the_title(db):
     key, _ = admit(db, PUBLISHED, "venue")
-    renamed = record("preprint", "An Earlier Working Title", "Trilling", "10.31235/osf.io/zzzzz",
+    renamed = record("preprint", "An Earlier Working Title", "Terpstra", "10.31235/osf.io/zzzzz",
                      repository="SocArXiv")
     relation = {"is-preprint-of": [{"id-type": "doi", "id": "10.1000/journal.1"}]}
     assert admit(db, renamed, "donation", relation=relation) == (key, False)
@@ -155,40 +155,40 @@ def test_registry_links_match_whatever_the_title(db):
 
 def test_two_published_items_with_one_title_are_two_items(db):
     admit(db, PUBLISHED, "venue")
-    extension = record("conferencePaper", "Echo Chambers Revisited", "Trilling", "10.1145/1.2",
+    extension = record("conferencePaper", "Echo Chambers Revisited", "Terpstra", "10.1145/1.2",
                        proceedingsTitle="Proceedings of Tests")
     key, created = admit(db, extension, "venue")
     assert created and count(db) == 2
-    assert get(db, key)["citation_key"] == "trillingEchoChambersRevisited2026a"
+    assert get(db, key)["citation_key"] == "terpstraEchoChambersRevisited2026a"
 
 
 def test_same_title_by_other_authors_is_another_item(db):
     admit(db, PUBLISHED, "venue")
-    assert admit(db, record("preprint", "Echo Chambers Revisited", "Welbers",
+    assert admit(db, record("preprint", "Echo Chambers Revisited", "Wiersma",
                             "10.31235/osf.io/other"), "donation")[1] is True
 
 
 def test_a_preprint_without_an_identifier_is_kept_as_its_own_item(db):
     admit(db, PUBLISHED, "venue")
-    assert admit(db, record("preprint", "Echo Chambers Revisited", "Trilling"), "donation")[1]
+    assert admit(db, record("preprint", "Echo Chambers Revisited", "Terpstra"), "donation")[1]
 
 
 def test_every_name_form_of_a_creator_is_indexed(db):
-    paper = record("journalArticle", "Names", "van Atteveldt", "10.1000/n")
+    paper = record("journalArticle", "Names", "van Aalst", "10.1000/n")
     paper["creators"].append({"creatorType": "author", "name": "Müller-Lüdenscheidt"})
     key, _ = admit(db, paper, "venue")
     rows = db.execute("SELECT name_key, position FROM item_creators WHERE item = %s"
                       " ORDER BY position, name_key", (key,)).fetchall()
     assert [(r["name_key"], r["position"]) for r in rows] == [
-        ("atteveldt", 0), ("ludenscheidt", 1), ("muller", 1), ("muller-ludenscheidt", 1)]
+        ("aalst", 0), ("ludenscheidt", 1), ("muller", 1), ("muller-ludenscheidt", 1)]
 
 
 def test_a_record_may_bring_its_own_keys_and_placement(db):
-    seeded = {**PUBLISHED, "key": "ABCD2345", "citationKey": "trillingEcho2026"}
+    seeded = {**PUBLISHED, "key": "ABCD2345", "citationKey": "terpstraEcho2026"}
     key, _ = admit(db, seeded, "donation", publisher="Test Press", category="Journals")
     row = get(db, key)
     assert (key, row["citation_key"], row["publisher"]) == (
-        "ABCD2345", "trillingEcho2026", "Test Press")
+        "ABCD2345", "terpstraEcho2026", "Test Press")
     venue = db.execute("SELECT publisher, category FROM venues").fetchone()
     assert (venue["publisher"], venue["category"]) == ("Test Press", "Journals")
 

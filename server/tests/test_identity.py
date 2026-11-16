@@ -55,11 +55,11 @@ def person(last, first=""):
 
 
 def test_creator_keys_for_each_stored_pattern():
-    assert creator_keys([person("van Atteveldt", "Wouter")]) == ["atteveldt"]
-    assert creator_keys([person("Atteveldt", "Wouter van")]) == ["atteveldt"]
-    assert creator_keys([person("Wouter van Atteveldt")]) == ["atteveldt", "wouter"]
-    assert creator_keys([person("Damian Trilling")]) == ["damian", "trilling"]
-    assert creator_keys([person("C. Kroon")]) == ["kroon"]
+    assert creator_keys([person("van Aalst", "Wim")]) == ["aalst"]
+    assert creator_keys([person("Aalst", "Wim van")]) == ["aalst"]
+    assert creator_keys([person("Wim van Aalst")]) == ["aalst", "wim"]
+    assert creator_keys([person("Daan Terpstra")]) == ["daan", "terpstra"]
+    assert creator_keys([person("C. Kuiper")]) == ["kuiper"]
     assert creator_keys([person("Flöck", "Fabian")]) == ["flock"]
     assert creator_keys([person("García Márquez", "Gabriel")]) == ["garcia", "marquez"]
     assert creator_keys([person("Müller-Lüdenscheidt", "A.")]) == [
@@ -67,13 +67,13 @@ def test_creator_keys_for_each_stored_pattern():
     assert creator_keys([person("Le", "Thi")]) == ["le"]
     assert creator_keys([person("Pham Huong Anh")]) == ["anh", "huong", "pham"]
     assert creator_keys([{"name": 'Fr{\\"o}hling, Leon'}]) == ["frohling", "leon"]
-    assert keys_from_formatted("van Atteveldt, Kiddle & Welbers") == ["atteveldt", "kiddle", "welbers"]
+    assert keys_from_formatted("van Aalst, Kiddle & Wiersma") == ["aalst", "kiddle", "wiersma"]
 
 
 def test_query_key_reduces_any_typed_form_to_one_key():
-    for typed in ("van Atteveldt", "Van Atteveldt", "Wouter van Atteveldt", "Atteveldt, W.",
-                  "atteveldt", "W. van Atteveldt"):
-        assert query_key(typed) == "atteveldt", typed
+    for typed in ("van Aalst", "Van Aalst", "Wim van Aalst", "Aalst, W.",
+                  "aalst", "W. van Aalst"):
+        assert query_key(typed) == "aalst", typed
     assert query_key("Flöck") == "flock" and query_key("Le") == "le"
     assert query_key("Müller-Lüdenscheidt") == "muller-ludenscheidt"
     assert query_key("Gabriel García Márquez") == "marquez"
@@ -88,9 +88,9 @@ def _item(key, item_type, title, surname, doi="", **extra_fields):
             **extra_fields}
 
 
-PUBLISHED = _item("PUB1", "journalArticle", "Echo Chambers Revisited", "Trilling",
+PUBLISHED = _item("PUB1", "journalArticle", "Echo Chambers Revisited", "Terpstra",
                   "10.1000/journal.1")
-PREPRINT = _item("PRE1", "preprint", "Echo chambers revisited!", "Trilling",
+PREPRINT = _item("PRE1", "preprint", "Echo chambers revisited!", "Terpstra",
                  "10.31235/osf.io/abcde", repository="SocArXiv")
 
 
@@ -102,28 +102,28 @@ def test_title_and_a_shared_author_pair_a_preprint_with_its_published_version():
 
 
 def test_two_published_items_with_the_same_title_and_author_are_not_versions():
-    extension = _item("CONF", "conferencePaper", "Echo Chambers Revisited", "Trilling")
+    extension = _item("CONF", "conferencePaper", "Echo Chambers Revisited", "Terpstra")
     assert VersionIndex([PUBLISHED]).other_version(extension) is None
 
 
 def test_no_shared_author_is_not_a_match():
-    other = _item("PRE2", "preprint", "Echo Chambers Revisited", "Welbers")
+    other = _item("PRE2", "preprint", "Echo Chambers Revisited", "Wiersma")
     assert VersionIndex([PUBLISHED]).other_version(other) is None
 
 
 def test_a_changed_author_order_or_a_typographic_hyphen_still_matches():
     def authors(*surnames):
         return [{"creatorType": "author", "firstName": "A", "lastName": s} for s in surnames]
-    published = {**PUBLISHED, "creators": authors("Kroon", "Elliott-Graves")}
-    reordered = {**PREPRINT, "creators": authors("Welbers", "Kroon")}
-    hyphen = {**PREPRINT, "key": "PRE4", "creators": authors("Elliott\u2010Graves")}
+    published = {**PUBLISHED, "creators": authors("Kuiper", "Elliott-Hayes")}
+    reordered = {**PREPRINT, "creators": authors("Wiersma", "Kuiper")}
+    hyphen = {**PREPRINT, "key": "PRE4", "creators": authors("Elliott\u2010Hayes")}
     index = VersionIndex([published])
     assert index.other_version(reordered).item is published
     assert index.other_version(hyphen).item is published
 
 
 def test_crossref_links_match_whatever_the_title():
-    retitled = _item("PRE3", "preprint", "An early draft", "Kroon", "10.33774/apsa-1-v2")
+    retitled = _item("PRE3", "preprint", "An early draft", "Kuiper", "10.33774/apsa-1-v2")
     record = {"relation": {"is-preprint-of": [{"id-type": "doi", "id": "10.1000/JOURNAL.1"}]}}
     match = VersionIndex([PUBLISHED]).other_version(retitled, record)
     assert match.item is PUBLISHED and match.how == "crossref is-preprint-of"
@@ -134,7 +134,7 @@ def test_crossref_links_match_whatever_the_title():
 
 
 def test_an_arxiv_doi_in_a_crossref_link_finds_the_arxiv_item():
-    arxiv = _item("ARX", "preprint", "Something else", "Kroon", "10.48550/arXiv.2207.00868",
+    arxiv = _item("ARX", "preprint", "Something else", "Kuiper", "10.48550/arXiv.2207.00868",
                   archiveID="arXiv:2207.00868", repository="arXiv")
     record = {"relation": {"has-preprint": [{"id-type": "doi", "id": "10.48550/arxiv.2207.00868"}]}}
     assert VersionIndex([arxiv]).other_version(PUBLISHED, record).item is arxiv
@@ -142,7 +142,7 @@ def test_an_arxiv_doi_in_a_crossref_link_finds_the_arxiv_item():
 
 def test_a_published_version_is_preferred_over_a_preprint():
     index = VersionIndex([PREPRINT, PUBLISHED])
-    newer = _item("PRE9", "preprint", "Echo Chambers Revisited", "Trilling", "10.1101/x")
+    newer = _item("PRE9", "preprint", "Echo Chambers Revisited", "Terpstra", "10.1101/x")
     assert index.other_version(newer).item is PUBLISHED
 
 
@@ -174,7 +174,7 @@ def test_with_line_appends_once():
 
 
 def test_pairs_drop_a_preprint_for_its_published_version_and_rank_preprints():
-    arxiv = _item("ARX", "preprint", "Echo Chambers Revisited", "Trilling",
+    arxiv = _item("ARX", "preprint", "Echo Chambers Revisited", "Terpstra",
                   "10.48550/arXiv.2603.13270", archiveID="arXiv:2603.13270")
     philsci = _item("PHIL", "preprint", "Model Anarchism", "Veit", archiveID="PhilSci:1")
     arxiv2 = _item("ARX2", "preprint", "Model anarchism", "Veit",
@@ -185,7 +185,7 @@ def test_pairs_drop_a_preprint_for_its_published_version_and_rank_preprints():
 
 
 def test_two_published_items_are_never_paired():
-    extension = _item("CONF", "conferencePaper", "Echo Chambers Revisited", "Trilling")
+    extension = _item("CONF", "conferencePaper", "Echo Chambers Revisited", "Terpstra")
     assert version_pairs([PUBLISHED, extension]) == []
 
 
@@ -197,7 +197,7 @@ def test_pair_actions():
     assert not kept["trash"] and kept["action"].endswith("it has attachment child items")
     already = pair_action({**PUBLISHED, "extra": "SocArXiv: 10.31235/osf.io/abcde"}, PREPRINT, [])
     assert already["extra"] is None and already["trash"]
-    philsci = _item("PHIL", "preprint", "Echo Chambers Revisited", "Trilling", archiveID="PhilSci:1")
+    philsci = _item("PHIL", "preprint", "Echo Chambers Revisited", "Terpstra", archiveID="PhilSci:1")
     flagged = pair_action(PUBLISHED, philsci, [])
     assert not flagged["trash"] and flagged["extra"] is None
     assert flagged["action"].startswith("flagged")

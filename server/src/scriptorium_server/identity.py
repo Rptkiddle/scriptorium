@@ -14,23 +14,23 @@ punctuation removed).
 
 AUTHOR NAME KEYS
 
-One author can be stored several ways in Zotero: "van Atteveldt" or
-"Atteveldt" (the particle in the first name), "Damian Trilling" or
-"C. Kroon" (the whole name in the surname field), with or without accents.
+One author can be stored several ways in Zotero: "van Aalst" or
+"Aalst" (the particle in the first name), "Daan Terpstra" or
+"C. Kuiper" (the whole name in the surname field), with or without accents.
 Every stored author is reduced to keys (lowercase, accents folded, LaTeX
 escapes removed), and a filter value is reduced to one key the same way, so
 any spelling of a surname finds the author:
 
 - each word of the surname field except particles ("van", "de", ...) and
-  initials is a key: "van Atteveldt" -> atteveldt; "García Márquez" ->
+  initials is a key: "van Aalst" -> aalst; "García Márquez" ->
   garcia, marquez. A whole name stored in the surname field gives every
-  word ("Damian Trilling" -> damian, trilling; "Pham Huong Anh" -> pham,
+  word ("Daan Terpstra" -> daan, terpstra; "Pham Huong Anh" -> pham,
   huong, anh), since the family name may come first;
 - a particle or initial is kept when it is the only word ("Le", "Du");
 - a hyphenated surname gives the whole and its parts (typographic hyphens
   and dashes count as "-");
-- a filter value is reduced to its surname's last such word ("Wouter van
-  Atteveldt", "Atteveldt, W." -> atteveldt).
+- a filter value is reduced to its surname's last such word ("Wim van
+  Aalst", "Aalst, W." -> aalst).
 
 VERSIONS
 
@@ -181,8 +181,8 @@ def creator_keys(creators: list[dict]) -> list[str]:
 
 
 def keys_from_formatted(creators: str) -> list[str]:
-    """Name keys from a formatted creators string ("Trilling, Kiddle &
-    Welbers"), for records without the structured list."""
+    """Name keys from a formatted creators string ("Terpstra, Kiddle &
+    Wiersma"), for records without the structured list."""
     keys: set[str] = set()
     for name in creators.replace(" & ", ", ").split(","):
         if words := _words(name):
@@ -209,7 +209,7 @@ _ROLE_MARKS = {"editor": "ed.", "seriesEditor": "series ed.", "translator": "tra
 
 def author_names(creators: list[dict]) -> list[str]:
     """Display names in Zotero's order: "Given Surname", with non-author
-    roles marked ("Kasper Welbers (ed.)")."""
+    roles marked ("Karel Wiersma (ed.)")."""
     names = []
     for c in creators:
         name = " ".join(p for p in ((c.get("firstName") or "").strip(),
@@ -223,8 +223,8 @@ def author_names(creators: list[dict]) -> list[str]:
 
 
 def authors_from_formatted(creators: str) -> list[str]:
-    """Display names from a formatted creators string ("Trilling, Kiddle &
-    Welbers"; surnames only), for records without the structured list."""
+    """Display names from a formatted creators string ("Terpstra, Kiddle &
+    Wiersma"; surnames only), for records without the structured list."""
     return [n.strip() for n in creators.replace(" & ", ", ").split(",") if n.strip()]
 
 

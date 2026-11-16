@@ -24,15 +24,15 @@ def paper(title, surname, doi, year, item_type="journalArticle", abstract="", **
 
 
 PAPERS = [
-    paper("Echo chambers in online news", "van Atteveldt", "10.1000/a", 2021,
+    paper("Echo chambers in online news", "van Aalst", "10.1000/a", 2021,
           abstract="We study echo chambers and filter bubbles.", volume="12", pages="1-20"),
-    paper("Filter bubbles revisited", "Trilling", "10.1000/b", 2022, abstract="A filter bubble study."),
+    paper("Filter bubbles revisited", "Terpstra", "10.1000/b", 2022, abstract="A filter bubble study."),
     paper("Agent based models of opinion", "Kiddle", "10.1000/c", 2023,
           abstract="Opinion dynamics with agents."),
     paper("Protein folding with transformers", "Jumper", "10.1000/d", 2021, "conferencePaper",
           abstract="Structure prediction.", proceedingsTitle="Proceedings of Tests",
           publicationTitle=""),
-    paper("News recommender diversity", "Trilling", "10.1000/e", 2023,
+    paper("News recommender diversity", "Terpstra", "10.1000/e", 2023,
           abstract="Diversity in news recommender systems and echo chambers."),
 ]
 
@@ -180,16 +180,16 @@ def test_filters_combine_with_and(world):
     assert total() == 5
     assert total(years=[2021]) == 2 and total(years=[2021, 2022]) == 3  # any within a filter
     assert total(years=[2021], types=["journalArticle"]) == 1  # all across filters
-    assert total(authors=["Trilling"], year_from=2023) == 1
+    assert total(authors=["Terpstra"], year_from=2023) == 1
     assert total(venues=["journal of tests"]) == 4 and total(categories=["Proceedings"]) == 1
     assert total(has_fulltext=True) == 1 and total(provenance=["donation"]) == 0
     assert total(item_keys=world.keys[:2], year_to=2021) == 1
     assert total(added_since="2020-01-01") == 5 and total(added_since="2999-01-01") == 0
-    assert total(authors_all=["Trilling", "Kiddle"]) == 0
+    assert total(authors_all=["Terpstra", "Kiddle"]) == 0
 
 
 def test_author_matches_any_name_form(world):
-    for typed in ("van Atteveldt", "Atteveldt", "Wouter van Atteveldt", "atteveldt, w."):
+    for typed in ("van Aalst", "Aalst", "Wim van Aalst", "aalst, w."):
         reply = world.client.post("/v1/items", json={"filters": {"authors": [typed]}})
         assert titles(reply) == ["Echo chambers in online news"], typed
 
@@ -237,7 +237,7 @@ def test_search_passages_skips_artefacts_and_names_the_item(world):
     found = reply.json()["passages"]
     assert [p["passage"] for p in found] == [2, 0]  # the artefact has no vector
     assert found[0]["item"] == world.keys[0] and found[0]["pages"] == "3"
-    assert found[0]["title"] == "Echo chambers in online news" and found[0]["authors"] == ["A. van Atteveldt"]
+    assert found[0]["title"] == "Echo chambers in online news" and found[0]["authors"] == ["A. van Aalst"]
     none = world.client.post("/v1/search/passages", json={
         "query": "news", "filters": {"item_keys": [world.keys[1]]}})
     assert none.json() == {"passages": []}
@@ -246,7 +246,7 @@ def test_search_passages_skips_artefacts_and_names_the_item(world):
 
 
 def test_lookup_finds_by_identifier_and_title(world):
-    admit(world.db, paper("Echo chambers in online news", "van Atteveldt", "10.31235/osf.io/pre", 2020,
+    admit(world.db, paper("Echo chambers in online news", "van Aalst", "10.31235/osf.io/pre", 2020,
                           "preprint", repository="SocArXiv"), "donation")
     world.db.commit()
     reply = world.client.post("/v1/lookup", json={"inputs": [
@@ -284,7 +284,7 @@ def test_lookup_with_registry_down_admits_nothing(world):
 def test_item_in_full_by_either_key(world):
     full = world.client.get(f"/v1/items/{world.keys[0]}").json()
     assert full["details"]["volume"] == "12" and full["passages"] == 3 and full["pdf_held"] is False
-    assert full["creators"][0]["lastName"] == "van Atteveldt" and full["provenance"] == "venue"
+    assert full["creators"][0]["lastName"] == "van Aalst" and full["provenance"] == "venue"
     assert world.client.get(f"/v1/items/{full['citation_key']}").json()["key"] == world.keys[0]
     missing = world.client.get("/v1/items/NOPE")
     assert missing.status_code == 404 and "NOPE" in missing.json()["error"]
@@ -295,7 +295,7 @@ def test_facets_count_values_within_filters(world):
     assert years["values"] == [{"value": "2021", "items": 2}, {"value": "2023", "items": 2},
                                {"value": "2022", "items": 1}] and years["more"] is False
     within = world.client.post("/v1/facets", json={"field": "author", "filters": {"years": [2023]}})
-    assert within.json()["values"] == [{"value": "kiddle", "items": 1}, {"value": "trilling", "items": 1}]
+    assert within.json()["values"] == [{"value": "kiddle", "items": 1}, {"value": "terpstra", "items": 1}]
     venues = world.client.post("/v1/facets", json={"field": "venue", "contains": "proceed"}).json()
     assert venues["values"] == [{"value": "Proceedings of Tests", "items": 1}]
     assert world.client.post("/v1/facets", json={"field": "year", "count": 1}).json()["more"] is True
@@ -306,7 +306,7 @@ def test_bibtex_in_both_formats(world):
     cite = world.client.get(f"/v1/items/{world.keys[0]}").json()["citation_key"]
     reply = world.client.post("/v1/bibtex", json={"keys": [cite, "NOPE", world.keys[3]]}).json()
     assert (reply["format"], reply["entries"], reply["missing"]) == ("biblatex", 2, ["NOPE"])
-    assert reply["bibtex"].startswith(f"@article{{{cite},\n\tauthor = {{van Atteveldt, A.}},\n"
+    assert reply["bibtex"].startswith(f"@article{{{cite},\n\tauthor = {{van Aalst, A.}},\n"
                                       "\ttitle = {{Echo chambers in online news}},\n"
                                       "\tjournaltitle = {Journal of Tests},\n\tdate = {2021},\n"
                                       "\tvolume = {12},\n\tpages = {1--20},\n\tdoi = {10.1000/a},\n}\n")

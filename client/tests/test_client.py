@@ -64,7 +64,7 @@ def tools(fake, tmp_path):
 
 
 def test_each_tool_sends_the_request_in_the_contract(tools, fake):
-    filters = {"authors": ["Trilling"], "year_from": 2021}
+    filters = {"authors": ["Terpstra"], "year_from": 2021}
     tools.lookup(["10.1000/a"])
     tools.list_items(filters, count=5, order="year", fields=["key", "title"])
     tools.search_items("echo chambers", filters, count=3, phrase="filter bubble")
