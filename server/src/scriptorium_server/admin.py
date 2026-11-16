@@ -478,6 +478,63 @@ def fetch(
                f" ${cost:.2f}; files in {out}")
 
 
+def _openalex_venues(conn, source_id: list[str] | None, all_venues: bool) -> list[dict]:
+    """The venues named by their OpenAlex source IDs, or every subscribed
+    OpenAlex venue that needs no filter."""
+    if bool(source_id) == all_venues:
+        _fail("name venues with --source-id, or use --all")
+    if all_venues:
+        return conn.execute("SELECT * FROM venues WHERE subscribed AND adapter = 'openalex'"
+                            " AND NOT needs_filter ORDER BY id").fetchall()
+    venues = conn.execute("SELECT * FROM venues WHERE source_id = ANY(%s)"
+                          " AND adapter = 'openalex' ORDER BY id", (source_id,)).fetchall()
+    missing = set(source_id) - {v["source_id"] for v in venues}
+    if missing:
+        _fail(f"no OpenAlex venue with source ID {', '.join(sorted(missing))}")
+    waiting = [v["name"] for v in venues if v["needs_filter"]]
+    if waiting:
+        _fail(f"these venues wait for a filter: {', '.join(waiting)}")
+    return venues
+
+
+@app.command()
+def load(
+    files: Annotated[Path, typer.Argument(help="The folder `fetch` wrote the journals' files to.")],
+    source_id: Annotated[list[str] | None, typer.Option(help="A venue's OpenAlex source ID;"
+                                                       " repeat for several.")] = None,
+    all_venues: Annotated[bool, typer.Option("--all", help="Every subscribed OpenAlex venue"
+                                             " that needs no filter.")] = False,
+    abstracts: Annotated[list[Path] | None, typer.Option(
+        help="A file of {\"doi\", \"abstract\"} lines (may be .gz) with abstracts for papers"
+             " OpenAlex has none for; repeat for several.")] = None,
+) -> None:
+    """Load venues' fetched files into the collection, in bulk: every work
+    that passes the harvest rules becomes an item, unless the collection
+    holds it. Items get their vectors from the worker afterwards. Run
+    again, it adds only what is new."""
+    from scriptorium_server import load as loading
+
+    current = settings.load()
+    with connect() as conn:
+        venues = _openalex_venues(conn, source_id, all_venues)
+        found = loading.read_abstracts(abstracts or [])
+        run_dir = jobs.new_run(_data(current) / "runs", "load")
+        result = loading.load_files(conn, venues, files, run_dir, abstracts=found,
+                                    report=typer.echo)
+    line = (f"{len(venues)} venues in {result['seconds']:.0f} s: " + intake_summary(result))
+    jobs.finish_run(run_dir, "partial" if result.get("failed") or result.get("no file")
+                    else "ok", line)
+    typer.echo(line + f"; counts in {run_dir}")
+
+
+def intake_summary(result: dict) -> str:
+    from scriptorium_server import intake
+
+    extra = "".join(f", {result[name]} {name}" for name in ("repeated in the files", "failed",
+                                                             "no file") if result.get(name))
+    return intake.summary(result) + extra
+
+
 @app.command()
 def backfill(
     source_id: Annotated[list[str] | None, typer.Option(help="A venue's OpenAlex source ID;"
@@ -488,22 +545,8 @@ def backfill(
 ) -> None:
     """Queue a harvest of venues' papers since a date, one job per venue,
     for the worker. Run again, it adds only what is new."""
-    if bool(source_id) == all_venues:
-        _fail("name venues with --source-id, or use --all")
     with connect() as conn:
-        if all_venues:
-            venues = conn.execute("SELECT * FROM venues WHERE subscribed AND adapter = 'openalex'"
-                                  " AND NOT needs_filter ORDER BY id").fetchall()
-        else:
-            venues = conn.execute("SELECT * FROM venues WHERE source_id = ANY(%s)"
-                                  " AND adapter = 'openalex' ORDER BY id",
-                                  (source_id,)).fetchall()
-            missing = set(source_id) - {v["source_id"] for v in venues}
-            if missing:
-                _fail(f"no OpenAlex venue with source ID {', '.join(sorted(missing))}")
-            waiting = [v["name"] for v in venues if v["needs_filter"]]
-            if waiting:
-                _fail(f"these venues wait for a filter: {', '.join(waiting)}")
+        venues = _openalex_venues(conn, source_id, all_venues)
         for venue in venues:
             jobs.enqueue(conn, "backfill", {"venue_id": venue["id"], "since": since})
     typer.echo(f"Queued {len(venues)} harvest jobs; the worker runs them in turn.")

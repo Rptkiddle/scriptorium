@@ -193,3 +193,14 @@ def test_fetch_list_skips_complete_journals_and_writes_a_checklist(tmp_path, mon
     again = intake.fetch_list(journals, tmp_path, report=lambda m: None)
     assert again == []
     assert len((tmp_path / "checklist.jsonl").read_text().splitlines()) == 2
+
+
+def test_load_command_loads_fetched_files(run, db, venue, tmp_path):
+    with gzip.open(tmp_path / "S1.jsonl.gz", "wt", encoding="utf-8") as f:
+        f.write(json.dumps(WORK) + "\n" + json.dumps(EDITORIAL) + "\n")
+    run("settings", "set", "data.folder", str(tmp_path))
+    result = run("load", str(tmp_path), "--source-id", "S1")
+    assert result.exit_code == 0, result.output
+    assert "1 new" in result.output and "1 not admitted" in result.output
+    assert db.execute("SELECT count(*) AS n FROM items").fetchone()["n"] == 1
+    assert run("load", str(tmp_path)).exit_code == 1  # no venues named

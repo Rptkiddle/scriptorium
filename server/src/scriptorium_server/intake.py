@@ -68,6 +68,12 @@ def admit_work(conn: psycopg.Connection, work: dict, venue: dict) -> str:
         return "harvested before"
     record = openalex.to_record(work)
     record["publicationTitle"] = venue["name"]
+    return admit_record(conn, record, work_id, venue)
+
+
+def admit_record(conn: psycopg.Connection, record: dict, work_id: str, venue: dict) -> str:
+    """admit_work for a work already in record form, placed under the
+    venue's name: "new", "held" or "replaced another version"."""
     if not record.get("title"):
         raise ValueError("a work without a title")
     held = (items.holder(conn, own_identifiers(record)) if record.get("DOI")
@@ -125,7 +131,7 @@ def backfill(conn: psycopg.Connection, venue: dict, run_dir: Path, *, api_key: s
 def summary(result: dict) -> str:
     """One line for the job list."""
     dropped = sum(v for k, v in result.items() if k.startswith(("type:", "language:"))
-                  or k in ("retracted", "no title"))
+                  or k in ("retracted", "no title", "failed"))
     return (f"{result.get('new', 0)} new, {result.get('held', 0)} already held,"
             f" {result.get('replaced another version', 0)} replaced a preprint,"
             f" {result.get('harvested before', 0)} harvested before, {dropped} not admitted"
