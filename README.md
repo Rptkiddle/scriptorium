@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/banner-dark.svg">
+  <img src="docs/assets/banner-light.svg" alt="scriptorium" width="100%">
+</picture>
+
 # Scriptorium collaborative: design spec
 
 ## 1. Purpose
