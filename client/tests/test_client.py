@@ -31,6 +31,7 @@ class FakeServer:
         self.status, self.error = 200, None
         self.replies = {
             "/v1/health": {"status": "ok", "server": "0.1.0", "api": 1, "min_client": "0.1.0",
+                           "pdf_download": True, "pdf_upload": False,
                            "items": 25355, "fulltexts": 14839},
             "/v1/items": {"total": 300, "items": many(300)},
             "/v1/search/items": {"items": many(3)},
@@ -180,6 +181,7 @@ def test_status_reports_all_four_facts(tools, fake):
     status = tools.status()
     assert status["server_reachable"] is True and status["items"] == 25355
     assert status["client_version"] == __version__
+    assert status["pdf_download"] is True and status["pdf_upload"] is False
     assert status["zotero_running"] is True and status["bridge_plugin"] is False
     fake.error = httpx.ConnectError("no route")
     down = tools.status()

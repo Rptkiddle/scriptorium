@@ -147,3 +147,19 @@ def test_an_unreachable_server_stops_the_batch_without_recording_it(tmp_path):
     with pytest.raises(ServerError, match="cannot be reached"):
         tools.pdf_upload(str(folder))
     assert tools._sent() == {}  # nothing recorded: the next call tries again
+
+
+def test_a_server_that_takes_no_pdfs_stops_the_batch_without_recording_it(tmp_path):
+    folder, paths = folder_of(tmp_path, 2)
+
+    def switched_off(request):
+        if request.url.path == "/v1/files/held":
+            return httpx.Response(200, json={"count": 0, "items": []})
+        return httpx.Response(403, json={"error": "this server does not accept donated PDFs"
+                                                  " at present"})
+
+    tools = make_tools(switched_off, tmp_path)
+    with pytest.raises(ServerError, match="does not accept donated PDFs"):
+        tools.pdf_upload(str(folder))
+    assert tools._sent() == {}  # not refused for good: sent when the server takes PDFs again
+

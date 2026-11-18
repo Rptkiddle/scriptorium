@@ -8,6 +8,7 @@ is refused, so a mistyped input is never silently ignored.
 """
 
 import hashlib
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -89,9 +90,12 @@ def _filters(filters: Filters | None) -> dict:
 
 
 def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
-               registry: retrieval.Registry | None = None) -> FastAPI:
+               registry: retrieval.Registry | None = None,
+               current: Callable[[], Settings] | None = None) -> FastAPI:
     """The web service. `connect()` gives a database connection as a
-    context manager; `registry` is asked for identifiers not held."""
+    context manager; `registry` is asked for identifiers not held;
+    `current()` gives the settings in force now, for the settings that take
+    effect while the server runs (without it, those given at the start)."""
     app = FastAPI(title="Scriptorium", version=__version__, docs_url=None, redoc_url=None,
                   openapi_url=None)
     per_request = int(settings["limits.per_request"])
@@ -103,12 +107,17 @@ def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
     def serve(request: Request, name: str, inputs: dict, run) -> Any:
         return auth.handle(connect, request, name, inputs, run, per_minute)
 
+    def switched_on(name: str) -> bool:
+        return (current() if current else settings)[name] == "on"
+
     @app.get("/v1/health")
     def health(request: Request) -> Any:
         """Whether the server answers, and the size of the collection."""
         def run(conn, member):
             return {"status": "ok", "server": __version__, "api": API_VERSION,
                     "min_client": ".".join(map(str, auth.MIN_CLIENT)),
+                    "pdf_download": switched_on("files.pdf_download"),
+                    "pdf_upload": switched_on("files.pdf_upload"),
                     **retrieval.collection_size(conn)}
         return serve(request, "health", {}, run)
 
@@ -184,8 +193,9 @@ def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
         inputs: dict = {"identifier": identifier, "item": item}
         declared = request.headers.get("content-length", "")
         too_big = declared.isdigit() and int(declared) > upload_bytes
+        accepted = switched_on("files.pdf_upload")
         body = b""
-        if not too_big and await run_in_threadpool(known_key, request):
+        if accepted and not too_big and await run_in_threadpool(known_key, request):
             chunks, size = [], 0
             async for chunk in request.stream():
                 size += len(chunk)
@@ -197,6 +207,8 @@ def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
             inputs.update(bytes=size, sha256=hashlib.sha256(body).hexdigest())
 
         def run(conn, member):
+            if not accepted:
+                raise auth.Refused(403, "this server does not accept donated PDFs at present")
             if too_big:
                 raise auth.Refused(413, f"the PDF is larger than {upload_bytes // 1048576} MB,"
                                         " the largest a member may donate")
@@ -233,6 +245,9 @@ def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
     def download(key: str, request: Request) -> Any:
         """The held PDF of an item (key or citation key)."""
         def run(conn, member):
+            if not switched_on("files.pdf_download"):
+                raise auth.Refused(403, "this server does not hand out PDFs at present; the"
+                                        " full texts it holds stay searchable")
             try:
                 found = files.held_file(conn, key, store)
             except files.NotHeld as exc:

@@ -172,7 +172,8 @@ def serve(host: Annotated[str, typer.Option(help="The address to listen on.")] =
     typer.echo(f"Embedding model revision {embedder.revision or '?'} on {embedder.device}.")
     # No access log: it would print each caller's network address, which
     # this server does not record. The usage log holds every request.
-    uvicorn.run(create_app(pool.connection, embedder, current, crossref.fetch),
+    uvicorn.run(create_app(pool.connection, embedder, current, crossref.fetch,
+                           current=settings.load),
                 host=host, port=port, access_log=False)
 
 

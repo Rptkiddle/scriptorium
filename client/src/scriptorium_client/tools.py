@@ -153,14 +153,17 @@ class Tools:
         return self.server.bibtex(keys, format, abstracts)
 
     def status(self) -> dict:
-        """Whether everything is in place: the server reachable and the size
-        of its collection, this client's version, and whether Zotero and its
-        Scriptorium Bridge plugin answer on this machine."""
+        """Whether everything is in place: the server reachable, the size of
+        its collection and whether it hands out PDFs and accepts donated
+        ones, this client's version, and whether Zotero and its Scriptorium
+        Bridge plugin answer on this machine."""
         state = {"client_version": __version__, "server_address": self.server.address or None}
         try:
             health = self.server.health()
             state.update(server_reachable=True, items=health["items"],
-                         fulltexts=health["fulltexts"], server_version=health["server"])
+                         fulltexts=health["fulltexts"], server_version=health["server"],
+                         pdf_download=health.get("pdf_download", True),
+                         pdf_upload=health.get("pdf_upload", True))
         except ServerError as exc:
             state.update(server_reachable=False, server_problem=str(exc))
         return {**state, **self._zotero()}

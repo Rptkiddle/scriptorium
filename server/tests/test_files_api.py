@@ -53,7 +53,8 @@ def world(db, empty_schema, tmp_path):
     path = tmp_path / "s.toml"
     settings.set_value("data.folder", str(tmp_path / "data"), path)
     settings.set_value("limits.upload_megabytes", 1, path)
-    app = create_app(lambda: database.connect(*empty_schema), FakeEmbedder(), settings.load(path))
+    app = create_app(lambda: database.connect(*empty_schema), FakeEmbedder(), settings.load(path),
+                     current=lambda: settings.load(path))
 
     def client(api_key):
         return TestClient(app, headers={"Authorization": f"Bearer {api_key}",
@@ -67,6 +68,7 @@ def world(db, empty_schema, tmp_path):
                         {"fulltext": lambda conn, job: process(conn, job, ctx)}, until_idle=True)
 
     return type("World", (), {"ada": client(ada), "grace": client(grace), "db": db, "key": key,
+                              "settings_path": path,
                               "work": staticmethod(work), "store": ctx.files})
 
 
@@ -190,3 +192,29 @@ def test_a_failed_donation_tells_the_member_plainly(world):
     (d,) = world.ada.get("/v1/pdf_uploads").json()["uploads"]
     assert d["state"] == "failed" and "grobid:8070" not in d["result"]
     assert "administrator can run it again" in d["result"]
+
+
+def test_pdf_upload_can_be_switched_off_and_on_while_the_server_runs(world):
+    settings.set_value("files.pdf_upload", "off", world.settings_path)
+    refused = pdf_upload(world.ada, pdf_bytes(), identifier="10.1000/abc")
+    assert refused.status_code == 403 and "does not accept donated PDFs" in refused.json()["error"]
+    assert world.db.execute("SELECT count(*) AS n FROM jobs").fetchone()["n"] == 0
+    assert world.ada.get("/v1/health").json()["pdf_upload"] is False
+    settings.set_value("files.pdf_upload", "on", world.settings_path)
+    assert pdf_upload(world.ada, pdf_bytes(), identifier="10.1000/abc").status_code == 200
+    assert world.ada.get("/v1/health").json()["pdf_upload"] is True
+
+
+def test_pdf_download_can_be_switched_off_and_full_text_search_goes_on(world):
+    pdf_upload(world.ada, pdf_bytes(), identifier="10.1000/abc")
+    world.work()
+    settings.set_value("files.pdf_download", "off", world.settings_path)
+    refused = world.grace.get(f"/v1/files/{world.key}")
+    assert refused.status_code == 403 and "does not hand out PDFs" in refused.json()["error"]
+    assert world.grace.get("/v1/health").json()["pdf_download"] is False
+    found = world.grace.post("/v1/search/passages", json={"query": "anything"})
+    assert found.status_code == 200 and found.json()["passages"]  # the text stays searchable
+    assert world.grace.get("/v1/files/held").json()["count"] == 1  # and uploads can still compare
+    settings.set_value("files.pdf_download", "on", world.settings_path)
+    assert world.grace.get(f"/v1/files/{world.key}").status_code == 200
+

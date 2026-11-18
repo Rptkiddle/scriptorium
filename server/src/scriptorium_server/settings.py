@@ -82,6 +82,13 @@ SETTINGS: tuple[Setting, ...] = (
     Setting("limits.upload_megabytes", 100,
             "The largest PDF a member may upload, in megabytes.", _between(1, 2000),
             "a whole number from 1 to 2000"),
+    Setting("files.pdf_download", "on",
+            "Whether the server hands held PDFs to members. Set to off where members may"
+            " not receive them; full texts stay searchable. Takes effect at once.",
+            lambda v: v in ("on", "off"), "on or off"),
+    Setting("files.pdf_upload", "on",
+            "Whether the server accepts PDFs from members (donations). Takes effect at"
+            " once.", lambda v: v in ("on", "off"), "on or off"),
     Setting("embedding.batch_size", 32,
             "How many texts the embedding model takes at once. Larger is faster and uses"
             " more GPU memory.", _between(1, 1024), "a whole number from 1 to 1024"),

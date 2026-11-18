@@ -93,6 +93,7 @@ def test_nothing_is_served_without_a_key(world):
         assert anonymous.get(path).status_code == 404  # no page describes the service
     reply = world.client.get("/v1/health")
     assert reply.json() == {"status": "ok", "server": "0.1.0", "api": 1, "min_client": "0.3.0",
+                            "pdf_download": True, "pdf_upload": True,
                             "items": 5, "fulltexts": 1}
     assert [r["request"] for r in log(world)][-1] == "health"
 

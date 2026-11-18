@@ -93,6 +93,8 @@ docker compose run --rm cli settings show
 docker compose run --rm cli settings set <name> <value>
 ```
 
+Two settings decide what happens to PDFs: `files.pdf_download` (whether the server hands held PDFs to members) and `files.pdf_upload` (whether it accepts donated PDFs). Both are `on` by default and take effect at once when set to `off`, for instance where licences do not allow members to receive PDFs. Full texts stay searchable either way.
+
 A journal list is a CSV file with the columns `openalex_id`, `journal`, `issns`, `publisher` and `coded_class`; journals of class `MIXED` are too broad to take whole (multidisciplinary journals), and only their papers whose primary topic OpenAlex places in its Social Sciences domain are admitted. The harvest needs an OpenAlex API key (`settings set sources.openalex_api_key <key>`). It admits research papers (OpenAlex types article, review, conference paper and software paper) in English that are not retracted, and records each paper's OpenAlex work, so running it again adds only what is new. Each journal's counts are in its job's run folder (`runs/backfill/`).
 
 For a first harvest of many journals, `fetch` and `load` do the same in two steps, much faster: `fetch` saves every listed journal's papers to files without touching the database, and `load` admits them in bulk under the same rules (counts in `runs/load/`). `load --abstracts <file>` fills in abstracts found elsewhere for papers OpenAlex has none for; the file holds one `{"doi": ..., "abstract": ...}` object per line. Loaded items get their vectors from the worker, which needs a GPU for a harvest of this size (see [GPU](#gpu)).
