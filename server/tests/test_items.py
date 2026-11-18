@@ -90,7 +90,7 @@ def test_many_sessions_admitting_the_same_new_publication_give_one_item(db, empt
 
 def test_a_preprint_of_a_held_paper_is_recorded_on_it(db):
     key, _ = admit(db, PUBLISHED, "venue")
-    assert admit(db, PREPRINT, "donation") == (key, False) and count(db) == 1
+    assert admit(db, PREPRINT, "pdf_upload") == (key, False) and count(db) == 1
     row = get(db, key)
     assert row["other_ids"] == ["doi:10.31235/osf.io/abcde"]
     assert row["data"]["extra"] == "SocArXiv: 10.31235/osf.io/abcde"
@@ -99,8 +99,8 @@ def test_a_preprint_of_a_held_paper_is_recorded_on_it(db):
 
 def test_preprint_identifier_finds_published_item(db):
     key, _ = admit(db, PUBLISHED, "venue")
-    admit(db, PREPRINT, "donation")
-    admit(db, ARXIV, "donation")
+    admit(db, PREPRINT, "pdf_upload")
+    admit(db, ARXIV, "pdf_upload")
     assert holder(db, ["doi:10.31235/osf.io/abcde"]) == key
     assert holder(db, ["arxiv:2603.13270"]) == key
     assert holder(db, ["doi:10.9999/unknown"]) is None
@@ -110,7 +110,7 @@ def test_preprint_identifier_finds_published_item(db):
 
 
 def test_a_published_version_replaces_its_preprint_and_keeps_its_identifier(db):
-    key, _ = admit(db, PREPRINT, "donation")
+    key, _ = admit(db, PREPRINT, "pdf_upload")
     db.execute("UPDATE items SET embedding = %s WHERE key = %s",
                ("[" + ",".join(["0.1"] * 256) + "]", key))
     cited_as = get(db, key)["citation_key"]
@@ -127,8 +127,8 @@ def test_a_published_version_replaces_its_preprint_and_keeps_its_identifier(db):
 
 
 def test_a_second_preprint_is_recorded_on_the_first_and_carried_to_the_published(db):
-    key, _ = admit(db, PREPRINT, "donation")
-    assert admit(db, ARXIV, "donation") == (key, False)
+    key, _ = admit(db, PREPRINT, "pdf_upload")
+    assert admit(db, ARXIV, "pdf_upload") == (key, False)
     assert get(db, key)["other_ids"] == ["arxiv:2603.13270"]
     admit(db, PUBLISHED, "venue")
     assert get(db, key)["other_ids"] == ["arxiv:2603.13270", "doi:10.31235/osf.io/abcde"]
@@ -137,11 +137,11 @@ def test_a_second_preprint_is_recorded_on_the_first_and_carried_to_the_published
 def test_provenance_kind_is_kept_from_first_admission(db):
     member = db.execute("INSERT INTO members (name, key_hash) VALUES ('m', 'h')"
                         " RETURNING id").fetchone()["id"]
-    key, _ = admit(db, PREPRINT, "donation", member)
+    key, _ = admit(db, PREPRINT, "pdf_upload", member)
     admit(db, PREPRINT, "activity")
     admit(db, PUBLISHED, "venue")
     row = get(db, key)
-    assert (row["provenance_kind"], row["provenance_member"]) == ("donation", member)
+    assert (row["provenance_kind"], row["provenance_member"]) == ("pdf_upload", member)
 
 
 def test_registry_links_match_whatever_the_title(db):
@@ -149,8 +149,8 @@ def test_registry_links_match_whatever_the_title(db):
     renamed = record("preprint", "An Earlier Working Title", "Terpstra", "10.31235/osf.io/zzzzz",
                      repository="SocArXiv")
     relation = {"is-preprint-of": [{"id-type": "doi", "id": "10.1000/journal.1"}]}
-    assert admit(db, renamed, "donation", relation=relation) == (key, False)
-    assert admit(db, {**renamed, "DOI": "10.31235/osf.io/yyyyy"}, "donation")[1] is True
+    assert admit(db, renamed, "pdf_upload", relation=relation) == (key, False)
+    assert admit(db, {**renamed, "DOI": "10.31235/osf.io/yyyyy"}, "pdf_upload")[1] is True
 
 
 def test_two_published_items_with_one_title_are_two_items(db):
@@ -165,12 +165,12 @@ def test_two_published_items_with_one_title_are_two_items(db):
 def test_same_title_by_other_authors_is_another_item(db):
     admit(db, PUBLISHED, "venue")
     assert admit(db, record("preprint", "Echo Chambers Revisited", "Wiersma",
-                            "10.31235/osf.io/other"), "donation")[1] is True
+                            "10.31235/osf.io/other"), "pdf_upload")[1] is True
 
 
 def test_a_preprint_without_an_identifier_is_kept_as_its_own_item(db):
     admit(db, PUBLISHED, "venue")
-    assert admit(db, record("preprint", "Echo Chambers Revisited", "Terpstra"), "donation")[1]
+    assert admit(db, record("preprint", "Echo Chambers Revisited", "Terpstra"), "pdf_upload")[1]
 
 
 def test_every_name_form_of_a_creator_is_indexed(db):
@@ -185,7 +185,7 @@ def test_every_name_form_of_a_creator_is_indexed(db):
 
 def test_a_record_may_bring_its_own_keys_and_placement(db):
     seeded = {**PUBLISHED, "key": "ABCD2345", "citationKey": "terpstraEcho2026"}
-    key, _ = admit(db, seeded, "donation", publisher="Test Press", category="Journals")
+    key, _ = admit(db, seeded, "pdf_upload", publisher="Test Press", category="Journals")
     row = get(db, key)
     assert (key, row["citation_key"], row["publisher"]) == (
         "ABCD2345", "terpstraEcho2026", "Test Press")

@@ -19,7 +19,7 @@ from scriptorium_client.notice import CANNOT_ASK, DIALOG, NOT_AGREED
 from scriptorium_client import settings as client_settings
 from scriptorium_client.http import RateLimited, Server, ServerError
 
-DONATE_BATCH = 20  # PDFs a folder donation sends per call; call again for the rest
+UPLOAD_BATCH = 20  # PDFs a folder upload sends per call; call again for the rest
 
 ZOTERO = "http://127.0.0.1:23119"
 INSTRUCTIONS = """Scriptorium is a shared collection of academic literature: items (publications \
@@ -43,8 +43,8 @@ A large result is saved whole to a file and the reply gives its path, the count 
 rows: read on with set_read, narrow a later search to it with within_set, mark items with \
 set_mark, export with set_export_bibtex.
 
-PDFs: download_pdf saves a held PDF on this machine. donate_pdf shares the member's PDFs with \
-all members (only on the member's request); donation_progress shows what became of them."""
+PDFs: pdf_download saves a held PDF on this machine. pdf_upload shares the member's PDFs with \
+all members (only on the member's request); pdf_upload_progress shows what became of them."""
 
 
 def zotero_state(get=httpx.get, post=httpx.post) -> dict:
@@ -167,7 +167,7 @@ class Tools:
 
     # -- files ---------------------------------------------------------------------
 
-    def download_pdf(self, key: str) -> dict:
+    def pdf_download(self, key: str) -> dict:
         """Save the held PDF of an item (item or citation key) on this
         machine, in the client's PDF folder; returns its path. Not every
         item with full text has its PDF held."""
@@ -181,7 +181,11 @@ class Tools:
         return {"saved_to": str(path), "bytes": len(data)}
 
     def _ledger(self) -> Path:
-        return Path(self.settings["results_dir"]).expanduser().parent / "donations.jsonl"
+        folder = Path(self.settings["results_dir"]).expanduser().parent
+        earlier = folder / "donations.jsonl"  # the ledger's name before client 0.3.0
+        if earlier.exists() and not (folder / "pdf_uploads.jsonl").exists():
+            earlier.rename(folder / "pdf_uploads.jsonl")
+        return folder / "pdf_uploads.jsonl"
 
     def _sent(self) -> dict[str, str]:
         """MD5 -> "sent" or "refused", for every PDF this machine has offered."""
@@ -210,7 +214,7 @@ class Tools:
         cache_path.write_text(json.dumps(cache))
         return out
 
-    def donate_pdf(self, path: str, identifier: str | None = None) -> dict:
+    def pdf_upload(self, path: str, identifier: str | None = None) -> dict:
         """Share PDFs with all members: one PDF (with its DOI or arXiv ID
         when known), or every PDF in a folder and its subfolders. Only on
         the member's own request: donated PDFs are shared with all members.
@@ -219,7 +223,7 @@ class Tools:
         named (else reads the DOI on its first page), and discards what it
         cannot match. PDFs the server holds already, and ones this machine
         has sent before, are skipped. A folder is sent in batches: call
-        again until "remaining" is 0. Follow up with donation_progress."""
+        again until "remaining" is 0. Follow up with pdf_upload_progress."""
         source = Path(path).expanduser()
         if not source.exists():
             raise ServerError(f"{source} does not exist")
@@ -247,12 +251,12 @@ class Tools:
         ledger = self._ledger()
         ledger.parent.mkdir(parents=True, exist_ok=True)
         tried = 0
-        for f, md5 in todo[:DONATE_BATCH]:
+        for f, md5 in todo[:UPLOAD_BATCH]:
             entry = {"md5": md5, "file": str(f), "at": datetime.now(UTC).isoformat(timespec="seconds")}
             try:
-                reply = self.server.donate(f.read_bytes(), identifier if source.is_file() else None)
+                reply = self.server.pdf_upload(f.read_bytes(), identifier if source.is_file() else None)
             except RateLimited as exc:
-                report["note"] = f"{exc} Call donate_pdf again in a minute to send the rest."
+                report["note"] = f"{exc} Call pdf_upload again in a minute to send the rest."
                 break
             except ServerError as exc:
                 if exc.status not in (400, 413):  # not about this file: stop, nothing recorded
@@ -260,22 +264,22 @@ class Tools:
                 entry["refused"] = str(exc)
                 report["refused"].append({"file": f.name, "reason": str(exc)})
             else:
-                entry["donation"] = reply["donation"]
-                report["sent"].append({"file": f.name, "donation": reply["donation"]})
+                entry["upload"] = reply["upload"]
+                report["sent"].append({"file": f.name, "upload": reply["upload"]})
             tried += 1
             with open(ledger, "a") as log:
                 log.write(json.dumps(entry) + "\n")
         report["remaining"] = len(todo) - tried
         if report["remaining"] and "note" not in report:
-            report["note"] = "Call donate_pdf again with the same folder to send the rest."
+            report["note"] = "Call pdf_upload again with the same folder to send the rest."
         return report
 
-    def donation_progress(self, count: int = 50, offset: int = 0) -> dict:
+    def pdf_upload_progress(self, count: int = 50, offset: int = 0) -> dict:
         """The member's own donations, newest first: waiting, processing,
         stored, already held (another copy was there first), rejected (with
         the reason, e.g. not the publication named) or failed (the server's
         administrator can run it again)."""
-        return self.server.donations(count, offset)
+        return self.server.pdf_uploads(count, offset)
 
     # -- sets ----------------------------------------------------------------------
 
@@ -305,7 +309,7 @@ class Tools:
 
 TOOL_NAMES = ("lookup", "list_items", "search_items", "search_passages", "item", "facets",
               "bibtex", "status", "set_read", "set_mark", "set_export_bibtex",
-              "download_pdf", "donate_pdf", "donation_progress")
+              "pdf_download", "pdf_upload", "pdf_upload_progress")
 
 
 def agent_name() -> str:

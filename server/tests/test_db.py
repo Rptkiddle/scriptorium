@@ -47,8 +47,8 @@ def test_a_failing_migration_leaves_nothing_behind(empty_schema, monkeypatch):
 
 def test_vector_extension_present(db):
     assert db.execute("SELECT extversion FROM pg_extension WHERE extname = 'vector'").fetchone()
-    db.execute(ITEM, ("K1", None, None, "donation"))
-    db.execute(ITEM, ("K2", None, None, "donation"))
+    db.execute(ITEM, ("K1", None, None, "pdf_upload"))
+    db.execute(ITEM, ("K2", None, None, "pdf_upload"))
     db.execute("UPDATE items SET embedding = %s WHERE key = 'K1'", (vector(1, 0),))
     db.execute("UPDATE items SET embedding = %s WHERE key = 'K2'", (vector(0, 1),))
     nearest = db.execute("SELECT key FROM items ORDER BY embedding <=> %s::halfvec LIMIT 1",
@@ -88,7 +88,7 @@ def test_provenance_kind_is_one_of_three(db):
 
 
 def test_keyword_columns_follow_the_text(db):
-    db.execute(ITEM, ("K1", None, None, "donation"))
+    db.execute(ITEM, ("K1", None, None, "pdf_upload"))
     db.execute("UPDATE items SET abstract = 'Echo chambers revisited' WHERE key = 'K1'")
     db.execute("INSERT INTO passages (item, idx, part, text) VALUES ('K1', 0, 'body', 'filter bubbles')")
     hit = db.execute("SELECT key FROM items WHERE tsv @@ phraseto_tsquery('simple', 'echo chambers')")
@@ -98,7 +98,7 @@ def test_keyword_columns_follow_the_text(db):
 
 
 def test_deleting_an_item_removes_its_passages_creators_and_files(db):
-    db.execute(ITEM, ("K1", None, None, "donation"))
+    db.execute(ITEM, ("K1", None, None, "pdf_upload"))
     db.execute("INSERT INTO passages (item, idx, part, text) VALUES ('K1', 0, 'body', 't')")
     db.execute("INSERT INTO item_creators (item, name_key, position) VALUES ('K1', 'kiddle', 0)")
     db.execute("INSERT INTO files (sha256, item, bytes) VALUES ('abc', 'K1', 10)")
@@ -117,11 +117,13 @@ def test_one_pdf_can_belong_to_two_items_after_migrating_a_filled_database(empty
         conn.execute("CREATE TABLE schema_migrations (name text PRIMARY KEY,"
                      " applied_at timestamptz NOT NULL DEFAULT now())")
         conn.execute("INSERT INTO schema_migrations (name) VALUES (%s)", (first,))
-        conn.execute(ITEM, ("K1", None, None, "donation"))
+        conn.execute(ITEM, ("K1", None, None, "donation"))  # the value's name until 0005
         conn.execute(ITEM, ("K2", None, None, "donation"))
         conn.execute("INSERT INTO pending_files (md5, item) VALUES ('m1', 'K1')")
         conn.commit()
         assert database.migrate(conn) == [name for name, _ in later]
+        kinds = conn.execute("SELECT DISTINCT provenance_kind AS k FROM items").fetchall()
+        assert [r["k"] for r in kinds] == ["pdf_upload"]  # 0005 renames the value
         conn.execute("INSERT INTO pending_files (md5, item) VALUES ('m1', 'K2')")
         conn.execute("INSERT INTO files (sha256, item, bytes, source_md5) VALUES ('s1', 'K1', 9, 'm1')")
         conn.execute("INSERT INTO files (sha256, item, bytes, source_md5) VALUES ('s1', 'K2', 9, 'm1')")

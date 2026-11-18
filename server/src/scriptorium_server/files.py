@@ -1,10 +1,10 @@
-"""Files on the server side: receiving a donated PDF, serving a held PDF,
-the list of what is held, and a member's donation progress.
+"""Files on the server side: receiving a uploaded PDF, serving a held PDF,
+the list of what is held, and a member's upload progress.
 
-A donation is received in one request and processed later: the PDF goes
+An uploaded PDF is received in one request and processed later: the PDF goes
 to the holding area under a name the server makes, a full-text job
 (fulltext.process) is queued, and the reply comes at once. The member
-follows it with donation progress, which shows only their own donations.
+follows it with upload progress, which shows only their own uploads.
 
 "Held" means a PDF stored on the server (table `files`). An item can have
 full text without a held PDF (the seed import brings passages before
@@ -29,8 +29,8 @@ class NotHeld(LookupError):
 
 def receive(conn: psycopg.Connection, data: bytes, member: int, holding: Path,
             identifier: str | None = None, item: str | None = None) -> dict:
-    """Put a donated PDF in the holding area and queue its full-text job;
-    returns {"donation": job id, "status": "waiting"}. ValueError for a file
+    """Put a uploaded PDF in the holding area and queue its full-text job;
+    returns {"upload": job id, "status": "waiting"}. ValueError for a file
     that is not a PDF or an identifier that is not a DOI or arXiv ID."""
     if not data.startswith(PDF_MAGIC):
         raise ValueError("the file is not a PDF")
@@ -47,12 +47,12 @@ def receive(conn: psycopg.Connection, data: bytes, member: int, holding: Path,
     path.write_bytes(data)
     payload["file"] = str(path)
     job_id = jobs.enqueue(conn, "fulltext", payload, member)
-    return {"donation": job_id, "status": "waiting"}
+    return {"upload": job_id, "status": "waiting"}
 
 
 def held(conn: psycopg.Connection) -> dict:
     """Every item with a held PDF: key, DOI, arXiv ID and the MD5 of each PDF
-    as donated, so a client can tell locally what it need not send."""
+    as uploaded, so a client can tell locally what it need not send."""
     rows = conn.execute(
         "SELECT i.key, i.doi, i.arxiv_id, array_agg(DISTINCT f.source_md5)"
         " FILTER (WHERE f.source_md5 IS NOT NULL) AS md5s FROM files f"
@@ -69,7 +69,7 @@ def held_file(conn: psycopg.Connection, key: str, store: FileStore) -> dict:
     row = conn.execute(
         "SELECT i.key, i.citation_key, i.has_fulltext, f.sha256, f.bytes FROM items i"
         " LEFT JOIN files f ON f.item = i.key WHERE i.key = %(k)s OR i.citation_key = %(k)s"
-        " ORDER BY f.donated_at LIMIT 1", {"k": key}).fetchone()
+        " ORDER BY f.uploaded_at LIMIT 1", {"k": key}).fetchone()
     if row is None:
         raise NotHeld(f"no item with key or citation key {key!r}")
     if row["sha256"] is None:
@@ -85,7 +85,7 @@ def held_file(conn: psycopg.Connection, key: str, store: FileStore) -> dict:
 
 
 def _state(row: dict) -> tuple[str, str | None]:
-    """A donation's state as the member sees it, and its result."""
+    """An upload's state as the member sees it, and its result."""
     if row["status"] in ("waiting", "running"):
         return ("waiting" if row["status"] == "waiting" else "processing"), None
     if row["status"] == "failed":
@@ -100,9 +100,9 @@ def _state(row: dict) -> tuple[str, str | None]:
     return (state if state in ("stored", "already held") else "done"), summary
 
 
-def donations(conn: psycopg.Connection, member: int, count: int = 50, offset: int = 0) -> dict:
-    """The member's own donations, newest first: {"total", "donations": [{
-    "donation", "state", "identifier", "item", "received", "finished",
+def pdf_uploads(conn: psycopg.Connection, member: int, count: int = 50, offset: int = 0) -> dict:
+    """The member's own PDF uploads, newest first: {"total", "uploads": [{
+    "upload", "state", "identifier", "item", "received", "finished",
     "result"}]}. States: waiting, processing, stored, already held,
     rejected, failed."""
     total = conn.execute("SELECT count(*) AS n FROM jobs WHERE kind = 'fulltext' AND member = %s",
@@ -115,11 +115,11 @@ def donations(conn: psycopg.Connection, member: int, count: int = 50, offset: in
     for r in rows:
         state, result = _state(r)
         payload = r["payload"] or {}
-        out.append({"donation": r["id"], "state": state,
+        out.append({"upload": r["id"], "state": state,
                     "identifier": payload.get("identifier"),
                     "item": payload.get("resolved") or payload.get("item"),
                     "received": r["created_at"].isoformat(timespec="seconds"),
                     "finished": r["finished_at"].isoformat(timespec="seconds")
                     if r["finished_at"] else None,
                     "result": result})
-    return {"total": total, "donations": out}
+    return {"total": total, "uploads": out}

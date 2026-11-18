@@ -100,15 +100,15 @@ class Server:
 
     # -- files ---------------------------------------------------------------------
 
-    def donate(self, data: bytes, identifier: str | None = None, item: str | None = None) -> dict:
+    def pdf_upload(self, data: bytes, identifier: str | None = None, item: str | None = None) -> dict:
         return self._send("POST", "/v1/files", content=data,
                           params={"identifier": identifier, "item": item}).json()
 
     def held(self) -> dict:
         return self._json("GET", "/v1/files/held")
 
-    def donations(self, count: int = 50, offset: int = 0) -> dict:
-        return self._send("GET", "/v1/donations", params={"count": count, "offset": offset}).json()
+    def pdf_uploads(self, count: int = 50, offset: int = 0) -> dict:
+        return self._send("GET", "/v1/pdf_uploads", params={"count": count, "offset": offset}).json()
 
     def download(self, key: str) -> tuple[bytes, str, str]:
         """(the PDF's bytes, its file name, its SHA-256 as the server holds it)."""

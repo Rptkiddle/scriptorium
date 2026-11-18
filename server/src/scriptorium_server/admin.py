@@ -579,7 +579,7 @@ def jobs_list(
 @jobs_app.command("retry")
 def jobs_retry(job_id: int) -> None:
     """Run a failed job again (e.g. one that failed because GROBID or a
-    registry could not be reached). A donation rejected for good is not
+    registry could not be reached). An upload rejected for good is not
     run again: its file is gone, and its reason stays for the member."""
     with connect() as conn:
         row = conn.execute("SELECT error FROM jobs WHERE id = %s", (job_id,)).fetchone()

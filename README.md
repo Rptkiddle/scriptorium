@@ -86,7 +86,7 @@ Collaborative implementation for Scriptorium with remote + client split. Server 
 | inspect | status | `/v1/health` | Server reachable, collection size; plus client version and Zotero found (local) |
 | files | download PDF | `/v1/files/{key}` | Held PDF, saved to disk |
 | files | donate PDF | `/v1/files` | PDF + DOI or arXiv ID, uploaded |
-| files | donation progress | `/v1/donations` | The member's donations: waiting, done, failed |
+| files | donation progress | `/v1/pdf_uploads` | The member's donations: waiting, done, failed |
 | Zotero | add items | `/v1/items/{key}`, `/v1/files/{key}` | Fetched, then written to Zotero locally |
 | Zotero | donate PDFs | `/v1/files/held`, `/v1/files` | Client fetches the list of held PDFs, compares locally, sends only PDFs the server lacks |
 | workflow | workflow | none (local) | Returns the instruction text |

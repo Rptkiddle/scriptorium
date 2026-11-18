@@ -97,8 +97,8 @@ def test_seed_counts_match_source(db, index, records, member, tmp_path):
     rows = db.execute("SELECT key, provenance_kind, has_fulltext, category, publisher FROM items"
                       " ORDER BY key").fetchall()
     assert [(r["key"], r["provenance_kind"], r["has_fulltext"]) for r in rows] == [
-        ("AAAA2222", "donation", True), ("BBBB3333", "donation", False),
-        ("CCCC4444", "donation", False)]
+        ("AAAA2222", "pdf_upload", True), ("BBBB3333", "pdf_upload", False),
+        ("CCCC4444", "pdf_upload", False)]
     assert {(r["category"], r["publisher"]) for r in rows} == {("Journals", "Test Press")}
     assert db.execute("SELECT name FROM venues").fetchall() == [{"name": "Journal of Tests (JoT)"}]
     assert db.execute("SELECT md5, item FROM pending_files").fetchall() == [

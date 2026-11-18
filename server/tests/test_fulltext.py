@@ -149,8 +149,8 @@ class FakeTeiGrobid(FakeGrobid):
 
 
 @pytest.fixture
-def donation(tmp_path):
-    def make(name="donated.pdf"):
+def pdf_upload(tmp_path):
+    def make(name="uploaded.pdf"):
         pdf = pikepdf.new()
         pdf.add_blank_page(page_size=(100, 100))
         pdf.docinfo["/Author"] = "Jane Doe"
@@ -174,10 +174,10 @@ def job(payload, member=None):
     return jobs.Job(1, "fulltext", payload, member, None)
 
 
-def test_a_donated_pdf_becomes_passages_and_one_stripped_file(db, ctx, donation):
+def test_a_donated_pdf_becomes_passages_and_one_stripped_file(db, ctx, pdf_upload):
     key, _ = collection.admit(db, RECORD, "venue")
     db.commit()
-    pdf = donation()
+    pdf = pdf_upload()
     context = ctx()
     summary = process(db, job({"file": str(pdf), "item": key}), context)
     assert "passages from the donated PDF" in summary
@@ -191,10 +191,10 @@ def test_a_donated_pdf_becomes_passages_and_one_stripped_file(db, ctx, donation)
     assert process(db, job({"file": str(pdf), "item": key}), context).startswith("nothing to do")
 
 
-def test_wrong_document_fails_and_is_not_kept(db, ctx, donation, tmp_path):
+def test_wrong_document_fails_and_is_not_kept(db, ctx, pdf_upload, tmp_path):
     key, _ = collection.admit(db, RECORD, "venue")
     member = members.add(db, "ada") and db.execute("SELECT id FROM members").fetchone()["id"]
-    pdf = donation()
+    pdf = pdf_upload()
     wrong = FakeTeiGrobid(tei_of("A model of opinion dynamics", ["Smith"]))
     jobs.enqueue(db, "fulltext", {"file": str(pdf), "item": key}, member)
     db.commit()
@@ -209,7 +209,7 @@ def test_wrong_document_fails_and_is_not_kept(db, ctx, donation, tmp_path):
     assert not (tmp_path / "data" / "pdfs").exists() or not any((tmp_path / "data" / "pdfs").rglob("*.pdf"))
 
 
-def test_donation_outside_collection_creates_item(db, ctx, donation):
+def test_donation_outside_collection_creates_item(db, ctx, pdf_upload):
     members.add(db, "ada")
     member = db.execute("SELECT id FROM members").fetchone()["id"]
     db.commit()
@@ -219,43 +219,43 @@ def test_donation_outside_collection_creates_item(db, ctx, donation):
         asked.append((kind, value))
         return dict(RECORD), None
 
-    process(db, job({"file": str(donation()), "identifier": "https://doi.org/10.1000/ABC"}, member),
+    process(db, job({"file": str(pdf_upload()), "identifier": "https://doi.org/10.1000/ABC"}, member),
             ctx(registry=registry))
     assert asked == [("doi", "10.1000/abc")]
     item = db.execute("SELECT key, provenance_kind, provenance_member, has_fulltext,"
                       " embedding IS NOT NULL AS has_vector FROM items").fetchone()
     assert (item["provenance_kind"], item["provenance_member"], item["has_fulltext"]) == (
-        "donation", member, True)
+        "pdf_upload", member, True)
     assert item["has_vector"]  # item search can find it
 
 
-def test_the_doi_on_the_first_page_names_the_publication_when_none_is_given(db, ctx, donation):
+def test_the_doi_on_the_first_page_names_the_publication_when_none_is_given(db, ctx, pdf_upload):
     key, _ = collection.admit(db, RECORD, "venue")
     db.commit()
-    process(db, job({"file": str(donation())}), ctx())
+    process(db, job({"file": str(pdf_upload())}), ctx())
     assert db.execute("SELECT item FROM files").fetchone()["item"] == key
 
 
-def test_an_unknown_identifier_is_refused_and_the_file_let_go(db, ctx, donation):
-    pdf = donation()
+def test_an_unknown_identifier_is_refused_and_the_file_let_go(db, ctx, pdf_upload):
+    pdf = pdf_upload()
     with pytest.raises(Rejected, match="does not know"):
         process(db, job({"file": str(pdf), "identifier": "10.1000/nothing"}),
                 ctx(registry=lambda kind, value: None))
     assert not pdf.exists()
 
 
-def test_grobid_unavailable_keeps_the_file_for_another_try(db, ctx, donation):
+def test_grobid_unavailable_keeps_the_file_for_another_try(db, ctx, pdf_upload):
     key, _ = collection.admit(db, RECORD, "venue")
     db.commit()
-    pdf = donation()
+    pdf = pdf_upload()
     with pytest.raises(GrobidUnavailable):
         process(db, job({"file": str(pdf), "item": key}), ctx(grobid=FakeTeiGrobid(start_error="down")))
     assert pdf.exists()
 
 
-def test_the_awaited_seed_pdf_is_stored_without_parsing(db, ctx, donation):
+def test_the_awaited_seed_pdf_is_stored_without_parsing(db, ctx, pdf_upload):
     key, _ = collection.admit(db, RECORD, "venue")
-    pdf = donation()
+    pdf = pdf_upload()
     db.execute("INSERT INTO pending_files (md5, item) VALUES (%s, %s)", (digest(pdf, "md5"), key))
     db.commit()
     grobid = FakeTeiGrobid()
@@ -265,46 +265,46 @@ def test_the_awaited_seed_pdf_is_stored_without_parsing(db, ctx, donation):
     assert db.execute("SELECT item FROM files").fetchone()["item"] == key
 
 
-def test_an_item_with_a_pdf_keeps_it(db, ctx, donation):
+def test_an_item_with_a_pdf_keeps_it(db, ctx, pdf_upload):
     key, _ = collection.admit(db, RECORD, "venue")
     db.execute("INSERT INTO files (sha256, item, bytes) VALUES ('s0', %s, 1)", (key,))
     db.commit()
-    pdf = donation()
+    pdf = pdf_upload()
     assert "has a PDF already" in process(db, job({"file": str(pdf), "item": key}), ctx())
     assert not pdf.exists()
 
 
 
-def test_an_arxiv_id_on_the_first_page_names_the_publication_when_none_is_given(db, ctx, donation):
+def test_an_arxiv_id_on_the_first_page_names_the_publication_when_none_is_given(db, ctx, pdf_upload):
     record = {**RECORD, "itemType": "preprint", "DOI": "", "archiveID": "arXiv:2501.01234"}
     key, _ = collection.admit(db, record, "venue")
     db.commit()
     arxiv_tei = tei_of(TITLE).replace(b"</biblStruct>", b'<idno type="arXiv">arXiv:2501.01234v2</idno></biblStruct>')
-    process(db, job({"file": str(donation())}), ctx(grobid=FakeTeiGrobid(arxiv_tei)))
+    process(db, job({"file": str(pdf_upload())}), ctx(grobid=FakeTeiGrobid(arxiv_tei)))
     assert db.execute("SELECT item FROM files").fetchone()["item"] == key
 
 
-def test_an_arxiv_stamp_with_version_and_category_names_the_publication(db, ctx, donation):
+def test_an_arxiv_stamp_with_version_and_category_names_the_publication(db, ctx, pdf_upload):
     record = {**RECORD, "itemType": "preprint", "DOI": "", "archiveID": "arXiv:2501.01234"}
     key, _ = collection.admit(db, record, "venue")
     db.commit()
     stamp = b'<idno type="arXiv">arXiv:2501.01234v2[cs.SI]</idno></biblStruct>'
-    process(db, job({"file": str(donation())}),
+    process(db, job({"file": str(pdf_upload())}),
             ctx(grobid=FakeTeiGrobid(tei_of(TITLE).replace(b"</biblStruct>", stamp))))
     assert db.execute("SELECT item FROM files").fetchone()["item"] == key
 
 
-def test_a_misread_doi_on_the_first_page_gives_way_to_the_title(db, ctx, donation):
+def test_a_misread_doi_on_the_first_page_gives_way_to_the_title(db, ctx, pdf_upload):
     key, _ = collection.admit(db, RECORD, "venue")
     db.commit()
     misread = tei_of(TITLE, ["Lovelace"], "10.1000/ab")  # cut short: the registry has no such DOI
-    process(db, job({"file": str(donation())}),
+    process(db, job({"file": str(pdf_upload())}),
             ctx(grobid=FakeTeiGrobid(misread), registry=lambda kind, value: None))
     assert db.execute("SELECT item FROM files").fetchone()["item"] == key
 
 
-def test_a_misread_doi_and_a_title_no_item_has_is_refused(db, ctx, donation):
-    pdf = donation()
+def test_a_misread_doi_and_a_title_no_item_has_is_refused(db, ctx, pdf_upload):
+    pdf = pdf_upload()
     misread = tei_of("A title that no item in the collection has", ["Lovelace"], "10.1000/ab")
     with pytest.raises(Rejected, match="does not know 10.1000/ab"):
         process(db, job({"file": str(pdf)}),

@@ -160,7 +160,7 @@
         "type": "null"
        }
       ],
-      "description": "venue, donation, activity.",
+      "description": "venue, pdf_upload, activity.",
       "title": "Provenance"
      },
      "publishers": {
@@ -510,59 +510,6 @@
     "summary": "Bibtex"
    }
   },
-  "/v1/donations": {
-   "get": {
-    "description": "The member's own donations, newest first, with their state.",
-    "operationId": "donations_v1_donations_get",
-    "parameters": [
-     {
-      "in": "query",
-      "name": "count",
-      "required": false,
-      "schema": {
-       "default": 50,
-       "minimum": 1,
-       "title": "Count",
-       "type": "integer"
-      }
-     },
-     {
-      "in": "query",
-      "name": "offset",
-      "required": false,
-      "schema": {
-       "default": 0,
-       "minimum": 0,
-       "title": "Offset",
-       "type": "integer"
-      }
-     }
-    ],
-    "responses": {
-     "200": {
-      "content": {
-       "application/json": {
-        "schema": {
-         "title": "Response Donations V1 Donations Get"
-        }
-       }
-      },
-      "description": "Successful Response"
-     },
-     "422": {
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      },
-      "description": "Validation Error"
-     }
-    },
-    "summary": "Donations"
-   }
-  },
   "/v1/facets": {
    "post": {
     "operationId": "facets_v1_facets_post",
@@ -603,8 +550,8 @@
   },
   "/v1/files": {
    "post": {
-    "description": "Donate a PDF (the request body, application/pdf). Replies at once;\nthe PDF is processed in the background (donation progress).",
-    "operationId": "donate_v1_files_post",
+    "description": "Receive a member's PDF (the request body, application/pdf). Replies at once;\nthe PDF is processed in the background (upload progress).",
+    "operationId": "pdf_upload_v1_files_post",
     "parameters": [
      {
       "description": "The PDF's DOI or arXiv ID.",
@@ -648,7 +595,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "title": "Response Donate V1 Files Post"
+         "title": "Response Pdf Upload V1 Files Post"
         }
        }
       },
@@ -665,12 +612,12 @@
       "description": "Validation Error"
      }
     },
-    "summary": "Donate"
+    "summary": "Pdf Upload"
    }
   },
   "/v1/files/held": {
    "get": {
-    "description": "Every item with a held PDF (key, DOI, arXiv ID, MD5 of each PDF as\ndonated), for comparing locally before donating.",
+    "description": "Every item with a held PDF (key, DOI, arXiv ID, MD5 of each PDF as\nuploaded), for comparing locally before uploading.",
     "operationId": "held_v1_files_held_get",
     "responses": {
      "200": {
@@ -859,6 +806,59 @@
      }
     },
     "summary": "Lookup"
+   }
+  },
+  "/v1/pdf_uploads": {
+   "get": {
+    "description": "The member's own PDF uploads, newest first, with their state.",
+    "operationId": "pdf_uploads_v1_pdf_uploads_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "count",
+      "required": false,
+      "schema": {
+       "default": 50,
+       "minimum": 1,
+       "title": "Count",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "query",
+      "name": "offset",
+      "required": false,
+      "schema": {
+       "default": 0,
+       "minimum": 0,
+       "title": "Offset",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "title": "Response Pdf Uploads V1 Pdf Uploads Get"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Pdf Uploads"
    }
   },
   "/v1/search/items": {

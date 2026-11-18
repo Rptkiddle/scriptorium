@@ -70,7 +70,7 @@ def test_pending_items_get_vectors(db, monkeypatch):
 
 
 def test_artefact_passages_get_no_vector(db):
-    key, _ = admit(db, paper(1), "donation")
+    key, _ = admit(db, paper(1), "pdf_upload")
     db.cursor().executemany(
         "INSERT INTO passages (item, idx, part, text, embed_text, artefact)"
         " VALUES (%s, %s, 'body', %s, %s, %s)",

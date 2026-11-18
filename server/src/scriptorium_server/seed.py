@@ -11,7 +11,7 @@ Two inputs, both made on the member's own machine:
   API. Tags, collections and notes are left out when it is written.
 
 The items are verified already and one per publication, so they are
-created as they are, with provenance "donation": no search for other
+created as they are, with provenance "pdf_upload": no search for other
 versions. Vectors and passages are copied unchanged, since the embedding
 model and the passage rules are the same. An item whose key is in the
 collection already is skipped, so the import can be run again; an item
@@ -205,7 +205,7 @@ def seed(conn: psycopg.Connection, index_path: Path, member_name: str,
             if held := items.holder(conn, own_identifiers(record)):
                 counts["collisions"].append(f"{key}: its identifier belongs to {held}")
                 continue
-            items.insert(conn, record, "donation", member["id"],
+            items.insert(conn, record, "pdf_upload", member["id"],
                          publisher=next(iter(payload.get("publishers") or []), None),
                          category=next(iter(payload.get("categories") or []), None),
                          venue=next(iter(payload.get("venue_folders") or []), None))
@@ -258,7 +258,7 @@ def report(counts: dict) -> str:
 def seed_files(conn: psycopg.Connection, folder: Path, store, runs_dir: Path | None = None) -> dict:
     """Store every PDF in `folder` (and its subfolders) that a seeded item is
     waiting for, recognised by its MD5 (pending_files), stripped like a
-    donation; other files are left alone. The passages are seeded already,
+    upload; other files are left alone. The passages are seeded already,
     so nothing is parsed. Each file is committed on its own, so the command
     can be stopped and run again, or run on one batch of files at a time.
     A file that cannot be read as a PDF is listed and stays awaited.
@@ -287,7 +287,7 @@ def seed_files(conn: psycopg.Connection, folder: Path, store, runs_dir: Path | N
             counts["unreadable"].append(f"{path.name}: {exc}")
             continue
         for row in awaited:
-            conn.execute("INSERT INTO files (sha256, item, bytes, donated_by, source_md5)"
+            conn.execute("INSERT INTO files (sha256, item, bytes, uploaded_by, source_md5)"
                          " VALUES (%s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
                          (sha256, row["item"], size, row["provenance_member"], md5))
             conn.execute("DELETE FROM pending_files WHERE md5 = %s AND item = %s",

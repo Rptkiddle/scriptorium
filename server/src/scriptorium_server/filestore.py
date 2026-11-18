@@ -14,7 +14,7 @@ Kept: the pages as printed, links and bookmarks. Text printed on the pages
 and stays. Encryption that allows opening without a password is removed.
 
 Stripping the same file twice gives the same bytes (the PDF's /ID is made
-from its content, not the time), so a file donated twice is stored once.
+from its content, not the time), so a file uploaded twice is stored once.
 The MD5 of the file as it arrived is kept beside it in the table `files`.
 """
 

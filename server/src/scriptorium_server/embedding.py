@@ -343,7 +343,7 @@ def pending(conn: psycopg.Connection) -> dict:
 def embed_pending(conn: psycopg.Connection, embedder: Embedder,
                   batch_size: int = 32, limit: int | None = None) -> tuple[int, int]:
     """Give every item and passage still without a vector its vector:
-    items admitted by a lookup, a donation or a harvest, a preprint
+    items admitted by a lookup, a PDF upload or a harvest, a preprint
     replaced by its published version, shortened passages. Returns (items,
     passages) embedded. With `limit`, about that many texts are embedded
     and the rest wait for a later call. When nothing waits, the model is

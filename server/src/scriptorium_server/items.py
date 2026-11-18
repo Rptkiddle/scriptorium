@@ -2,7 +2,7 @@
 
 A record is a dict in Zotero's field names (itemType, title, creators,
 date, DOI, archiveID, extra, abstractNote, publicationTitle, ...), the one
-form every source, donation and lookup produces. admit() is the only way
+form every source, PDF upload and lookup produces. admit() is the only way
 an item enters the collection:
 
 - a record whose DOI or arXiv ID an item already answers to (as its own
@@ -37,7 +37,7 @@ from scriptorium_server.identity import (
     with_line,
 )
 
-PROVENANCE = ("venue", "donation", "activity")
+PROVENANCE = ("venue", "pdf_upload", "activity")
 _KEY_ALPHABET = "23456789ABCDEFGHIJKLMNPQRSTUVWXYZ"  # Zotero's: no 0, 1, O
 _VENUE_FIELDS = ("publicationTitle", "proceedingsTitle", "repository", "bookTitle")
 _CATEGORIES = {"journalArticle": "Journals", "conferencePaper": "Proceedings",

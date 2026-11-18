@@ -56,10 +56,10 @@ services:
       db:
         condition: service_healthy
 
-  # Runs the background jobs: a donated PDF is parsed, checked, stored and
+  # Runs the background jobs: an uploaded PDF is parsed, checked, stored and
   # its passages embedded; journals are harvested. With nothing to do it
   # embeds the items and passages that have no vector yet. The CPU is
-  # enough for donations arriving one by one; a harvest of many items
+  # enough for uploaded PDFs arriving one by one; a harvest of many items
   # needs a GPU (compose.gpu.yaml).
   worker:
     image: scriptorium-server

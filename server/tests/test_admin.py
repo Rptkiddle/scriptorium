@@ -148,7 +148,7 @@ def test_the_worker_knows_the_fulltext_job(run):
 def test_clean_stamps_reports_without_apply(run, db, tmp_path):
     run("settings", "set", "data.folder", str(tmp_path))
     db.execute("INSERT INTO items (key, type, title, title_norm, provenance_kind)"
-               " VALUES ('K1', 'journalArticle', 'T', 't', 'donation')")
+               " VALUES ('K1', 'journalArticle', 'T', 't', 'pdf_upload')")
     db.execute("INSERT INTO passages (item, idx, part, text) VALUES ('K1', 0, 'footnote',"
                " 'Downloaded from https://www.pnas.org by EXAMPLE UNIVERSITY on August 24, 2026')")
     db.commit()

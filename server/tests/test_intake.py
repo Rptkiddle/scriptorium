@@ -63,13 +63,13 @@ def test_rerun_adds_nothing_new_even_without_doi(db, venue, tmp_path, monkeypatc
 
 def test_a_held_doi_is_matched_and_marked(db, venue, tmp_path, monkeypatch):
     key = items.insert(db, {"itemType": "journalArticle", "title": "Algorithmic news curation",
-                            "DOI": "10.1234/a"}, "donation")
+                            "DOI": "10.1234/a"}, "pdf_upload")
     db.commit()
     serve(monkeypatch, [WORK])
     result = intake.backfill(db, venue, tmp_path)
     assert result["held"] == 1 and result.get("new", 0) == 0
     row = items.get(db, key)
-    assert row["openalex_id"] == "W1" and row["provenance_kind"] == "donation"
+    assert row["openalex_id"] == "W1" and row["provenance_kind"] == "pdf_upload"
 
 
 def test_a_source_error_does_not_reveal_the_request(db, venue, tmp_path, monkeypatch):
@@ -144,7 +144,7 @@ def test_worker_runs_a_backfill_job(run, db, venue, monkeypatch, tmp_path):
 def test_a_paper_without_doi_matches_the_same_paper_held(db, venue, tmp_path, monkeypatch):
     key = items.insert(db, {"itemType": "journalArticle", "title": "A paper without a DOI",
                             "creators": [{"creatorType": "author", "firstName": "Ada",
-                                          "lastName": "Lovelace"}]}, "donation")
+                                          "lastName": "Lovelace"}]}, "pdf_upload")
     db.commit()
     serve(monkeypatch, [NO_DOI])
     result = intake.backfill(db, venue, tmp_path)
@@ -156,7 +156,7 @@ def test_a_held_preprint_is_counted_as_replaced(db, venue, tmp_path, monkeypatch
     items.insert(db, {"itemType": "preprint", "title": "Algorithmic news curation",
                       "DOI": "10.31235/osf.io/abcde", "repository": "SocArXiv",
                       "creators": [{"creatorType": "author", "firstName": "Ada",
-                                    "lastName": "Lovelace"}]}, "donation")
+                                    "lastName": "Lovelace"}]}, "pdf_upload")
     db.commit()
     serve(monkeypatch, [WORK])
     result = intake.backfill(db, venue, tmp_path)

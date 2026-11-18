@@ -3,7 +3,7 @@
 A key is made once, shown once and never stored: the database keeps only
 its SHA-256 hash. Keys are long random strings, so a plain hash is enough
 (there is nothing to guess). Revoking a member keeps the row, and with it
-what the member donated and the usage log, and refuses the key from then on.
+what the member uploaded and the usage log, and refuses the key from then on.
 """
 
 import hashlib

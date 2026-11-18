@@ -40,7 +40,7 @@ class Filters(_Body):
     types: list[str] | None = Field(None, description="journalArticle, conferencePaper, preprint, ...")
     has_fulltext: bool | None = None
     added_since: str | None = Field(None, description="YYYY-MM-DD.")
-    provenance: list[str] | None = Field(None, description="venue, donation, activity.")
+    provenance: list[str] | None = Field(None, description="venue, pdf_upload, activity.")
     item_keys: list[str] | None = Field(None, description="Only these items (a set sent back).")
 
 
@@ -172,12 +172,12 @@ def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
     # identifier, size and hash, and the list of held PDFs by its length.
 
     @app.post("/v1/files")
-    async def donate(request: Request,
+    async def pdf_upload(request: Request,
                      identifier: str | None = Query(None, description="The PDF's DOI or arXiv ID."),
                      item: str | None = Query(None, description="Or the key of the item it is for.")
                      ) -> Any:
-        """Donate a PDF (the request body, application/pdf). Replies at once;
-        the PDF is processed in the background (donation progress)."""
+        """Receive a member's PDF (the request body, application/pdf). Replies at once;
+        the PDF is processed in the background (upload progress)."""
         # Nothing is read before the key is known and the declared size is
         # within the limit; a body without a declared size is read only up
         # to the limit.
@@ -204,7 +204,7 @@ def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
                 return files.receive(conn, body, member["id"], data / "holding", identifier, item)
             except ValueError as exc:
                 raise auth.Refused(400, str(exc)) from exc
-        return await run_in_threadpool(serve, request, "files/donate", inputs, run)
+        return await run_in_threadpool(serve, request, "files/pdf_upload", inputs, run)
 
     def known_key(request: Request) -> bool:
         with connect() as conn:
@@ -213,7 +213,7 @@ def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
     @app.get("/v1/files/held")
     def held(request: Request) -> Any:
         """Every item with a held PDF (key, DOI, arXiv ID, MD5 of each PDF as
-        donated), for comparing locally before donating."""
+        uploaded), for comparing locally before uploading."""
         def run(conn, member):
             reply = files.held(conn)
             response = JSONResponse(reply)
@@ -221,13 +221,13 @@ def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
             return response
         return serve(request, "files/held", {}, run)
 
-    @app.get("/v1/donations")
-    def donations(request: Request, count: int = Query(50, ge=1), offset: int = Query(0, ge=0)) -> Any:
-        """The member's own donations, newest first, with their state."""
+    @app.get("/v1/pdf_uploads")
+    def pdf_uploads(request: Request, count: int = Query(50, ge=1), offset: int = Query(0, ge=0)) -> Any:
+        """The member's own PDF uploads, newest first, with their state."""
         def run(conn, member):
-            auth.check_limit(count, per_request, "donations")
-            return files.donations(conn, member["id"], count, offset)
-        return serve(request, "donations", {"count": count, "offset": offset}, run)
+            auth.check_limit(count, per_request, "pdf_uploads")
+            return files.pdf_uploads(conn, member["id"], count, offset)
+        return serve(request, "pdf_uploads", {"count": count, "offset": offset}, run)
 
     @app.get("/v1/files/{key}")
     def download(key: str, request: Request) -> Any:

@@ -16,7 +16,7 @@ VEC = "[" + ",".join(["0.0625"] * 256) + "]"
 
 def fill(db):
     db.execute("INSERT INTO items (key, type, title, title_norm, provenance_kind)"
-               " VALUES ('K1', 'journalArticle', 'T', 't', 'donation')")
+               " VALUES ('K1', 'journalArticle', 'T', 't', 'pdf_upload')")
     for idx, part, text in [(0, "body", f"{PROSE} {STAMP}"), (1, "footnote", STAMP),
                             (2, "body", PROSE)]:
         db.execute("INSERT INTO passages (item, idx, part, text, embedding)"

@@ -4,8 +4,8 @@ kept (tei.TeiStore), and the TEI is cut into passages (tei.passages).
 Reading a PDF with GROBID and cutting the TEI are separate steps, so
 passages can be cut again later from the stored TEI without GROBID.
 
-The full-text job (process) takes one donated PDF through these steps,
-after checking that the PDF is the publication it is donated for
+The full-text job (process) takes one uploaded PDF through these steps,
+after checking that the PDF is the publication it is uploaded for
 (mismatch), and stores the stripped PDF (filestore.py).
 """
 
@@ -160,11 +160,11 @@ def mismatch(tei_xml: bytes, title: str, creators: list[dict], doi: str = "") ->
     return f"the PDF's title ({header(tei_xml)['title']!r}) is not the item's ({title!r})"
 
 
-# --- the full-text job: one donated PDF ----------------------------------------
+# --- the full-text job: one uploaded PDF ----------------------------------------
 
 
 class Rejected(ValueError):
-    """A donated PDF that is not kept, with the reason the member sees."""
+    """A uploaded PDF that is not kept, with the reason the member sees."""
 
 
 @dataclass
@@ -179,15 +179,15 @@ class Context:
 
 
 def process(conn: psycopg.Connection, job, ctx: Context) -> str:
-    """The job for one donated PDF (jobs of kind "fulltext"). The payload
+    """The job for one uploaded PDF (jobs of kind "fulltext"). The payload
     holds "file" (the PDF in the holding area) and the publication it is
     for: "item" (an item key) or "identifier" (a DOI or arXiv ID); with
     neither, the DOI or arXiv ID GROBID reads from the PDF's first page is
     used, else the title it reads when exactly one item has that title.
 
     The item is found, or, for an identifier the collection does not hold,
-    fetched from the registry and admitted (provenance "donation"). An item
-    with a PDF already keeps it, and the donation is let go. The PDF the
+    fetched from the registry and admitted (provenance "pdf_upload"). An item
+    with a PDF already keeps it, and the upload is let go. The PDF the
     seed import awaits for an item is stored without parsing. Otherwise
     GROBID parses the PDF; the PDF must be the item's publication
     (mismatch()); its passages replace the item's, the stripped PDF is
@@ -227,7 +227,7 @@ def _resolve(conn: psycopg.Connection, identifier: str, member: int | None,
     if known is None:
         raise Rejected(f"the registry does not know {identifier}")
     record, relation = known
-    key, _ = items.admit(conn, record, "donation", member, relation=relation)
+    key, _ = items.admit(conn, record, "pdf_upload", member, relation=relation)
     conn.commit()  # the publication is admitted whatever becomes of the PDF
     return key
 
@@ -274,7 +274,7 @@ def _parse(ctx: Context, key: str, path: Path, md5: str) -> bytes:
 def _store_file(conn: psycopg.Connection, ctx: Context, path: Path, key: str, md5: str,
                 member: int | None) -> None:
     sha256, size = ctx.files.put(path)
-    conn.execute("INSERT INTO files (sha256, item, bytes, donated_by, source_md5)"
+    conn.execute("INSERT INTO files (sha256, item, bytes, uploaded_by, source_md5)"
                  " VALUES (%s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
                  (sha256, key, size, member, md5))
     conn.execute("DELETE FROM pending_files WHERE item = %s", (key,))
@@ -322,6 +322,6 @@ def _process(conn: psycopg.Connection, job, ctx: Context, path: Path) -> str:
     conn.execute("UPDATE items SET has_fulltext = true WHERE key = %s", (key,))
     ctx.tei.put(key, path.name, md5, ctx.grobid.version(), 200, 0.0, tei=tei_xml)
     conn.commit()
-    if ctx.embedder is not None:  # the passages, and the item when the donation admitted it
+    if ctx.embedder is not None:  # the passages, and the item when the upload admitted it
         embed_pending(conn, ctx.embedder, ctx.batch_size)
     return f"stored: {key}, {len(found)} passages from the donated PDF"

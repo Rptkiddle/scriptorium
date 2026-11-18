@@ -71,7 +71,7 @@ def world(db, empty_schema, tmp_path):
     app = create_app(lambda: database.connect(*empty_schema), FakeEmbedder(),
                      settings.load(tmp_path / "s.toml"), registry)
     client = TestClient(app, headers={"Authorization": f"Bearer {key}",
-                                      "X-Scriptorium-Client": "0.2.0",
+                                      "X-Scriptorium-Client": "0.3.0",
                                       "X-Scriptorium-Agent": "test-agent"})
     return type("World", (), {"client": client, "keys": keys, "db": db, "key": key,
                               "other": other, "registry": registry, "app": app})
@@ -92,7 +92,7 @@ def test_nothing_is_served_without_a_key(world):
     for path in ("/", "/docs", "/openapi.json", "/v1"):
         assert anonymous.get(path).status_code == 404  # no page describes the service
     reply = world.client.get("/v1/health")
-    assert reply.json() == {"status": "ok", "server": "0.1.0", "api": 1, "min_client": "0.2.0",
+    assert reply.json() == {"status": "ok", "server": "0.1.0", "api": 1, "min_client": "0.3.0",
                             "items": 5, "fulltexts": 1}
     assert [r["request"] for r in log(world)][-1] == "health"
 
@@ -115,7 +115,7 @@ def test_log_row_holds_inputs_and_full_reply(world):
     assert row["request"] == "search/items" and row["status"] == 200
     assert row["inputs"] == body and row["reply"] == reply.json()
     assert len(row["reply"]["items"]) == 2 and row["duration_ms"] >= 0
-    assert (row["client_version"], row["agent"]) == ("0.2.0", "test-agent")
+    assert (row["client_version"], row["agent"]) == ("0.3.0", "test-agent")
     member = world.db.execute("SELECT name FROM members WHERE id = %s", (row["member"],)).fetchone()
     assert member["name"] == "ada lovelace"
 
@@ -182,7 +182,7 @@ def test_filters_combine_with_and(world):
     assert total(years=[2021], types=["journalArticle"]) == 1  # all across filters
     assert total(authors=["Terpstra"], year_from=2023) == 1
     assert total(venues=["journal of tests"]) == 4 and total(categories=["Proceedings"]) == 1
-    assert total(has_fulltext=True) == 1 and total(provenance=["donation"]) == 0
+    assert total(has_fulltext=True) == 1 and total(provenance=["pdf_upload"]) == 0
     assert total(item_keys=world.keys[:2], year_to=2021) == 1
     assert total(added_since="2020-01-01") == 5 and total(added_since="2999-01-01") == 0
     assert total(authors_all=["Terpstra", "Kiddle"]) == 0
@@ -247,7 +247,7 @@ def test_search_passages_skips_artefacts_and_names_the_item(world):
 
 def test_lookup_finds_by_identifier_and_title(world):
     admit(world.db, paper("Echo chambers in online news", "van Aalst", "10.31235/osf.io/pre", 2020,
-                          "preprint", repository="SocArXiv"), "donation")
+                          "preprint", repository="SocArXiv"), "pdf_upload")
     world.db.commit()
     reply = world.client.post("/v1/lookup", json={"inputs": [
         "https://doi.org/10.1000/A", "10.31235/osf.io/pre", "Filter Bubbles, Revisited!", "No such title"]})
@@ -319,13 +319,13 @@ def test_bibtex_in_both_formats(world):
 
 
 def test_reply_never_contains_a_member_name(world):
-    admit(world.db, paper("A donated paper", "Lovelace", "10.1000/z", 2024), "donation",
+    admit(world.db, paper("A uploaded paper", "Lovelace", "10.1000/z", 2024), "pdf_upload",
           world.db.execute("SELECT id FROM members WHERE name = 'ada lovelace'").fetchone()["id"])
     world.db.commit()
     key = world.db.execute("SELECT key FROM items WHERE doi = '10.1000/z'").fetchone()["key"]
     replies = [
         world.client.post("/v1/items", json={"fields": list(__import__("scriptorium_server.retrieval", fromlist=["FIELDS"]).FIELDS)}),
-        world.client.post("/v1/search/items", json={"query": "donated paper"}),
+        world.client.post("/v1/search/items", json={"query": "uploaded paper"}),
         world.client.get(f"/v1/items/{key}"),
         world.client.post("/v1/lookup", json={"inputs": ["10.1000/z"]}),
         world.client.post("/v1/facets", json={"field": "provenance"}),
@@ -335,7 +335,7 @@ def test_reply_never_contains_a_member_name(world):
     text = " ".join(r.text for r in replies).lower()
     assert "ada lovelace" not in text and "grace hopper" not in text
     assert "provenance_member" not in text and '"member"' not in text
-    assert '"provenance":"donation"' in text.replace(" ", "")  # the kind is shown
+    assert '"provenance":"pdf_upload"' in text.replace(" ", "")  # the kind is shown
 
 
 def test_openapi_file_is_current(world):

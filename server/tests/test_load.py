@@ -67,12 +67,12 @@ def test_a_second_run_adds_nothing(db, venue, tmp_path):
 
 def test_held_papers_go_one_by_one(db, venue, tmp_path):
     held = items.insert(db, {"itemType": "journalArticle", "title": "Something else entirely",
-                             "DOI": "10.1234/n1"}, "donation")
+                             "DOI": "10.1234/n1"}, "pdf_upload")
     preprint = items.insert(db, {
         "itemType": "preprint", "title": "A paper numbered 2 on news", "repository": "SocArXiv",
         "DOI": "10.31235/osf.io/abcde",
         "creators": [{"creatorType": "author", "firstName": "Ada", "lastName": "Lovelace"}]},
-        "donation")
+        "pdf_upload")
     db.commit()
     result = load.Loader(db).load_venue(venue, save(tmp_path, "S1", [work(1), work(2), work(3)]))
     assert result["held"] == 1 and result["replaced another version"] == 1 and result["new"] == 1

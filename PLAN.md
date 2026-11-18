@@ -186,6 +186,8 @@ The starting collection is the first member's existing library, taken in full fr
 
 ## Step 4: Zotero exchange
 
+**Naming (2026-11-18):** in the code a member's PDF handed to the server is a PDF upload, and a PDF handed to a member a PDF download; "donation" is a word for members only (tool descriptions, the notice, progress messages, the docs). Renamed from the names used above: tools `pdf_download`, `pdf_upload`, `pdf_upload_progress`; `GET /v1/pdf_uploads` with reply fields `upload` and `uploads`; columns `files.uploaded_by` and `uploaded_at`; provenance value `pdf_upload` (migration 0005); the client's ledger `pdf_uploads.jsonl`. Client 0.3.0; the server serves no older client.
+
 ### Task 13: plugin read functions
 
 - `zotero-bridge` 0.1.9: `items/identifiers` (DOIs and arXiv IDs of the member's items, nothing else), `attachments/pdfs` (for chosen collections or the whole library: item identifier and file path of each PDF).

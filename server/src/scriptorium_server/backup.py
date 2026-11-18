@@ -15,7 +15,7 @@ backup.days_kept days are removed; the newest finished one always stays.
 
 PDFs and parsed texts are only ever added to files/: a file removed from
 the collection stays in the backup until it is removed there by hand.
-Not backed up: donations still waiting to be processed (the holding
+Not backed up: uploaded PDFs still waiting to be processed (the holding
 area), run folders, the embedding model, the settings file.
 
 A restore fills an empty database and an empty data folder from one
