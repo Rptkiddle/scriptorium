@@ -63,7 +63,7 @@ The worker embeds what has no vector yet whenever no job waits, a portion at a t
 A container that loses the GPU while it runs goes on embedding on the CPU until it is restarted. On machines where this happens, `scripts/gpu-check.sh` restarts the web service and the worker when they have lost the GPU and no job is running. Run it from the crontab of an account that may run Docker, after the hours in which the GPU tends to be lost:
 
 ```
-10 3,5 * * * /path/to/scriptorium/scripts/gpu-check.sh >> $HOME/scriptorium-gpu-check.log 2>&1
+10 3,5 * * * /path/to/scriptorium/scripts/gpu-check.sh >> /srv/scriptorium/data/logs/gpu-check.log 2>&1
 ```
 
 ## Members
@@ -139,7 +139,7 @@ docker compose run --rm cli backup
 writes a backup to the backup folder (setting `backup.folder`, by default `/srv/scriptorium/data/backups` on the host): every table of the database under `runs/<date-time>/`, and one copy of the held PDFs and the parsed full texts under `files/`, to which each backup adds what is new. The server keeps running meanwhile. Backups older than `backup.days_kept` days (14) are removed; the newest always stays. For a nightly backup, add a line to the crontab of an account that may run Docker:
 
 ```
-30 3 * * * cd /path/to/scriptorium && docker compose run --rm -T cli backup >> $HOME/scriptorium-backup.log 2>&1
+30 3 * * * cd /path/to/scriptorium && docker compose run --rm -T cli backup >> /srv/scriptorium/data/logs/backup.log 2>&1
 ```
 
 The backup holds what the database holds, the usage log included, for as long as backups are kept. Not in it: donations still waiting to be processed, run folders, the embedding model, `.env` and the settings file. A PDF removed from the collection stays under `files/` until it is deleted there. The backup folder is on the same machine as the data; copy it elsewhere to survive the loss of the machine.
