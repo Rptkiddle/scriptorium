@@ -63,6 +63,15 @@ Ask your agent to run Scriptorium's `status` tool. It reports whether the server
 | `bibtex` | BibLaTeX or BibTeX entries for chosen items |
 | `status` | Whether everything is in place |
 | `set_read`, `set_mark`, `set_export_bibtex` | Work with a large result saved to a file |
+| `pdf_download` | Save the PDF of an item on your computer, where the server holds it and hands PDFs out |
+| `pdf_upload` | Donate a PDF, or a folder of PDFs, to the collection; only on your own request |
+| `pdf_upload_progress` | What became of the PDFs you donated |
+| `zotero_add_items` | Add chosen items to your Zotero library, with their PDFs where held (needs the plugin below) |
+| `zotero_pdf_upload` | Donate PDFs from your Zotero library (needs the plugin below) |
+
+## Zotero (optional)
+
+With the [scriptorium-bridge plugin](../scriptorium-bridge/README.md) installed in Zotero, your agent can add items from Scriptorium to your library and you can donate PDFs from it. Added items land in a collection named "Scriptorium"; publications you already hold are skipped. A donation sends only the PDF and its DOI or arXiv ID, after you have been told how many PDFs would go and have agreed. Nothing in your library is changed or removed. Zotero must be running.
 
 A result too large for one reply is saved whole to a file on your machine. The agent gets the file's path, the count and the first rows, and can read on, mark items, export them, or search within them.
 

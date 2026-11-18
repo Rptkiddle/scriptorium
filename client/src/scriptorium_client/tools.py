@@ -15,13 +15,14 @@ import httpx
 from fastmcp import FastMCP
 
 from scriptorium_client import __version__, results
+from scriptorium_client import zotero as zotero_library
 from scriptorium_client.notice import CANNOT_ASK, DIALOG, NOT_AGREED
 from scriptorium_client import settings as client_settings
 from scriptorium_client.http import RateLimited, Server, ServerError
 
-UPLOAD_BATCH = 20  # PDFs a folder upload sends per call; call again for the rest
+UPLOAD_BATCH = 20  # PDFs an upload sends per call; call again for the rest
+ADD_BATCH = 25  # items one call adds to Zotero; call again for the rest
 
-ZOTERO = "http://127.0.0.1:23119"
 INSTRUCTIONS = """Scriptorium is a shared collection of academic literature: items (publications \
 with abstracts) and, for many, the full text in passages.
 
@@ -44,30 +45,23 @@ rows: read on with set_read, narrow a later search to it with within_set, mark i
 set_mark, export with set_export_bibtex.
 
 PDFs: pdf_download saves a held PDF on this machine. pdf_upload shares the member's PDFs with \
-all members (only on the member's request); pdf_upload_progress shows what became of them."""
+all members (only on the member's request); pdf_upload_progress shows what became of them.
 
-
-def zotero_state(get=httpx.get, post=httpx.post) -> dict:
-    """Whether Zotero runs on this machine and whether the Scriptorium
-    Bridge plugin answers in it."""
-    def answers(call, url, **kwargs) -> bool:
-        try:
-            return call(url, timeout=3, **kwargs).status_code == 200
-        except httpx.HTTPError:
-            return False
-    running = answers(get, f"{ZOTERO}/connector/ping")
-    return {"zotero_running": running,
-            "bridge_plugin": running and answers(post, f"{ZOTERO}/scriptorium/ping", json={})}
+Zotero (when the member runs Zotero with the scriptorium-bridge plugin; status says so): \
+zotero_add_items puts chosen items, with their PDFs where held, into the member's library; \
+zotero_pdf_upload donates PDFs from it. Neither changes or removes anything in the library."""
 
 
 class Tools:
     """The tools, as methods; build_server() registers them."""
 
     def __init__(self, settings: dict | None = None, server: Server | None = None,
-                 zotero=zotero_state):
+                 zotero=zotero_library.state,
+                 bridge: zotero_library.Bridge | None = None):
         self.settings = settings if settings is not None else client_settings.load()
         self.server = server or Server(self.settings)
         self._zotero = zotero
+        self.bridge = bridge or zotero_library.Bridge()
 
     # -- helpers -------------------------------------------------------------------
 
@@ -251,15 +245,23 @@ class Tools:
                 report["skipped_refused_before"] += 1
             else:
                 todo.append((f, md5))
+        self._send(todo, report, "pdf_upload", lambda f: identifier if source.is_file() else None)
+        return report
+
+    def _send(self, todo: list[tuple[Path, str]], report: dict, tool: str, identifier_of) -> None:
+        """Upload the first batch of `todo` ((file, MD5) pairs), recording each
+        file sent or refused in the ledger, and note in the report what is
+        left. A refusal that is not about the file stops the batch with
+        nothing recorded."""
         ledger = self._ledger()
         ledger.parent.mkdir(parents=True, exist_ok=True)
         tried = 0
         for f, md5 in todo[:UPLOAD_BATCH]:
             entry = {"md5": md5, "file": str(f), "at": datetime.now(UTC).isoformat(timespec="seconds")}
             try:
-                reply = self.server.pdf_upload(f.read_bytes(), identifier if source.is_file() else None)
+                reply = self.server.pdf_upload(f.read_bytes(), identifier_of(f))
             except RateLimited as exc:
-                report["note"] = f"{exc} Call pdf_upload again in a minute to send the rest."
+                report["note"] = f"{exc} Call {tool} again in a minute to send the rest."
                 break
             except ServerError as exc:
                 if exc.status not in (400, 413):  # not about this file: stop, nothing recorded
@@ -274,8 +276,7 @@ class Tools:
                 log.write(json.dumps(entry) + "\n")
         report["remaining"] = len(todo) - tried
         if report["remaining"] and "note" not in report:
-            report["note"] = "Call pdf_upload again with the same folder to send the rest."
-        return report
+            report["note"] = f"Call {tool} again with the same inputs to send the rest."
 
     def pdf_upload_progress(self, count: int = 50, offset: int = 0) -> dict:
         """The member's own donations, newest first: waiting, processing,
@@ -283,6 +284,137 @@ class Tools:
         the reason, e.g. not the publication named) or failed (the server's
         administrator can run it again)."""
         return self.server.pdf_uploads(count, offset)
+
+    # -- Zotero --------------------------------------------------------------------
+
+    def _added(self) -> Path:
+        return self._ledger().with_name("zotero_added.jsonl")
+
+    def zotero_add_items(self, keys: list[str] | None = None, from_set: str | None = None,
+                         pdfs: bool = True) -> dict:
+        """Add items of the collection to the member's Zotero library, on the
+        member's request: the items named by key, or those of a saved result
+        (from_set, its path). Needs Zotero running with the scriptorium-bridge
+        plugin. Publications the library holds already (by DOI or arXiv ID)
+        are skipped; new items land in the Zotero collection "Scriptorium",
+        with their PDF where the server holds one and hands PDFs out (pdfs=
+        false leaves the PDFs). Nothing in the library is changed or removed.
+        At most 25 items are added per call: call again with the same inputs
+        until "remaining" is 0."""
+        wanted = list(dict.fromkeys((keys or []) + (results.set_keys(from_set) if from_set else [])))
+        if not wanted:
+            raise ServerError("name the items to add: keys, or from_set")
+        held = self.bridge.identifiers()  # first: without Zotero nothing else is done
+        added_path = self._added()
+        before = {json.loads(line)["key"] for line in added_path.read_text().splitlines()
+                  if line.strip()} if added_path.exists() else set()
+        with_pdfs = pdfs and self.status().get("pdf_download", False)
+        report = {"asked": len(wanted), "added": [], "already_in_zotero": 0, "pdfs_attached": 0,
+                  "failed": [], "remaining": 0}
+        todo = []
+        for position, key in enumerate(wanted):
+            if len(todo) == ADD_BATCH:
+                report["remaining"] = len(wanted) - position
+                report["note"] = "Call zotero_add_items again with the same inputs to add the rest."
+                break
+            try:
+                item = self.server.item(key)
+            except RateLimited as exc:
+                report["remaining"] = len(wanted) - position
+                report["note"] = f"{exc} Call zotero_add_items again in a minute to add the rest."
+                break
+            except ServerError as exc:
+                if exc.status != 404:
+                    raise
+                report["failed"].append({"key": key, "reason": "no such item in the collection"})
+                continue
+            names = zotero_library.identifiers_of(item)
+            if names & held or (not names and item["key"] in before):
+                report["already_in_zotero"] += 1
+                continue
+            held |= names  # the same publication twice in one request is added once
+            todo.append(item)
+        if todo:
+            reply = self.bridge.create([zotero_library.zotero_item(i) for i in todo])
+            added_path.parent.mkdir(parents=True, exist_ok=True)
+            for position, item in enumerate(todo):
+                zotero_key = reply["created"].get(str(position))
+                if not zotero_key:
+                    report["failed"].append({"key": item["key"], "reason":
+                                             reply["failed"].get(str(position), "not created")})
+                    continue
+                with open(added_path, "a") as log:
+                    log.write(json.dumps({"key": item["key"], "zotero": zotero_key, "at":
+                                          datetime.now(UTC).isoformat(timespec="seconds")}) + "\n")
+                entry = {"key": item["key"], "zotero": zotero_key, "title": item["title"]}
+                if with_pdfs and item.get("pdf_held"):
+                    try:
+                        saved = Path(self.pdf_download(item["key"])["saved_to"])
+                        self.bridge.import_pdf(zotero_key, str(saved))
+                        saved.unlink(missing_ok=True)  # Zotero keeps its own copy
+                        report["pdfs_attached"] += 1
+                    except ServerError as exc:
+                        entry["pdf"] = f"not attached: {exc}"
+                report["added"].append(entry)
+        if pdfs and not with_pdfs:
+            report["pdfs"] = "this server does not hand out PDFs at present; items were added without"
+        return report
+
+    def zotero_pdf_upload(self, collections: list[str] | None = None,
+                          confirm: bool = False) -> dict:
+        """Donate PDFs from the member's Zotero library: those of the named
+        Zotero collections (with their subcollections), or of the whole
+        library. Only on the member's own request: donated PDFs are shared
+        with all members. Needs Zotero running with the scriptorium-bridge
+        plugin. Only PDFs whose item has a DOI or arXiv ID are offered, and
+        only the PDF and that identifier are sent: no notes, tags or
+        annotations (the server removes annotations from the file). What the
+        server holds already is worked out on this machine. Without confirm
+        nothing is sent: the reply says how many PDFs would go. Tell the
+        member that number, and call again with confirm=true once they
+        agree; then at most 20 are sent per call, so call again until
+        "remaining" is 0. Follow up with pdf_upload_progress."""
+        found = self.bridge.pdfs(collections)  # first: without Zotero nothing else is done
+        if not self.status().get("pdf_upload", False):
+            raise ServerError("this server does not accept donated PDFs at present")
+        held = self.server.held()
+        held_md5 = {m for i in held["items"] for m in i.get("md5", [])}
+        held_ids = ({f"doi:{i['doi'].lower()}" for i in held["items"] if i.get("doi")}
+                    | {f"arxiv:{i['arxiv_id'].lower()}" for i in held["items"] if i.get("arxiv_id")})
+        report = {"pdfs": len(found["pdfs"]), "without_identifier": found["without_identifier"],
+                  "missing_file": found["missing_file"], "skipped_held": 0,
+                  "skipped_sent_before": 0, "skipped_refused_before": 0,
+                  "sent": [], "refused": [], "remaining": 0}
+        offered = {}
+        for pdf in found["pdfs"]:
+            if set(pdf["identifiers"]) & held_ids:
+                report["skipped_held"] += 1
+            elif Path(pdf["path"]).is_file():
+                offered[Path(pdf["path"])] = sorted(pdf["identifiers"], key=lambda i: not i.startswith("doi:"))[0]
+            else:
+                report["missing_file"] += 1
+        sent = self._sent()
+        todo = []
+        for f, md5 in self._md5s(list(offered)).items():
+            if md5 in held_md5:
+                report["skipped_held"] += 1
+            elif sent.get(md5) == "sent":
+                report["skipped_sent_before"] += 1
+            elif sent.get(md5) == "refused":
+                report["skipped_refused_before"] += 1
+            else:
+                todo.append((f, md5))
+        if not confirm:
+            report["remaining"] = len(todo)
+            report["note"] = (f"{len(todo)} PDFs would be sent. Nothing was sent: tell the member,"
+                              " and call again with confirm=true once they agree.")
+            return report
+
+        def identifier(f: Path) -> str:
+            kind, _, value = offered[f].partition(":")
+            return value if kind == "doi" else f"arXiv:{value}"
+        self._send(todo, report, "zotero_pdf_upload", identifier)
+        return report
 
     # -- sets ----------------------------------------------------------------------
 
@@ -312,7 +444,8 @@ class Tools:
 
 TOOL_NAMES = ("lookup", "list_items", "search_items", "search_passages", "item", "facets",
               "bibtex", "status", "set_read", "set_mark", "set_export_bibtex",
-              "pdf_download", "pdf_upload", "pdf_upload_progress")
+              "pdf_download", "pdf_upload", "pdf_upload_progress",
+              "zotero_add_items", "zotero_pdf_upload")
 
 
 def agent_name() -> str:

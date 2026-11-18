@@ -32,7 +32,7 @@ Collaborative implementation for Scriptorium with remote + client split. Server 
               │ HTTP, localhost                │ │ exact lookup        │ │ receive donation     │ │
 ┌─────────────┴──────────────┐                 │ │ filter, count       │ │  → job queue         │ │
 │ ZOTERO DESKTOP  (optional) │                 │ │ semantic: embed     │ │ serve PDF            │ │
-│ + Scriptorium Bridge plugin│                 │ │  query, rank vectors│ │ list held PDFs       │ │
+│ + scriptorium-bridge plugin│                 │ │  query, rank vectors│ │ list held PDFs       │ │
 │ member's own library       │                 │ │ keyword match       │ │ donation progress    │ │
 └────────────────────────────┘                 │ └──────────┬──────────┘ └──────────┬───────────┘ │
                                                └────────────┼───────────────────────┼─────────────┘
@@ -125,7 +125,7 @@ Filters (find tools): author, year, venue, publisher, category, type, has full t
   - Notice: at the first request of every agent session, the member is shown what Scriptorium receives and records and accepts it in the agent app's own dialog (MCP elicitation; three short lines, the full text printed in the terminal by `scriptorium-client notice` and at setup); until then no request reaches the server. Interactive sessions assumed. Text in the client (`scriptorium-client notice`); to be updated when the Zotero exchange arrives.
   - Results: the client decides what the agent sees. What fits goes into the reply; a large result is saved whole to a file on the member's machine, and the agent gets the path, the count and the first page.
   - Sets: a set is such a local file. Client tools read it in pages, mark items included or excluded, export BibTeX, and send its item keys as a filter with a later request.
-  - Zotero exchange, active when Zotero and the Bridge plugin are present. All reading and writing goes through the plugin, which reads only identifiers held and PDFs with their identifiers.
+  - Zotero exchange, active when Zotero and the scriptorium-bridge plugin are present. All reading and writing goes through the plugin, which reads only identifiers held and PDFs with their identifiers.
     - Add: chosen items into the member's Zotero, with PDFs where held. Skips items already present. Never edits or removes.
     - Donate: PDFs from the member's library, part or all.
   - Without Zotero: BibTeX file, PDFs saved to a folder, donation from a folder.

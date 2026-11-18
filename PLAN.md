@@ -36,7 +36,7 @@ Each line is pinned by a test in the task named.
 ```
 server/   pyproject.toml, src/scriptorium_server/, tests/
 client/   pyproject.toml, src/scriptorium_client/, tests/
-zotero-bridge/
+scriptorium-bridge/
 api/openapi.json     the contract: written by a server test, checked by a client test
 README.md  PLAN.md  LICENSE  LICENSES/  CITATION.cff  docs/assets/
 ```
@@ -197,6 +197,8 @@ The starting collection is the first member's existing library, taken in full fr
 
 - `zotero.py`: `add_items(keys)`: fetch each item and its PDF where held, skip identifiers already in Zotero, create through the plugin, attach the PDF by the member's Zotero file settings. `donate_pdfs(scope)`: list PDFs through the plugin, compare with `/held` locally, show the count, upload on confirmation.
 - Tests against a fake plugin: `test_add_skips_items_already_present`, `test_add_never_updates_or_deletes`, `test_donate_sends_only_pdf_and_identifier`, `test_donate_compares_locally`, `test_zotero_closed_says_so_and_writes_nothing` (review focus 5).
+
+**As built (2026-11-18):** the plugin is `scriptorium-bridge` 0.2.0 (folder renamed from `zotero-bridge`), cut down to five functions: `ping`, `items/identifiers`, `items/create` (into a top-level collection "Scriptorium", made when missing), `attachments/import` (a stored file), `attachments/pdfs` (by collection names, with subcollections). The editing and deleting functions of the personal version are gone. Client: `zotero.py` (`Bridge`, `identifiers_of`, `zotero_item`) and the tools `zotero_add_items(keys, from_set, pdfs)` (25 per call; a ledger `zotero_added.jsonl` for items without an identifier) and `zotero_pdf_upload(collections, confirm)` (nothing sent without `confirm`; shares the upload loop and ledger with `pdf_upload`). Both tools are always registered and say so plainly when Zotero or the plugin does not answer. Server settings `files.pdf_download` and `files.pdf_upload` switch the two directions of PDF transfer. Tests: `client/tests/test_zotero.py`.
 
 **Deploy 4:** the plugin as a release file; one member per operating system adds items and donates.
 
