@@ -45,6 +45,14 @@ def test_item_document_is_title_then_abstract_on_one_line_each():
     assert item_document("A Title", None) == "A Title"
 
 
+def test_item_document_takes_the_first_500_words_of_a_long_abstract():
+    long = " ".join(f"w{i}" for i in range(800))
+    title, abstract = item_document("A Title", long).split("\n")
+    assert title == "A Title"
+    assert abstract.split() == [f"w{i}" for i in range(500)]
+    assert item_document("T", " ".join(["w"] * 500)) == "T\n" + " ".join(["w"] * 500)
+
+
 def test_pending_items_get_vectors(db, monkeypatch):
     keys = [admit(db, paper(n, "About echo chambers." if n == 0 else ""), "venue")[0]
             for n in range(5)]

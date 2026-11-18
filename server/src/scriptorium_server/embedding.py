@@ -242,9 +242,15 @@ def _out_of_memory(exc: BaseException) -> bool:
 BATCHES_AT_ONCE = 32
 
 
+ABSTRACT_WORDS = 500  # how much of an abstract is embedded
+
+
 def item_document(title: str, abstract: str | None) -> str:
-    """The text embedded for an item: its title and abstract."""
-    parts = [title, " ".join((abstract or "").split())]
+    """The text embedded for an item: its title and the first
+    ABSTRACT_WORDS words of its abstract. A real abstract is shorter; a
+    longer one holds the paper's body text or several texts in one field,
+    which would blur the vector. The stored abstract is not cut."""
+    parts = [title, " ".join((abstract or "").split()[:ABSTRACT_WORDS])]
     return "\n".join(p for p in parts if p)
 
 
