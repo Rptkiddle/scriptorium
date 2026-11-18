@@ -282,3 +282,31 @@ def test_an_arxiv_id_on_the_first_page_names_the_publication_when_none_is_given(
     arxiv_tei = tei_of(TITLE).replace(b"</biblStruct>", b'<idno type="arXiv">arXiv:2501.01234v2</idno></biblStruct>')
     process(db, job({"file": str(donation())}), ctx(grobid=FakeTeiGrobid(arxiv_tei)))
     assert db.execute("SELECT item FROM files").fetchone()["item"] == key
+
+
+def test_an_arxiv_stamp_with_version_and_category_names_the_publication(db, ctx, donation):
+    record = {**RECORD, "itemType": "preprint", "DOI": "", "archiveID": "arXiv:2501.01234"}
+    key, _ = collection.admit(db, record, "venue")
+    db.commit()
+    stamp = b'<idno type="arXiv">arXiv:2501.01234v2[cs.SI]</idno></biblStruct>'
+    process(db, job({"file": str(donation())}),
+            ctx(grobid=FakeTeiGrobid(tei_of(TITLE).replace(b"</biblStruct>", stamp))))
+    assert db.execute("SELECT item FROM files").fetchone()["item"] == key
+
+
+def test_a_misread_doi_on_the_first_page_gives_way_to_the_title(db, ctx, donation):
+    key, _ = collection.admit(db, RECORD, "venue")
+    db.commit()
+    misread = tei_of(TITLE, ["Lovelace"], "10.1000/ab")  # cut short: the registry has no such DOI
+    process(db, job({"file": str(donation())}),
+            ctx(grobid=FakeTeiGrobid(misread), registry=lambda kind, value: None))
+    assert db.execute("SELECT item FROM files").fetchone()["item"] == key
+
+
+def test_a_misread_doi_and_a_title_no_item_has_is_refused(db, ctx, donation):
+    pdf = donation()
+    misread = tei_of("A title that no item in the collection has", ["Lovelace"], "10.1000/ab")
+    with pytest.raises(Rejected, match="does not know 10.1000/ab"):
+        process(db, job({"file": str(pdf)}),
+                ctx(grobid=FakeTeiGrobid(misread), registry=lambda kind, value: None))
+    assert not pdf.exists()

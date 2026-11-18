@@ -82,8 +82,9 @@ def _doi(text: str) -> str:
 
 def _arxiv(text: str) -> str:
     """An arXiv ID without its version if `text` is one (bare, arXiv: or
-    arxiv.org URL form), else ""."""
-    text = text.strip()
+    arxiv.org URL form, or the stamp arXiv prints on a PDF's first page:
+    "arXiv:2407.08171v1 [cs.SI]"), else ""."""
+    text = re.sub(r"\s*\[[A-Za-z.\-]+\]$", "", text.strip())  # the stamp's subject class
     if m := _ARXIV_URL.search(text):
         text = m.group(1)
     text = re.sub(r"^arxiv:\s*", "", text, flags=re.IGNORECASE)

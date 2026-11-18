@@ -26,7 +26,8 @@ def test_classify_recognises_doi_arxiv_and_title_forms():
     assert classify("doi:10.1000/x") == ("doi", "10.1000/x")
     assert classify("https://doi.org/10.31235/osf.io/e3kvj_v1") == ("doi", "10.31235/osf.io/e3kvj")
     for form in ("2603.13270", "arXiv:2603.13270v2", "https://arxiv.org/abs/2603.13270v1",
-                 "https://arxiv.org/pdf/2603.13270.pdf", "10.48550/arXiv.2603.13270"):
+                 "https://arxiv.org/pdf/2603.13270.pdf", "10.48550/arXiv.2603.13270",
+                 "arXiv:2603.13270v1[cs.SI]", "arXiv:2603.13270v2 [stat.AP]"):
         assert classify(form) == ("arxiv", "2603.13270"), form
     assert classify("The Public Sphere as a Dynamic Network") == (
         "title", "the public sphere as a dynamic network")

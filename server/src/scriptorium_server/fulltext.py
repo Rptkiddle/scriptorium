@@ -232,6 +232,32 @@ def _resolve(conn: psycopg.Connection, identifier: str, member: int | None,
     return key
 
 
+def _from_first_page(conn: psycopg.Connection, found: dict, member: int | None,
+                     registry: Callable | None) -> str:
+    """The key of the item a PDF's first page names: by its DOI, else its
+    arXiv ID, else its title when exactly one item has that title. GROBID
+    can misread an identifier (a DOI cut short at a line end, or run into
+    the next word), so one that names no publication gives way to the next;
+    when nothing names an item, the first refusal is the reason given."""
+    arxiv = found["arxiv"]
+    if arxiv and not arxiv.lower().startswith("arxiv"):
+        arxiv = f"arXiv:{arxiv}"
+    refused = None
+    for identifier in filter(None, (found["doi"], arxiv)):
+        try:
+            return _resolve(conn, identifier, member, registry)
+        except Rejected as exc:
+            refused = refused or exc
+    title = normalise_title(found["title"])
+    titled = conn.execute("SELECT key FROM items WHERE title_norm = %s LIMIT 2",
+                          (title,)).fetchall() \
+        if len(title.split()) >= FRONT_TITLE_WORDS else []
+    if len(titled) == 1:
+        return titled[0]["key"]
+    raise refused or Rejected("no DOI or arXiv ID was given, none is on the PDF's first page,"
+                              " and its title does not name one item in the collection")
+
+
 def _parse(ctx: Context, key: str, path: Path, md5: str) -> bytes:
     """The PDF's TEI: the stored one when it is of this very file, else
     GROBID's. Nothing is stored here: a TEI is kept only for a PDF that is
@@ -266,20 +292,7 @@ def _process(conn: psycopg.Connection, job, ctx: Context, path: Path) -> str:
         status, tei_xml = ctx.grobid.parse(path)
         if status != 200:
             raise Rejected(f"GROBID could not read the PDF (HTTP {status})")
-        found = header(tei_xml)
-        if found["doi"] or found["arxiv"]:
-            arxiv = found["arxiv"]
-            if arxiv and not arxiv.lower().startswith("arxiv"):
-                arxiv = f"arXiv:{arxiv}"
-            key = _resolve(conn, found["doi"] or arxiv, job.member, ctx.registry)
-        else:  # no identifier on the first page: the title GROBID read, if one item has it
-            titled = conn.execute("SELECT key FROM items WHERE title_norm = %s LIMIT 2",
-                                  (normalise_title(found["title"]),)).fetchall() \
-                if len(normalise_title(found["title"]).split()) >= FRONT_TITLE_WORDS else []
-            if len(titled) != 1:
-                raise Rejected("no DOI or arXiv ID was given, none is on the PDF's first page,"
-                               " and its title does not name one item in the collection")
-            key = titled[0]["key"]
+        key = _from_first_page(conn, header(tei_xml), job.member, ctx.registry)
     if job.id is not None:  # the member's progress names the item the PDF went to
         conn.execute("UPDATE jobs SET payload = payload || jsonb_build_object('resolved', %s::text)"
                      " WHERE id = %s", (key, job.id))
