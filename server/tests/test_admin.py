@@ -63,7 +63,7 @@ def test_venues_are_subscribed_listed_and_unsubscribed(run, db):
     run("venues", "add", "Mega Journal", "--adapter", "openalex", "--needs-filter")
     listing = run("venues", "list").output
     assert "Journal of Tests\tcrossref\t1234-5678, 8765-4321\tnot yet harvested" in listing
-    assert "Mega Journal\topenalex\t-\tnot yet harvested\tneeds filter" in listing
+    assert "Mega Journal\topenalex\t-\tnot yet harvested\tsocial-science papers only" in listing
     assert run("venues", "add", "X", "--adapter", "scopus").exit_code == 1
     assert run("venues", "remove", "journal of tests").exit_code == 0
     assert "Journal of Tests" not in run("venues", "list").output

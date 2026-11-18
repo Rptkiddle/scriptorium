@@ -56,6 +56,17 @@ def test_rules():
     assert openalex.rule({**WORK, "language": "de"}) == "language: de"
 
 
+def test_a_social_science_only_venue_admits_papers_of_that_domain():
+    def topic(domain):
+        return {**WORK, "primary_topic": {"domain": {"display_name": domain}}}
+    assert openalex.rule(topic("Social Sciences"), social_only=True) is None
+    assert openalex.rule(topic("Health Sciences"), social_only=True) == "domain: Health Sciences"
+    assert openalex.rule(WORK, social_only=True) == "domain: none"
+    assert openalex.rule(topic("Health Sciences")) is None  # other venues are taken whole
+    assert openalex.rule({**topic("Social Sciences"), "type": "editorial"},
+                         social_only=True) == "type: editorial"
+
+
 def test_book_review_signs():
     assert openalex.book_review_signs(WORK) == []
     priced = {**WORK, "title": "The Algorithm. Cambridge: MIT Press, 2021. 320 pp. $35.00"}

@@ -106,7 +106,7 @@ def backfill(conn: psycopg.Connection, venue: dict, run_dir: Path, *, api_key: s
         for work in openalex.works(session, venue["source_id"], since, api_key,
                                    on_page=metas.append):
             counts["fetched"] += 1
-            reason = openalex.rule(work)
+            reason = openalex.rule(work, bool(venue.get("needs_filter")))
             if reason is None:
                 try:
                     reason = admit_work(conn, work, venue)
@@ -130,7 +130,7 @@ def backfill(conn: psycopg.Connection, venue: dict, run_dir: Path, *, api_key: s
 
 def summary(result: dict) -> str:
     """One line for the job list."""
-    dropped = sum(v for k, v in result.items() if k.startswith(("type:", "language:"))
+    dropped = sum(v for k, v in result.items() if k.startswith(("type:", "language:", "domain:"))
                   or k in ("retracted", "no title", "failed"))
     return (f"{result.get('new', 0)} new, {result.get('held', 0)} already held,"
             f" {result.get('replaced another version', 0)} replaced a preprint,"

@@ -366,7 +366,7 @@ def venues_add(
     source_id: Annotated[str | None, typer.Option(help="The venue's identifier at the source.")] = None,
     publisher: Annotated[str | None, typer.Option()] = None,
     category: Annotated[str | None, typer.Option(help="Journals, Proceedings, Preprints, ...")] = None,
-    needs_filter: Annotated[bool, typer.Option(help="Too broad to take whole: skipped until a filter exists.")] = False,
+    needs_filter: Annotated[bool, typer.Option(help="Too broad to take whole: only its social-science papers are admitted.")] = False,
 ) -> None:
     """Subscribe to a venue (adds it, or updates one already known)."""
     if adapter not in ADAPTERS:
@@ -395,7 +395,7 @@ def venues_list() -> None:
         typer.echo("No subscribed venues.")
     for row in rows:
         marker = f"harvested to {_when(row['marker'])}" if row["marker"] else "not yet harvested"
-        waiting = "\tneeds filter" if row["needs_filter"] else ""
+        waiting = "\tsocial-science papers only" if row["needs_filter"] else ""
         typer.echo(f"{row['name']}\t{row['adapter']}\t{', '.join(row['issns']) or '-'}"
                    f"\t{marker}{waiting}")
 
@@ -417,7 +417,8 @@ def venues_import(
                                               " journal, issns, publisher and coded_class.")],
 ) -> None:
     """Subscribe to every journal in a list, harvested through OpenAlex.
-    Journals of class MIXED are marked as needing a filter. A journal whose
+    Journals of class MIXED are too broad to take whole: only their papers
+    in OpenAlex's Social Sciences domain are admitted. A journal whose
     name another journal holds already is named with its publisher added."""
     import csv
 
@@ -480,20 +481,17 @@ def fetch(
 
 def _openalex_venues(conn, source_id: list[str] | None, all_venues: bool) -> list[dict]:
     """The venues named by their OpenAlex source IDs, or every subscribed
-    OpenAlex venue that needs no filter."""
+    OpenAlex venue."""
     if bool(source_id) == all_venues:
         _fail("name venues with --source-id, or use --all")
     if all_venues:
         return conn.execute("SELECT * FROM venues WHERE subscribed AND adapter = 'openalex'"
-                            " AND NOT needs_filter ORDER BY id").fetchall()
+                            " ORDER BY id").fetchall()
     venues = conn.execute("SELECT * FROM venues WHERE source_id = ANY(%s)"
                           " AND adapter = 'openalex' ORDER BY id", (source_id,)).fetchall()
     missing = set(source_id) - {v["source_id"] for v in venues}
     if missing:
         _fail(f"no OpenAlex venue with source ID {', '.join(sorted(missing))}")
-    waiting = [v["name"] for v in venues if v["needs_filter"]]
-    if waiting:
-        _fail(f"these venues wait for a filter: {', '.join(waiting)}")
     return venues
 
 
@@ -502,11 +500,14 @@ def load(
     files: Annotated[Path, typer.Argument(help="The folder `fetch` wrote the journals' files to.")],
     source_id: Annotated[list[str] | None, typer.Option(help="A venue's OpenAlex source ID;"
                                                        " repeat for several.")] = None,
-    all_venues: Annotated[bool, typer.Option("--all", help="Every subscribed OpenAlex venue"
-                                             " that needs no filter.")] = False,
+    all_venues: Annotated[bool, typer.Option("--all", help="Every subscribed OpenAlex"
+                                             " venue.")] = False,
     abstracts: Annotated[list[Path] | None, typer.Option(
         help="A file of {\"doi\", \"abstract\"} lines (may be .gz) with abstracts for papers"
              " OpenAlex has none for; repeat for several.")] = None,
+    labels: Annotated[list[Path] | None, typer.Option(
+        help="A file of {\"id\", \"domain\"} lines (may be .gz) with the OpenAlex domain of"
+             " works that were fetched without their topic; repeat for several.")] = None,
 ) -> None:
     """Load venues' fetched files into the collection, in bulk: every work
     that passes the harvest rules becomes an item, unless the collection
@@ -520,6 +521,7 @@ def load(
         found = loading.read_abstracts(abstracts or [])
         run_dir = jobs.new_run(_data(current) / "runs", "load")
         result = loading.load_files(conn, venues, files, run_dir, abstracts=found,
+                                    domains=loading.read_domains(labels or []),
                                     report=typer.echo)
     line = (f"{len(venues)} venues in {result['seconds']:.0f} s: " + intake_summary(result))
     jobs.finish_run(run_dir, "partial" if result.get("failed") or result.get("no file")
@@ -539,8 +541,8 @@ def intake_summary(result: dict) -> str:
 def backfill(
     source_id: Annotated[list[str] | None, typer.Option(help="A venue's OpenAlex source ID;"
                                                        " repeat for several.")] = None,
-    all_venues: Annotated[bool, typer.Option("--all", help="Every subscribed OpenAlex venue"
-                                             " that needs no filter.")] = False,
+    all_venues: Annotated[bool, typer.Option("--all", help="Every subscribed OpenAlex"
+                                             " venue.")] = False,
     since: Annotated[str, typer.Option(help="First publication date, YYYY-MM-DD.")] = "2020-01-01",
 ) -> None:
     """Queue a harvest of venues' papers since a date, one job per venue,

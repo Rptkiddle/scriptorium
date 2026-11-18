@@ -114,11 +114,20 @@ def test_venues_import_and_backfill_queue_jobs(run, db, tmp_path):
     assert names["S2"] == ("Economics (De Gruyter)", False)
     assert names["S3"][1] is True
     result = run("backfill", "--all")
-    assert result.exit_code == 0 and "Queued 2" in result.output  # the MIXED journal waits
+    assert result.exit_code == 0 and "Queued 3" in result.output
     queued = db.execute("SELECT payload FROM jobs WHERE kind = 'backfill'").fetchall()
-    assert len(queued) == 2 and queued[0]["payload"]["since"] == "2020-01-01"
+    assert len(queued) == 3 and queued[0]["payload"]["since"] == "2020-01-01"
     assert run("backfill", "--source-id", "S9").exit_code == 1
-    assert run("backfill", "--source-id", "S3").exit_code == 1  # waits for a filter
+    assert run("backfill", "--source-id", "S3").exit_code == 0
+
+
+def test_backfill_of_a_social_science_only_venue_admits_by_domain(db, venue, tmp_path, monkeypatch):
+    social = {**WORK, "primary_topic": {"domain": {"display_name": "Social Sciences"}}}
+    medical = {**NO_DOI, "primary_topic": {"domain": {"display_name": "Health Sciences"}}}
+    serve(monkeypatch, [social, medical])
+    result = intake.backfill(db, {**venue, "needs_filter": True}, tmp_path)
+    assert result["new"] == 1 and result["domain: Health Sciences"] == 1
+    assert "1 not admitted (of 2)" in intake.summary(result)
 
 
 def test_worker_runs_a_backfill_job(run, db, venue, monkeypatch, tmp_path):

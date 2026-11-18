@@ -56,11 +56,27 @@ def read_abstracts(paths: list[Path]) -> dict[str, str]:
     return found
 
 
+def read_domains(paths: list[Path]) -> dict[str, str]:
+    """OpenAlex domains by work ID ("W123") from files of {"id", "domain"}
+    lines: labels for works that were fetched without their topic."""
+    found: dict[str, str] = {}
+    for path in paths:
+        opener = gzip.open if path.suffix == ".gz" else open
+        with opener(path, "rt", encoding="utf-8") as lines:
+            for line in lines:
+                if line.strip():
+                    row = json.loads(line)
+                    if row.get("id") and row.get("domain"):
+                        found.setdefault(row["id"].rsplit("/", 1)[-1], row["domain"])
+    return found
+
+
 class Loader:
     def __init__(self, conn: psycopg.Connection, abstracts: dict[str, str] | None = None,
-                 batch: int = BATCH):
+                 batch: int = BATCH, domains: dict[str, str] | None = None):
         self.conn = conn
         self.abstracts = abstracts or {}
+        self.domains = domains or {}
         self.batch = batch
         self.keys: set[str] = set()
         self.citation_keys: set[str] = set()
@@ -95,13 +111,18 @@ class Loader:
         rules; returns the counts: works read, each outcome, each rule's drops."""
         counts: collections.Counter = collections.Counter()
         started = time.time()
+        social_only = bool(venue.get("needs_filter"))
         with gzip.open(path, "rt", encoding="utf-8") as lines:
             for line in lines:
                 if not line.strip():
                     continue
                 work = json.loads(line)
                 counts["fetched"] += 1
-                counts[openalex.rule(work) or self._admit(work, venue, counts)] += 1
+                if social_only and not work.get("primary_topic"):  # fetched without its topic
+                    label = self.domains.get((work.get("id") or "").rsplit("/", 1)[-1])
+                    if label:
+                        work["primary_topic"] = {"domain": {"display_name": label}}
+                counts[openalex.rule(work, social_only) or self._admit(work, venue, counts)] += 1
         self.flush()
         counts.pop(None, None)
         return {"venue": venue["name"], "source_id": venue["source_id"],
@@ -206,11 +227,12 @@ class Loader:
 
 
 def load_files(conn: psycopg.Connection, venues: list[dict], files: Path, run_dir: Path, *,
-               abstracts: dict[str, str] | None = None, report=print) -> dict:
+               abstracts: dict[str, str] | None = None,
+               domains: dict[str, str] | None = None, report=print) -> dict:
     """Load each venue's file (<files>/<source_id>.jsonl.gz). One line of
     counts per venue is appended to <run_dir>/counts.jsonl as it finishes;
     returns the totals, also written to <run_dir>/totals.json."""
-    loader = Loader(conn, abstracts)
+    loader = Loader(conn, abstracts, domains=domains)
     totals: collections.Counter = collections.Counter()
     started = time.time()
     with (run_dir / "counts.jsonl").open("a", encoding="utf-8") as out:

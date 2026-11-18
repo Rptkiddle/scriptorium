@@ -13,6 +13,9 @@ Harvest rules (a work failing one is not admitted; the reason is counted):
               OpenAlex mislabels) and "software-paper" (software journals)
   retracted   no retracted papers
   language    English only
+  domain      for a venue too broad to take whole (a multidisciplinary
+              journal), only papers whose primary topic OpenAlex places in
+              its Social Sciences domain
 A possible book review that OpenAlex types as an article is flagged
 (book_review_signs), not dropped, until the signs are tested.
 """
@@ -29,7 +32,8 @@ from scriptorium_server.sources.apis import OPENALEX, request_json
 KEPT_TYPES = ("article", "review", "conference-paper", "software-paper")
 PER_PAGE = 100
 FIELDS = ("id,doi,title,publication_date,publication_year,type,language,is_retracted,"
-          "authorships,biblio,primary_location,abstract_inverted_index")
+          "authorships,biblio,primary_location,abstract_inverted_index,primary_topic")
+SOCIAL = "Social Sciences"  # the OpenAlex domain a venue too broad to take whole is cut to
 # Lower-case name particles that belong to the family name ("van Houten").
 _PARTICLES = {"van", "von", "de", "der", "den", "del", "della", "di", "da", "dos", "das",
               "du", "le", "la", "ten", "ter", "op", "'t", "bin", "al", "el"}
@@ -86,15 +90,24 @@ def to_record(work: dict) -> dict:
     return {k: v for k, v in record.items() if v not in ("", [], None) or k == "creators"}
 
 
-def rule(work: dict) -> str | None:
+def domain(work: dict) -> str:
+    """The OpenAlex domain of a work's primary topic ("Social Sciences",
+    "Health Sciences", "Life Sciences", "Physical Sciences"), or ""."""
+    return (((work.get("primary_topic") or {}).get("domain") or {}).get("display_name")) or ""
+
+
+def rule(work: dict, social_only: bool = False) -> str | None:
     """Why a work is not admitted ("type: editorial", "retracted",
-    "language: de"), or None when it passes every rule."""
+    "language: de", "domain: Life Sciences"), or None when it passes every
+    rule. social_only is for a venue too broad to take whole."""
     if work.get("type") not in KEPT_TYPES:
         return f"type: {work.get('type')}"
     if work.get("is_retracted"):
         return "retracted"
     if (work.get("language") or "") != "en":
         return f"language: {work.get('language')}"
+    if social_only and domain(work) != SOCIAL:
+        return f"domain: {domain(work) or 'none'}"
     return None
 
 

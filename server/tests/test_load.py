@@ -110,6 +110,26 @@ def test_a_batch_that_cannot_be_written_is_admitted_one_by_one(db, venue, tmp_pa
     assert db.execute("SELECT count(*) AS n FROM items").fetchone()["n"] == 3
 
 
+def test_a_social_science_only_venue_is_loaded_by_domain(db, venue, tmp_path):
+    mixed = {**venue, "needs_filter": True}
+    social = {"primary_topic": {"domain": {"display_name": "Social Sciences"}}}
+    physics = {"primary_topic": {"domain": {"display_name": "Physical Sciences"}}}
+    works = [work(1, **social), work(2, **physics), work(3), work(4), work(5)]
+    labels = tmp_path / "labels.jsonl"
+    labels.write_text('{"id": "W3", "domain": "Social Sciences"}\n'
+                      '{"id": "W4", "domain": "Life Sciences"}\n'
+                      '{"id": "W2", "domain": "Social Sciences"}\n')
+    loader = load.Loader(db, domains=load.read_domains([labels]))
+    result = loader.load_venue(mixed, save(tmp_path, "S1", works))
+    assert result["new"] == 2  # W1 by its own label, W3 by the labels file
+    assert result["domain: Physical Sciences"] == 1  # a work's own label counts, not the file's
+    assert result["domain: Life Sciences"] == 1 and result["domain: none"] == 1
+    held = {r["openalex_id"] for r in db.execute("SELECT openalex_id FROM items").fetchall()}
+    assert held == {"W1", "W3"}
+    whole = load.Loader(db).load_venue(venue, save(tmp_path, "S1", works))
+    assert whole["new"] == 3  # the same file for a venue taken whole
+
+
 def test_load_files_writes_counts_and_reports_a_missing_file(db, venue, tmp_path):
     save(tmp_path, "S1", [work(1), EDITORIAL])
     other = {**venue, "id": venue["id"], "source_id": "S404", "name": "No file"}
