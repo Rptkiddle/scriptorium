@@ -1,0 +1,16 @@
+{
+  "manifest_version": 2,
+  "name": "scriptorium-bridge",
+  "version": "0.2.0",
+  "description": "Lets the Scriptorium client on this computer add items to this Zotero library and read which publications and PDFs it holds. It never changes or removes anything.",
+  "author": "Rupert Kiddle",
+  "homepage_url": "https://github.com/Rptkiddle/scriptorium",
+  "applications": {
+    "zotero": {
+      "id": "scriptorium-bridge@scriptorium.local",
+      "update_url": "https://raw.githubusercontent.com/Rptkiddle/scriptorium/collaborative/scriptorium-bridge/updates.json",
+      "strict_min_version": "7.0",
+      "strict_max_version": "10.*"
+    }
+  }
+}
