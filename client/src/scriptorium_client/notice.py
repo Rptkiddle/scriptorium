@@ -13,7 +13,9 @@ Some agent apps cannot show such a dialog. For those the member accepts once
 in a terminal (`scriptorium-client notice --accept`); the client's settings
 file then records the date and which text was accepted, and the client
 answers in those apps without asking. A changed notice text makes the
-record void, so the member accepts the new text.
+record void, so the member accepts the new text. Where such an app also
+keeps the client from reading the settings file, the member gives it the
+record as an environment variable; the command prints the line.
 """
 
 import hashlib
@@ -66,9 +68,10 @@ def text_id() -> str:
 
 def record(day: str) -> str:
     """The settings value that records an acceptance of the current text on `day`."""
-    return f"{day} {text_id()}"
+    return f"{day}:{text_id()}"
 
 
 def accepted(settings: dict) -> bool:
     """Whether the settings record an acceptance of the current notice text."""
-    return str(settings.get("notice_accepted", "")).endswith(" " + text_id())
+    parts = str(settings.get("notice_accepted", "")).replace(":", " ").split()
+    return len(parts) == 2 and parts[1] == text_id()

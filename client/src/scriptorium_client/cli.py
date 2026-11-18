@@ -31,7 +31,7 @@ def setup(
     api_key: Annotated[str | None, typer.Option(help="Your API key.")] = None,
 ) -> None:
     """Enter the server's address and your API key, and check that they work."""
-    current = client_settings.load()
+    current = client_settings.load(environment=False)
     server = server or typer.prompt("Server address", default=current["server"] or None)
     api_key = api_key or typer.prompt("API key", hide_input=True,
                                       default=current["api_key"] or None, show_default=False)
@@ -72,11 +72,14 @@ def notice(
     if not typer.confirm("Do you accept this notice?", default=False):
         typer.echo("Not recorded.")
         raise typer.Exit(1)
-    values = client_settings.load()
+    values = client_settings.load(environment=False)
     stored = {k: values[k] for k in ("server", "api_key", "reply_chars")}
     stored["notice_accepted"] = member_notice.record(date.today().isoformat())
     path = client_settings.save(stored)
     typer.echo(f"Recorded in {path}.")
+    typer.echo("\nFor an agent app that keeps the client from reading that file, add this line"
+               " to the environment variables of its Scriptorium connector:\n\n"
+               f"  {client_settings.variable('notice_accepted')}={stored['notice_accepted']}")
 
 
 @app.command()

@@ -55,6 +55,8 @@ class FakeServer:
 def own_settings_file(tmp_path, monkeypatch):
     """Every test reads and writes a settings file of its own, never the user's."""
     monkeypatch.setenv("SCRIPTORIUM_CLIENT_SETTINGS", str(tmp_path / "client.toml"))
+    for name in settings.DEFAULTS:
+        monkeypatch.delenv(settings.variable(name), raising=False)
 
 
 @pytest.fixture
@@ -264,7 +266,7 @@ def test_an_agent_app_that_cannot_ask_is_served_after_acceptance_in_a_terminal(t
     settings.save({"notice_accepted": notice.record("2026-11-18")})
     for mode in ("legacy", "auto"):
         assert asyncio.run(call(mode)).data == {"key": "K0001"}
-    settings.save({"notice_accepted": "2026-11-18 anearliertext"})  # the notice text has changed since
+    settings.save({"notice_accepted": "2026-11-18:anearliertext"})  # the notice text has changed since
     assert asyncio.run(call("legacy")).is_error
 
 
@@ -374,3 +376,29 @@ def test_the_notice_is_accepted_only_by_the_member_at_a_terminal(monkeypatch):
     assert agreed.exit_code == 0 and "Welcome to Scriptorium!" in agreed.output
     stored = settings.load()
     assert notice.accepted(stored) and stored["api_key"] == "scr_key"  # the key is kept
+    assert f"SCRIPTORIUM_NOTICE_ACCEPTED={stored['notice_accepted']}" in agreed.output
+    assert " " not in stored["notice_accepted"]  # one word, so it fits a KEY=value line
+
+
+def test_settings_can_come_from_the_environment(monkeypatch):
+    from scriptorium_client import notice
+
+    settings.save({"server": "https://file.test", "api_key": "scr_file", "reply_chars": 9000})
+    monkeypatch.setenv("SCRIPTORIUM_SERVER", "https://env.test")
+    monkeypatch.setenv("SCRIPTORIUM_REPLY_CHARS", "5000")
+    monkeypatch.setenv("SCRIPTORIUM_NOTICE_ACCEPTED", notice.record("2026-11-18"))
+    values = settings.load()
+    assert (values["server"], values["api_key"], values["reply_chars"]) == ("https://env.test", "scr_file", 5000)
+    assert notice.accepted(values)
+    assert settings.load(environment=False)["server"] == "https://file.test"  # what the file holds
+    assert notice.accepted({"notice_accepted": "2026-11-18 " + notice.text_id()})  # the earlier form
+
+
+def test_a_settings_file_that_cannot_be_read_counts_as_absent(tmp_path, monkeypatch):
+    folder = tmp_path / "closed"
+    folder.mkdir()
+    (folder / "client.toml").write_text('server = "https://file.test"\n')
+    (folder / "client.toml").chmod(0)
+    monkeypatch.setenv("SCRIPTORIUM_CLIENT_SETTINGS", str(folder / "client.toml"))
+    monkeypatch.setenv("SCRIPTORIUM_SERVER", "https://env.test")
+    assert settings.load()["server"] == "https://env.test"

@@ -56,6 +56,18 @@ At the first request of each session your agent app shows Scriptorium's notice (
 
 Some agent apps cannot show such a question. For those, accept the notice once yourself in a terminal: run the command from step 3 with `notice --accept` in place of `serve`. The client records the date in its settings file and then answers in those apps. If the notice text changes, it asks you to accept the new text in the same way.
 
+## Agent apps that keep the client from your files
+
+Some agent apps start the client in a closed-off environment where it cannot read its settings file. Give such an app the settings as environment variables, in the place where it lets you enter them for a connector:
+
+```
+SCRIPTORIUM_SERVER=<the server's address>
+SCRIPTORIUM_API_KEY=<your API key>
+SCRIPTORIUM_NOTICE_ACCEPTED=<the line that `notice --accept` printed>
+```
+
+The third line is needed only if the app also cannot show the notice. The app then stores your key in its own settings, so consider asking the administrator for a separate key for it.
+
 ## What the tools do
 
 | Tool | Use it for |

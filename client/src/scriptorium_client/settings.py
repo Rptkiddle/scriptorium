@@ -11,6 +11,11 @@
                   cannot ask
 
 The file holds the API key, so it is written readable by its owner only.
+
+Each setting can also be given as an environment variable, SCRIPTORIUM_ and
+the setting's name in capitals (SCRIPTORIUM_SERVER, SCRIPTORIUM_API_KEY, ...),
+which then takes the file's place for that setting. This serves agent apps
+that start the client where it cannot read the user's files.
 """
 
 import os
@@ -29,14 +34,26 @@ def settings_path() -> Path:
     return Path(override) if override else Path(platformdirs.user_config_dir("scriptorium")) / "client.toml"
 
 
-def load(path: Path | None = None) -> dict:
-    """The settings in force: the file's values over the defaults, with the
-    two folders filled in when the file names none."""
+def variable(name: str) -> str:
+    """The environment variable that gives the setting `name`."""
+    return "SCRIPTORIUM_" + name.upper()
+
+
+def load(path: Path | None = None, environment: bool = True) -> dict:
+    """The settings in force: the environment's values over the file's over
+    the defaults, with the two folders filled in when none is named.
+    `environment=False` leaves the environment out, for writing the file."""
     path = path or settings_path()
     values = dict(DEFAULTS)
-    if path.exists():
-        stored = tomllib.loads(path.read_text())
-        values.update({k: v for k, v in stored.items() if k in DEFAULTS})
+    try:
+        stored = tomllib.loads(path.read_text()) if path.exists() else {}
+    except OSError:  # a file this process may not read counts as absent
+        stored = {}
+    values.update({k: v for k, v in stored.items() if k in DEFAULTS})
+    for name, default in DEFAULTS.items() if environment else ():
+        given = os.environ.get(variable(name), "").strip()
+        if given:
+            values[name] = int(given) if isinstance(default, int) else given
     data = Path(platformdirs.user_data_dir("scriptorium"))
     values["results_dir"] = values["results_dir"] or str(data / "results")
     values["pdf_dir"] = values["pdf_dir"] or str(data / "pdfs")
