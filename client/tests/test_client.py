@@ -51,6 +51,12 @@ class FakeServer:
         return httpx.Response(200, json=self.replies[request.url.path])
 
 
+@pytest.fixture(autouse=True)
+def own_settings_file(tmp_path, monkeypatch):
+    """Every test reads and writes a settings file of its own, never the user's."""
+    monkeypatch.setenv("SCRIPTORIUM_CLIENT_SETTINGS", str(tmp_path / "client.toml"))
+
+
 @pytest.fixture
 def fake():
     return FakeServer()
@@ -246,6 +252,38 @@ def test_an_agent_app_that_cannot_ask_gets_no_results(tools, fake):
     assert fake.calls == []  # nothing reached the server
 
 
+def test_an_agent_app_that_cannot_ask_is_served_after_acceptance_in_a_terminal(tools, fake):
+    from scriptorium_client import notice
+
+    async def call(mode):
+        async with Client(build_server(tools), mode=mode) as client:  # no elicitation support
+            return await client.call_tool("item", {"key": "K0001"}, raise_on_error=False)
+
+    refused = asyncio.run(call("legacy"))
+    assert refused.is_error and "notice --accept" in str(refused.content) and fake.calls == []
+    settings.save({"notice_accepted": notice.record("2026-11-18")})
+    for mode in ("legacy", "auto"):
+        assert asyncio.run(call(mode)).data == {"key": "K0001"}
+    settings.save({"notice_accepted": "2026-11-18 anearliertext"})  # the notice text has changed since
+    assert asyncio.run(call("legacy")).is_error
+
+
+def test_a_recorded_acceptance_does_not_replace_the_question_where_the_app_can_ask(tools, fake):
+    from scriptorium_client import notice
+
+    settings.save({"notice_accepted": notice.record("2026-11-18")})
+    asked = []
+
+    async def handler(message, response_type, params, context):
+        asked.append(message)
+        return {}
+
+    async def call():
+        async with Client(build_server(tools), elicitation_handler=handler) as client:
+            return await client.call_tool("item", {"key": "K0001"})
+
+    assert asyncio.run(call()).data == {"key": "K0001"} and len(asked) == 1
+
 
 def test_calls_at_once_ask_once(tools, fake):
     asked = []
@@ -290,3 +328,49 @@ def test_the_notice_command_prints_the_full_text():
 
     out = CliRunner().invoke(app, ["notice"]).output
     assert out.startswith("Welcome to Scriptorium!") and "non-public" in out and "Accept" in out
+
+
+def test_the_notice_is_accepted_only_by_the_member_at_a_terminal(monkeypatch):
+    import sys
+
+    from typer.testing import CliRunner
+
+    from scriptorium_client import notice
+    from scriptorium_client.cli import app
+
+    settings.save({"server": "https://scriptorium.test", "api_key": "scr_key"})
+    piped = CliRunner().invoke(app, ["notice", "--accept"], input="y\n")  # a program answering
+    assert piped.exit_code == 1 and not notice.accepted(settings.load())
+
+    class Terminal:
+        def __init__(self, stream):
+            self._stream = stream
+
+        def isatty(self):
+            return True
+
+        def __getattr__(self, name):
+            return getattr(self._stream, name)
+
+    def at_terminal(answer):
+        class Runner(CliRunner):
+            def isolation(self, *args, **kwargs):
+                manager = super().isolation(*args, **kwargs)
+
+                class Wrapped:
+                    def __enter__(inner):
+                        out = manager.__enter__()
+                        monkeypatch.setattr(sys, "stdin", Terminal(sys.stdin))
+                        return out
+
+                    def __exit__(inner, *exc):
+                        return manager.__exit__(*exc)
+                return Wrapped()
+        return Runner().invoke(app, ["notice", "--accept"], input=answer)
+
+    declined = at_terminal("n\n")
+    assert declined.exit_code == 1 and not notice.accepted(settings.load())
+    agreed = at_terminal("y\n")
+    assert agreed.exit_code == 0 and "Welcome to Scriptorium!" in agreed.output
+    stored = settings.load()
+    assert notice.accepted(stored) and stored["api_key"] == "scr_key"  # the key is kept

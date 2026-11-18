@@ -8,7 +8,15 @@ a three-line DIALOG with Accept and Decline; the full NOTICE is printed in
 the terminal by `scriptorium-client notice` and by `setup`. A session in
 which the member has not accepted gets no Scriptorium results; the next
 request asks again.
+
+Some agent apps cannot show such a dialog. For those the member accepts once
+in a terminal (`scriptorium-client notice --accept`); the client's settings
+file then records the date and which text was accepted, and the client
+answers in those apps without asking. A changed notice text makes the
+record void, so the member accepts the new text.
 """
+
+import hashlib
 
 DIALOG = """\
 Welcome to Scriptorium! Your agent conversations are yours alone and never sent to us.
@@ -44,6 +52,23 @@ agent session."""
 NOT_AGREED = ("Scriptorium answers only after the member accepts its notice, once per session,"
               " and they have not accepted it in this session. The next Scriptorium request"
               " asks them again; `scriptorium-client notice` shows the text.")
-CANNOT_ASK = ("Scriptorium answers only after the member accepts its notice, once per session,"
-              " and this agent app cannot show the member the question. Use an interactive"
-              " session of an agent app that supports MCP elicitation.")
+CANNOT_ASK = ("Scriptorium answers only after the member accepts its notice, and this agent app"
+              " cannot show the member the question. The member can accept it once in a terminal"
+              " instead: `scriptorium-client notice --accept` (the same command line that starts"
+              " the client, with `notice --accept` in place of `serve`). The agent cannot accept"
+              " it for them.")
+
+
+def text_id() -> str:
+    """A short fingerprint of the notice text, to tell which text was accepted."""
+    return hashlib.sha256(NOTICE.encode()).hexdigest()[:12]
+
+
+def record(day: str) -> str:
+    """The settings value that records an acceptance of the current text on `day`."""
+    return f"{day} {text_id()}"
+
+
+def accepted(settings: dict) -> bool:
+    """Whether the settings record an acceptance of the current notice text."""
+    return str(settings.get("notice_accepted", "")).endswith(" " + text_id())

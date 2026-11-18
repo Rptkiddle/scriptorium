@@ -6,6 +6,9 @@
                   a larger result is saved whole to a file instead
     results_dir   where such results (and sets) are saved
     pdf_dir       where downloaded PDFs are saved
+    notice_accepted   set by `scriptorium-client notice --accept`: the date and
+                  the notice text the member accepted, for agent apps that
+                  cannot ask
 
 The file holds the API key, so it is written readable by its owner only.
 """
@@ -16,7 +19,8 @@ from pathlib import Path
 
 import platformdirs
 
-DEFAULTS = {"server": "", "api_key": "", "reply_chars": 24000, "results_dir": "", "pdf_dir": ""}
+DEFAULTS = {"server": "", "api_key": "", "reply_chars": 24000, "results_dir": "", "pdf_dir": "",
+            "notice_accepted": ""}
 
 
 def settings_path() -> Path:

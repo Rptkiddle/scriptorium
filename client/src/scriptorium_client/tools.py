@@ -16,6 +16,7 @@ from fastmcp import FastMCP
 
 from scriptorium_client import __version__, results
 from scriptorium_client import zotero as zotero_library
+from scriptorium_client import notice as member_notice
 from scriptorium_client.notice import CANNOT_ASK, DIALOG, NOT_AGREED
 from scriptorium_client import settings as client_settings
 from scriptorium_client.http import RateLimited, Server, ServerError
@@ -471,15 +472,34 @@ class Consent:
     2026-07-28 connection the tool returns an "input required" result and
     the agent app asks, then calls the tool again with the answer; on an
     older connection the client asks directly. Calls arriving while the
-    question is open wait for its answer instead of asking again."""
+    question is open wait for its answer instead of asking again.
+
+    An agent app that cannot show such a dialog is served only when the
+    member has accepted the notice in a terminal (`recorded` says so)."""
 
     KEY = "scriptorium_notice"
     SCHEMA = {"type": "object", "properties": {}}  # no fields: Accept or Decline
     WAIT_SECONDS = 600  # how long a call waits for the member to answer the open question
 
-    def __init__(self):
+    def __init__(self, recorded=lambda: False):
         self.agreed = False
         self._open = None  # an asyncio.Event while the question is open
+        self._recorded = recorded  # whether the settings hold an acceptance
+
+    def _cannot_ask(self, cause: Exception | None = None) -> None:
+        """The agent app has no dialog: the acceptance recorded in a terminal
+        counts, and without one the member is told how to give it."""
+        if self._recorded():
+            self.agreed = True
+            return None
+        raise ServerError(CANNOT_ASK) from cause
+
+    @staticmethod
+    def _app_can_ask(ctx) -> bool:
+        try:
+            return ctx.session.client_params.capabilities.elicitation is not None
+        except AttributeError:  # no capabilities stated: try, and see
+            return True
 
     @staticmethod
     def _yes(answer) -> bool:
@@ -518,6 +538,8 @@ class Consent:
         if self.agreed:
             return None
         ctx = get_context()
+        if not self._app_can_ask(ctx):
+            return self._cannot_ask()
         context = ctx.request_context
         modern = context is not None and context.protocol_version in MODERN_PROTOCOL_VERSIONS
         if modern:
@@ -540,7 +562,7 @@ class Consent:
         except Exception as exc:  # noqa: BLE001 — the agent app cannot ask
             self._open.set()
             self._open = None
-            raise ServerError(CANNOT_ASK) from exc
+            return self._cannot_ask(exc)
         return self._settle(answer)
 
 
@@ -553,7 +575,7 @@ def build_server(tools: Tools | None = None) -> FastMCP:
     import anyio
 
     tools = tools or Tools()
-    consent = Consent()
+    consent = Consent(lambda: member_notice.accepted(client_settings.load()))
     mcp = FastMCP("scriptorium", instructions=INSTRUCTIONS)
     for name in TOOL_NAMES:
         method = getattr(tools, name)

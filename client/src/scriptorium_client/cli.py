@@ -8,6 +8,7 @@ import typer
 from scriptorium_client import __version__
 from scriptorium_client import settings as client_settings
 from scriptorium_client.http import Server, ServerError
+from scriptorium_client import notice as member_notice
 from scriptorium_client.notice import NOTICE
 
 app = typer.Typer(no_args_is_help=True, help="Set up and run the Scriptorium client.")
@@ -44,7 +45,7 @@ def setup(
     except ServerError as exc:
         typer.echo(f"Not saved. {exc}", err=True)
         raise typer.Exit(1) from None
-    stored = {k: values[k] for k in ("server", "api_key", "reply_chars")}
+    stored = {k: values[k] for k in ("server", "api_key", "reply_chars", "notice_accepted")}
     path = client_settings.save(stored)
     typer.echo(f"Connected: {health['items']} items, {health['fulltexts']} with full text.")
     typer.echo(f"Settings saved to {path}.\n")
@@ -52,9 +53,30 @@ def setup(
 
 
 @app.command()
-def notice() -> None:
+def notice(
+    accept: Annotated[bool, typer.Option(
+        "--accept", help="Accept the notice here, for agent apps that cannot ask you.")] = False,
+) -> None:
     """Show the notice members agree to at the start of each agent session."""
+    import sys
+    from datetime import date
+
     typer.echo(NOTICE)
+    if not accept:
+        return
+    if not sys.stdin.isatty():  # the member answers, not a program
+        typer.echo("\nNot recorded: run this command yourself in a terminal.", err=True)
+        raise typer.Exit(1)
+    typer.echo("\nAn agent app that can ask you still asks at the start of each session."
+               " This acceptance counts only in agent apps that cannot.")
+    if not typer.confirm("Do you accept this notice?", default=False):
+        typer.echo("Not recorded.")
+        raise typer.Exit(1)
+    values = client_settings.load()
+    stored = {k: values[k] for k in ("server", "api_key", "reply_chars")}
+    stored["notice_accepted"] = member_notice.record(date.today().isoformat())
+    path = client_settings.save(stored)
+    typer.echo(f"Recorded in {path}.")
 
 
 @app.command()

@@ -50,6 +50,12 @@ In an agent configured with a JSON file of MCP servers:
 
 Ask your agent to run Scriptorium's `status` tool. It reports whether the server is reachable, how large the collection is, the client's version, and whether Zotero and the Scriptorium Bridge plugin answer on your machine.
 
+## The notice
+
+At the first request of each session your agent app shows Scriptorium's notice (what Scriptorium receives and records), and you choose Accept. `scriptorium-client notice` prints the full text.
+
+Some agent apps cannot show such a question. For those, accept the notice once yourself in a terminal: run the command from step 3 with `notice --accept` in place of `serve`. The client records the date in its settings file and then answers in those apps. If the notice text changes, it asks you to accept the new text in the same way.
+
 ## What the tools do
 
 | Tool | Use it for |
