@@ -178,7 +178,8 @@ def test_sciencedirect_is_asked_one_elsevier_doi_at_a_time_when_named(monkeypatc
     cands = _cands("10.1016/j.x.1", "10.1016/j.unknown", "10.1016/j.odd", "10.1016/j.x.2",
                    "10.1080/not-elsevier")
     summary = fill_abstracts(cands, KEYS, session=object(), sources=("sciencedirect",))
-    assert asked == ["10.1016/j.x.1", "10.1016/j.unknown", "10.1016/j.odd", "10.1016/j.x.2"]
+    assert sorted(asked) == ["10.1016/j.odd", "10.1016/j.unknown", "10.1016/j.x.1",
+                             "10.1016/j.x.2"]
     assert [c["abstract"] for c in cands] == ["Fresh from the publisher.", "", "",
                                               "Fresh from the publisher.", ""]
     assert summary["sciencedirect"] == 2 and summary["title_only"] == 3
@@ -194,3 +195,36 @@ def test_sciencedirect_refusing_access_is_marked_unavailable(monkeypatch):
     assert summary["unavailable"] == {"sciencedirect": "HTTP 403"} and summary["title_only"] == 1
     assert "sciencedirect" not in fill_abstracts(_cands("10.1016/j.x.1"), {}, session=object())[
         "unavailable"]  # not in the default order
+
+
+def test_sciencedirect_requests_start_no_faster_than_the_pace(monkeypatch):
+    import time
+    starts = []
+
+    def fake(session, method, url, **kw):
+        starts.append(time.monotonic())
+        time.sleep(0.2)  # slower than the pace, so several are under way at once
+        return {"full-text-retrieval-response": {"coredata": {"dc:description": "Text."}}}
+    monkeypatch.setattr(abstracts, "request_json", fake)
+    monkeypatch.setattr(abstracts, "SCIENCEDIRECT_PAUSE", 0.05)
+    cands = _cands(*[f"10.1016/j.x.{n}" for n in range(8)])
+    began = time.monotonic()
+    summary = fill_abstracts(cands, KEYS, session=object(), sources=("sciencedirect",))
+    assert summary["sciencedirect"] == 8
+    gaps = [b - a for a, b in zip(sorted(starts), sorted(starts)[1:])]
+    assert min(gaps) >= 0.045                  # never faster than the pace
+    assert time.monotonic() - began < 8 * 0.2  # and faster than one at a time
+
+
+def test_sciencedirect_stops_asking_once_refused(monkeypatch):
+    asked = []
+
+    def fake(session, method, url, **kw):
+        asked.append(url)
+        raise _http_error(403)
+    monkeypatch.setattr(abstracts, "request_json", fake)
+    monkeypatch.setattr(abstracts, "SCIENCEDIRECT_PAUSE", 0.01)
+    monkeypatch.setattr(abstracts, "SCIENCEDIRECT_PARALLEL", 1)
+    summary = fill_abstracts(_cands(*[f"10.1016/j.x.{n}" for n in range(20)]), KEYS,
+                             session=object(), sources=("sciencedirect",))
+    assert summary["unavailable"] == {"sciencedirect": "HTTP 403"} and len(asked) == 1

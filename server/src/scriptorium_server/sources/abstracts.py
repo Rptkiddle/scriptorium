@@ -13,7 +13,8 @@ three sources in turn and sending each source only the DOIs still missing:
                         abstract from the day of publication, weeks before
                         Scopus lists the paper. Not in the default order;
                         asked for by name (10 requests a second and 50,000
-                        a week allowed; sent at five a second)
+                        a week allowed; five are started a second, up to
+                        five under way at once)
   Springer Nature Meta  25 DOIs per request, Springer Nature DOIs only;
                         Springer API key (100 requests a minute, 500 a day)
 
@@ -23,8 +24,10 @@ others still run. The recorded reason is the HTTP status or the error's class
 name only: request errors quote the URL, and Springer's URL carries the key.
 """
 
+import concurrent.futures
 import html
 import re
+import threading
 import time
 from urllib.parse import quote
 
@@ -35,7 +38,8 @@ from scriptorium_server.sources.apis import OPENALEX, http_session, mailto, requ
 SCOPUS_SEARCH = "https://api.elsevier.com/content/search/scopus"
 SCIENCEDIRECT_ARTICLE = "https://api.elsevier.com/content/article/doi/"
 ELSEVIER_PREFIX = "10.1016/"
-SCIENCEDIRECT_PAUSE = 0.2  # seconds between requests: half the allowed rate
+SCIENCEDIRECT_PAUSE = 0.2  # seconds between two requests' starts: half the allowed rate
+SCIENCEDIRECT_PARALLEL = 5  # requests under way at once
 SPRINGER_META = "https://api.springernature.com/meta/v2/json"
 SPRINGER_PREFIXES = ("10.1007/", "10.1038/", "10.1057/", "10.1186/")
 MAX_CHARS = 2000  # the harvest's cut for Crossref abstracts
@@ -133,20 +137,35 @@ def _sciencedirect(session, dois: list[str], settings: dict, found: dict) -> Non
     headers = {"X-ELS-APIKey": settings["elsevier_api_key"], "Accept": "application/json"}
     if settings.get("elsevier_insttoken"):
         headers["X-ELS-Insttoken"] = settings["elsevier_insttoken"]
-    for doi in [d for d in dois if d.startswith(ELSEVIER_PREFIX)]:
+    lock = threading.Lock()
+    next_start = [0.0]
+    stopped: list[Exception] = []
+
+    def one(doi: str) -> None:
+        with lock:  # requests start SCIENCEDIRECT_PAUSE apart, however many are under way
+            if stopped:
+                return
+            now = time.monotonic()
+            wait = max(0.0, next_start[0] - now)
+            next_start[0] = now + wait + SCIENCEDIRECT_PAUSE
+        time.sleep(wait)
         try:
             res = request_json(session, "GET", SCIENCEDIRECT_ARTICLE + quote(doi, safe="/"),
                                headers=headers, attempts=2, params={"view": "META_ABS"},
                                not_found={})
-        except requests.HTTPError as exc:
-            if getattr(exc.response, "status_code", None) == 400:
-                continue  # a DOI the service cannot read; the others are still asked for
-            raise
+        except (requests.RequestException, RuntimeError) as exc:
+            if getattr(getattr(exc, "response", None), "status_code", None) != 400:
+                stopped.append(exc)  # refused or unreachable: no further requests
+            return  # 400: a DOI the service cannot read; the others are still asked for
         core = (res.get("full-text-retrieval-response") or {}).get("coredata") or {}
         text = scopus_abstract(core)
         if text:
             found[doi] = text
-        time.sleep(SCIENCEDIRECT_PAUSE)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=SCIENCEDIRECT_PARALLEL) as pool:
+        list(pool.map(one, [d for d in dois if d.startswith(ELSEVIER_PREFIX)]))
+    if stopped:
+        raise stopped[0]
 
 
 def _springer(session, dois: list[str], settings: dict, found: dict) -> None:
