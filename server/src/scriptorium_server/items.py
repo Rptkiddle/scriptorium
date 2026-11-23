@@ -76,11 +76,13 @@ def holder(conn: psycopg.Connection, identifiers: list[str]) -> str | None:
         kind, _, value = ident.partition(":")
         column = {"doi": "doi", "arxiv": "arxiv_id"}[kind]
         # Two questions, each answered by its own index; asked as one
-        # condition with OR, the whole table is read.
+        # condition with OR, the whole table is read. Never prepared: a
+        # connection that repeats the query would be given one plan for
+        # all values, and that plan reads the whole table too.
         row = conn.execute(
             f"(SELECT key FROM items WHERE lower({column}) = %s LIMIT 1) UNION ALL"
             " (SELECT key FROM items WHERE other_ids @> %s LIMIT 1) LIMIT 1",
-            (value.lower(), Jsonb([ident]))).fetchone()
+            (value.lower(), Jsonb([ident])), prepare=False).fetchone()
         if row:
             return row["key"]
     return None

@@ -204,3 +204,13 @@ def test_a_record_without_type_or_title_is_refused(db, bad):
 def test_an_unknown_provenance_is_refused(db):
     with pytest.raises(ValueError, match="provenance must be"):
         admit(db, PUBLISHED, "import")
+
+
+def test_the_identifier_check_is_never_given_one_plan_for_all_values(db):
+    # Asked many times on one connection, the check must still be planned
+    # for its values each time: a shared plan reads every item.
+    for number in range(12):
+        assert holder(db, [f"doi:10.9999/none{number}"]) is None
+    prepared = db.execute("SELECT count(*) AS n FROM pg_prepared_statements"
+                          " WHERE statement LIKE '%other_ids @>%'").fetchone()["n"]
+    assert prepared == 0
