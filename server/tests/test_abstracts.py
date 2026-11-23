@@ -157,3 +157,40 @@ def test_keyed_requests_do_not_follow_redirects():
     apis.request_json(Session(), "GET", abstracts.SCOPUS_SEARCH, headers={"X-ELS-APIKey": "k"})
     apis.request_json(Session(), "GET", abstracts.SPRINGER_META, params={"api_key": "k"})
     assert seen == [True, False, False]
+
+
+def test_sciencedirect_is_asked_one_elsevier_doi_at_a_time_when_named(monkeypatch):
+    asked = []
+
+    def fake(session, method, url, params=None, headers=None, not_found=None, **kw):
+        assert url.startswith(abstracts.SCIENCEDIRECT_ARTICLE) and params == {"view": "META_ABS"}
+        assert headers["X-ELS-APIKey"] == "ELS-KEY" and headers["Accept"] == "application/json"
+        doi = url.removeprefix(abstracts.SCIENCEDIRECT_ARTICLE)
+        asked.append(doi)
+        if doi.endswith("unknown"):
+            return not_found  # a 404
+        if doi.endswith("odd"):
+            raise _http_error(400)
+        return {"full-text-retrieval-response": {"coredata": {
+            "dc:description": "\n   Abstract: Fresh from the publisher. "}}}
+    monkeypatch.setattr(abstracts, "request_json", fake)
+    monkeypatch.setattr(abstracts, "SCIENCEDIRECT_PAUSE", 0)
+    cands = _cands("10.1016/j.x.1", "10.1016/j.unknown", "10.1016/j.odd", "10.1016/j.x.2",
+                   "10.1080/not-elsevier")
+    summary = fill_abstracts(cands, KEYS, session=object(), sources=("sciencedirect",))
+    assert asked == ["10.1016/j.x.1", "10.1016/j.unknown", "10.1016/j.odd", "10.1016/j.x.2"]
+    assert [c["abstract"] for c in cands] == ["Fresh from the publisher.", "", "",
+                                              "Fresh from the publisher.", ""]
+    assert summary["sciencedirect"] == 2 and summary["title_only"] == 3
+    assert cands[0]["abstract_source"] == "sciencedirect" and not summary["unavailable"]
+
+
+def test_sciencedirect_refusing_access_is_marked_unavailable(monkeypatch):
+    def fake(session, method, url, **kw):
+        raise _http_error(403)
+    monkeypatch.setattr(abstracts, "request_json", fake)
+    summary = fill_abstracts(_cands("10.1016/j.x.1"), KEYS, session=object(),
+                             sources=("sciencedirect",))
+    assert summary["unavailable"] == {"sciencedirect": "HTTP 403"} and summary["title_only"] == 1
+    assert "sciencedirect" not in fill_abstracts(_cands("10.1016/j.x.1"), {}, session=object())[
+        "unavailable"]  # not in the default order

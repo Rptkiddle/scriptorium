@@ -8,6 +8,12 @@ three sources in turn and sending each source only the DOIs still missing:
   OpenAlex              50 DOIs per request; no key (1,000 requests a day)
   Scopus Search         25 DOIs per request, COMPLETE view; Elsevier API key,
                         and the VU network or an institutional token
+  ScienceDirect         one Elsevier DOI (10.1016/) per request, META_ABS
+                        view; the same key and access. It has a paper's
+                        abstract from the day of publication, weeks before
+                        Scopus lists the paper. Not in the default order;
+                        asked for by name (10 requests a second and 50,000
+                        a week allowed; sent at five a second)
   Springer Nature Meta  25 DOIs per request, Springer Nature DOIs only;
                         Springer API key (100 requests a minute, 500 a day)
 
@@ -19,12 +25,17 @@ name only: request errors quote the URL, and Springer's URL carries the key.
 
 import html
 import re
+import time
+from urllib.parse import quote
 
 import requests
 
 from scriptorium_server.sources.apis import OPENALEX, http_session, mailto, request_json
 
 SCOPUS_SEARCH = "https://api.elsevier.com/content/search/scopus"
+SCIENCEDIRECT_ARTICLE = "https://api.elsevier.com/content/article/doi/"
+ELSEVIER_PREFIX = "10.1016/"
+SCIENCEDIRECT_PAUSE = 0.2  # seconds between requests: half the allowed rate
 SPRINGER_META = "https://api.springernature.com/meta/v2/json"
 SPRINGER_PREFIXES = ("10.1007/", "10.1038/", "10.1057/", "10.1186/")
 MAX_CHARS = 2000  # the harvest's cut for Crossref abstracts
@@ -118,6 +129,26 @@ def _scopus(session, dois: list[str], settings: dict, found: dict) -> None:
                 found[doi] = text
 
 
+def _sciencedirect(session, dois: list[str], settings: dict, found: dict) -> None:
+    headers = {"X-ELS-APIKey": settings["elsevier_api_key"], "Accept": "application/json"}
+    if settings.get("elsevier_insttoken"):
+        headers["X-ELS-Insttoken"] = settings["elsevier_insttoken"]
+    for doi in [d for d in dois if d.startswith(ELSEVIER_PREFIX)]:
+        try:
+            res = request_json(session, "GET", SCIENCEDIRECT_ARTICLE + quote(doi, safe="/"),
+                               headers=headers, attempts=2, params={"view": "META_ABS"},
+                               not_found={})
+        except requests.HTTPError as exc:
+            if getattr(exc.response, "status_code", None) == 400:
+                continue  # a DOI the service cannot read; the others are still asked for
+            raise
+        core = (res.get("full-text-retrieval-response") or {}).get("coredata") or {}
+        text = scopus_abstract(core)
+        if text:
+            found[doi] = text
+        time.sleep(SCIENCEDIRECT_PAUSE)
+
+
 def _springer(session, dois: list[str], settings: dict, found: dict) -> None:
     eligible = [d for d in dois
                 if d.startswith(SPRINGER_PREFIXES) and not re.search(r'[\s()"]', d)]
@@ -135,6 +166,7 @@ def _springer(session, dois: list[str], settings: dict, found: dict) -> None:
 
 _LOOKUPS = {"openalex": (_openalex, None),
             "scopus": (_scopus, "elsevier_api_key"),
+            "sciencedirect": (_sciencedirect, "elsevier_api_key"),
             "springer": (_springer, "springer_api_key")}
 
 
@@ -152,7 +184,8 @@ def fill_abstracts(candidates: list[dict], settings: dict,
     session = session or http_session("surveillance")
     missing = {c["doi"].lower(): c for c in candidates
                if c.get("doi") and not (c.get("abstract") or "").strip()}
-    summary = {"missing": len(missing), **dict.fromkeys(SOURCES, 0), "unavailable": {}}
+    summary = {"missing": len(missing), **dict.fromkeys((*SOURCES, *sources), 0),
+               "unavailable": {}}
     for source in sources:
         lookup, key = _LOOKUPS[source]
         if not missing:

@@ -20,7 +20,7 @@ requests at a time, and each reply is settled as it arrives:
    held preprint gives way to the published paper.
 
 Afterwards the papers of this window that still have no abstract are
-looked up at Scopus and Springer Nature (sources.abstracts). An item whose
+looked up at Scopus, ScienceDirect and Springer Nature (sources.abstracts). An item whose
 abstract arrives later loses its vector, and the worker embeds it again,
 as it embeds every new item.
 
@@ -51,7 +51,8 @@ from scriptorium_server.sources.abstracts import (
 from scriptorium_server.sources.apis import http_session
 
 GROUP = 50  # venues named in one request; smaller groups finish sooner side by side
-ABSTRACT_SOURCES = ("scopus", "springer")  # OpenAlex's own abstract comes with the work
+# Where abstracts are looked up, in order. OpenAlex's own comes with the work.
+ABSTRACT_SOURCES = ("scopus", "sciencedirect", "springer")
 _DROPS = ("type:", "language:", "domain:")
 
 

@@ -126,11 +126,11 @@ def test_papers_without_abstract_are_looked_up_elsewhere(db, venues, source, tmp
     source["works"] = [work(1, abstract_inverted_index=None), work(2, abstract_inverted_index=None),
                        work(3), work(4, doi=None, abstract_inverted_index=None)]
     result = surveil(db, venues, tmp_path, sources={"elsevier_api_key": "E"})
-    assert asked == {"dois": ["10.1234/w1", "10.1234/w2"], "sources": ("scopus", "springer"),
+    assert asked == {"dois": ["10.1234/w1", "10.1234/w2"], "sources": ("scopus", "sciencedirect", "springer"),
                      "settings": {"elsevier_api_key": "E"}, "max_chars": None}
     assert db.execute("SELECT abstract FROM items WHERE openalex_id = 'W1'").fetchone()[
         "abstract"] == "From Scopus."
-    assert "1 from scopus, 0 from springer, 1 still without" in surveillance.summary(result)
+    assert "1 from scopus, 0 from sciencedirect, 0 from springer, 1 still without" in surveillance.summary(result)
     again = surveil(db, venues, tmp_path)  # the one still without is asked for again
     assert asked["dois"] == ["10.1234/w2"] and again["harvested before"] == 4
 
