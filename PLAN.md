@@ -231,6 +231,8 @@ The starting collection is the first member's existing library, taken in full fr
 
 **As built (2026-11-18, multidisciplinary journals):** a venue marked `needs_filter` is no longer skipped: only its works whose primary topic OpenAlex places in the Social Sciences domain are admitted (`openalex.rule(work, social_only)`, drops counted as `domain: <name>`). The fetch stores `primary_topic`; `load --labels <file>` supplies the domain of works fetched without it.
 
+**As built (2026-11-23, weekly surveillance):** `surveillance.py`: `surveil()` asks OpenAlex for the subscribed venues' works of the last 90 days by publication date (setting `surveillance.window_days`; the "created since" filter needs a paid plan, checked 2026-11-23), 50 venues to a request (`openalex.pages()`, at most 100 sources and 200 works per request), 8 requests at a time. Each reply is settled as it arrives: one query finds the works held by their OpenAlex ID; the rest go through `openalex.rule()` and `intake.admit_record()`. A held item without an abstract takes the one OpenAlex has since; items still without one are looked up at Scopus and Springer (`fill_abstracts(sources=...)`), and an item given an abstract loses its vector so the worker embeds it again. Admin: `surveil [--days] [--dry-run] [--parallel] [--max-cost]`, run from the crontab; counts in `runs/surveillance/`. No venue marker is used: the overlapping window and the OpenAlex ID make a run repeatable.
+
 **Deploy 6:** the weekly surveillance timer. Subscribe the first venues and run their backfill. Data now accumulates for the intake-filter question.
 
 ---

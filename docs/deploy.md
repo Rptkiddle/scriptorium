@@ -87,6 +87,7 @@ docker compose run --rm cli backfill --all          # queue a harvest of every s
 docker compose run --rm cli backfill --source-id S107737141   # or of named journals
 docker compose run --rm cli fetch /srv/scriptorium/<list>.csv --out /srv/scriptorium/harvest   # or: fetch the journals' papers to files first,
 docker compose run --rm cli load /srv/scriptorium/harvest --all     # then load the files in bulk
+docker compose run --rm cli surveil                 # harvest the journals' recent papers (see below)
 docker compose run --rm cli jobs list
 docker compose run --rm cli jobs retry <id>        # run a failed job again
 docker compose run --rm cli settings show
@@ -98,6 +99,18 @@ Two settings decide what happens to PDFs: `files.pdf_download` (whether the serv
 A journal list is a CSV file with the columns `openalex_id`, `journal`, `issns`, `publisher` and `coded_class`; journals of class `MIXED` are too broad to take whole (multidisciplinary journals), and only their papers whose primary topic OpenAlex places in its Social Sciences domain are admitted. The harvest needs an OpenAlex API key (`settings set sources.openalex_api_key <key>`). It admits research papers (OpenAlex types article, review, conference paper and software paper) in English that are not retracted, and records each paper's OpenAlex work, so running it again adds only what is new. Each journal's counts are in its job's run folder (`runs/backfill/`).
 
 For a first harvest of many journals, `fetch` and `load` do the same in two steps, much faster: `fetch` saves every listed journal's papers to files without touching the database, and `load` admits them in bulk under the same rules (counts in `runs/load/`). `load --abstracts <file>` fills in abstracts found elsewhere for papers OpenAlex has none for; the file holds one `{"doi": ..., "abstract": ...}` object per line. Loaded items get their vectors from the worker, which needs a GPU for a harvest of this size (see [GPU](#gpu)).
+
+### Weekly surveillance
+
+`surveil` keeps the collection current. It asks OpenAlex for every paper the listed journals published in the last 90 days (setting `surveillance.window_days`), and admits those that pass the same rules as the first harvest and are not yet held. The window is far wider than a week because OpenAlex lists some papers weeks after their publication date and fills in a paper's type, language and topic later still; a paper not admitted one week for a missing label is seen again the next. Papers harvested before are recognised by their OpenAlex work and skipped, so the wide window costs little: the journals are asked for together, 50 to a request, and a run over two thousand journals takes minutes.
+
+Recent papers without an abstract take the one OpenAlex has gained since, and are otherwise looked up at Scopus and Springer Nature where their keys are set (`sources.elsevier_api_key`, `sources.springer_api_key`). New items, and items whose abstract arrived, get their vectors from the worker.
+
+`surveil --dry-run` fetches and counts without writing to the collection. Each run's counts per journal and totals are in its run folder (`runs/surveillance/`); a run stops asking once its cost passes `--max-cost` (1 US dollar by default), and journals it could not read are named in the totals and covered by the next run. For a weekly run, add a line to the crontab of an account that may run Docker:
+
+```
+0 3 * * 1 cd /path/to/scriptorium && docker compose run --rm -T cli surveil >> /srv/scriptorium/data/logs/surveillance.log 2>&1
+```
 
 The database's address and password come from `.env`; every other setting is in `settings/settings.toml`, shown and changed with the `settings` commands.
 

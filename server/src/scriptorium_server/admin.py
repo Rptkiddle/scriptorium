@@ -555,6 +555,49 @@ def backfill(
     typer.echo(f"Queued {len(venues)} harvest jobs; the worker runs them in turn.")
 
 
+@app.command()
+def surveil(
+    days: Annotated[int | None, typer.Option(help="Days back, by publication date; by default"
+                                                  " the setting surveillance.window_days.")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Fetch and count; write nothing"
+                                          " to the collection.")] = False,
+    parallel: Annotated[int, typer.Option(help="Requests to OpenAlex at once.")] = 8,
+    max_cost: Annotated[float, typer.Option(help="Stop asking at this cost (USD).")] = 1.0,
+) -> None:
+    """Harvest the subscribed venues' recent papers: every work published
+    in the last days that passes the harvest rules becomes an item, unless
+    the collection holds it; recent items without an abstract are looked
+    up again. Items get their vectors from the worker afterwards. Meant
+    for a weekly line in the crontab; run again, it adds only what is new.
+    The key is the OPENALEX_API_KEY environment variable, else the setting."""
+    import os
+
+    from scriptorium_server import surveillance
+    from scriptorium_server.sources import apis
+
+    current = settings.load()
+    sources = current.section("sources")
+    key = os.environ.get("OPENALEX_API_KEY") or str(sources["openalex_api_key"])
+    if not key:
+        _fail("no OpenAlex key: set OPENALEX_API_KEY or sources.openalex_api_key")
+    apis.configure(str(sources["contact_email"]), str(sources["s2_api_key"]))
+    with connect() as conn:
+        venues = _openalex_venues(conn, None, True)
+        run_dir = jobs.new_run(_data(current) / "runs", "surveillance",
+                               "dry-run" if dry_run else None)
+        try:
+            result = surveillance.surveil(
+                conn, venues, run_dir, days=days or int(current["surveillance.window_days"]),
+                api_key=key, sources=sources, dry_run=dry_run, parallel=parallel,
+                max_cost=max_cost, report=typer.echo)
+        except Exception as exc:  # noqa: BLE001 — the message may hold the key
+            jobs.finish_run(run_dir, "failed", f"stopped: {type(exc).__name__}")
+            _fail(f"surveillance stopped ({type(exc).__name__}); run folder {run_dir}")
+    line = surveillance.summary(result)
+    jobs.finish_run(run_dir, "ok" if surveillance.complete(result) else "partial", line)
+    typer.echo(f"{run_dir.name} {line}")
+
+
 # --- jobs ----------------------------------------------------------------------
 
 

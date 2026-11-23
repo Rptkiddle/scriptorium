@@ -73,6 +73,11 @@ SETTINGS: tuple[Setting, ...] = (
     Setting("surveillance.hour", 3,
             "Hour of that day (0-23, server time) at which the harvest starts.",
             _between(0, 23), "a whole number from 0 to 23"),
+    Setting("surveillance.window_days", 90,
+            "How many days back, by publication date, each harvest asks the venues for."
+            " Papers already held are skipped, so a wide window costs little and catches"
+            " papers the source lists or labels late.", _between(7, 3650),
+            "a whole number from 7 to 3650"),
     Setting("limits.per_request", 1000,
             "The most items or passages one request may ask for.", _between(1, 100_000),
             "a whole number from 1 to 100000"),

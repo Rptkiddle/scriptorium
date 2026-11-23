@@ -139,18 +139,21 @@ _LOOKUPS = {"openalex": (_openalex, None),
 
 
 def fill_abstracts(candidates: list[dict], settings: dict,
-                   session: requests.Session | None = None) -> dict:
+                   session: requests.Session | None = None, *,
+                   sources: tuple[str, ...] = SOURCES,
+                   max_chars: int | None = MAX_CHARS) -> dict:
     """Fill the empty "abstract" of each candidate (dicts with "doi" and
-    "abstract") in place, cut to MAX_CHARS, and record which source supplied
-    it in "abstract_source". `settings` is the surveillance settings section
-    (the keys). Returns a summary: how many were missing, how many each source
-    filled, how many are left title-only, and which sources were skipped or
-    unavailable, with the reason."""
+    "abstract") in place, cut to max_chars (None: whole), and record which
+    source supplied it in "abstract_source". `settings` holds the sources'
+    keys; `sources` names those to try, in order. Returns a summary: how
+    many were missing, how many each source filled, how many are left
+    title-only, and which sources were skipped or unavailable, with the
+    reason."""
     session = session or http_session("surveillance")
     missing = {c["doi"].lower(): c for c in candidates
                if c.get("doi") and not (c.get("abstract") or "").strip()}
     summary = {"missing": len(missing), **dict.fromkeys(SOURCES, 0), "unavailable": {}}
-    for source in SOURCES:
+    for source in sources:
         lookup, key = _LOOKUPS[source]
         if not missing:
             break
@@ -165,7 +168,7 @@ def fill_abstracts(candidates: list[dict], settings: dict,
         for doi, text in found.items():
             if doi in missing:
                 candidate = missing.pop(doi)
-                candidate["abstract"] = text[:MAX_CHARS]
+                candidate["abstract"] = text[:max_chars]
                 candidate["abstract_source"] = source
                 summary[source] += 1
     summary["title_only"] = len(missing)

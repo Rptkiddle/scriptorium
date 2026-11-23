@@ -30,7 +30,8 @@ from scriptorium_server.sources.abstracts import clean_abstract, openalex_abstra
 from scriptorium_server.sources.apis import OPENALEX, request_json
 
 KEPT_TYPES = ("article", "review", "conference-paper", "software-paper")
-PER_PAGE = 100
+PER_PAGE = 200     # the most works OpenAlex returns in one reply
+MAX_SOURCES = 100  # the most sources OpenAlex lets one request name
 FIELDS = ("id,doi,title,publication_date,publication_year,type,language,is_retracted,"
           "authorships,biblio,primary_location,abstract_inverted_index,primary_topic")
 SOCIAL = "Social Sciences"  # the OpenAlex domain a venue too broad to take whole is cut to
@@ -128,18 +129,37 @@ def book_review_signs(work: dict) -> list[str]:
     return signs
 
 
-def works(session: requests.Session, source_id: str, since: str, api_key: str = "",
-          on_page: Callable[[dict], None] | None = None) -> Iterator[dict]:
-    """Every work whose primary location is the source, published on or
-    after `since` (YYYY-MM-DD), of any type, by cursor paging. on_page gets
-    each reply's meta (count, cost) as it arrives."""
-    params = {"filter": f"primary_location.source.id:{source_id},from_publication_date:{since}",
+def pages(session: requests.Session, source_ids: list[str], since: str,
+          api_key: str = "") -> Iterator[tuple[list[dict], dict]]:
+    """Every work whose primary location is one of the sources (at most
+    MAX_SOURCES), published on or after `since` (YYYY-MM-DD), of any type,
+    by cursor paging: each reply's works with its meta (count, cost)."""
+    if not 0 < len(source_ids) <= MAX_SOURCES:
+        raise ValueError(f"one request names 1 to {MAX_SOURCES} sources")
+    params = {"filter": f"primary_location.source.id:{'|'.join(source_ids)},"
+                        f"from_publication_date:{since}",
               "select": FIELDS, "per_page": PER_PAGE, "cursor": "*"}
     if api_key:
         params["api_key"] = api_key
     while params["cursor"]:
         reply = request_json(session, "GET", f"{OPENALEX}/works", params=params)
+        meta = reply.get("meta") or {}
+        yield reply.get("results") or [], meta
+        params["cursor"] = meta.get("next_cursor")
+
+
+def source_of(work: dict) -> str:
+    """The OpenAlex source ID ("S123") of a work's primary location, or ""."""
+    source = (work.get("primary_location") or {}).get("source") or {}
+    return (source.get("id") or "").rsplit("/", 1)[-1]
+
+
+def works(session: requests.Session, source_id: str, since: str, api_key: str = "",
+          on_page: Callable[[dict], None] | None = None) -> Iterator[dict]:
+    """Every work whose primary location is the source, published on or
+    after `since` (YYYY-MM-DD), of any type, by cursor paging. on_page gets
+    each reply's meta (count, cost) as it arrives."""
+    for results, meta in pages(session, [source_id], since, api_key):
         if on_page:
-            on_page(reply.get("meta") or {})
-        yield from reply.get("results") or []
-        params["cursor"] = (reply.get("meta") or {}).get("next_cursor")
+            on_page(meta)
+        yield from results
