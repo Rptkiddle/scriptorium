@@ -90,6 +90,12 @@ Collaborative implementation for Scriptorium with remote + client split. Server 
 | Zotero | add items | `/v1/items/{key}`, `/v1/files/{key}` | Fetched, then written to Zotero locally |
 | Zotero | donate PDFs | `/v1/files/held`, `/v1/files` | Client fetches the list of held PDFs, compares locally, sends only PDFs the server lacks |
 | workflow | workflow | none (local) | Returns the instruction text |
+| collections | collections | `/v1/collections/list` | The member's collections, with item counts |
+| collections | collection | `/v1/collections/show` | One collection with its items, in its own order |
+| collections | add | `/v1/collections/add` | Items into an active collection; a new name makes one |
+| collections | remove | `/v1/collections/remove` | Items out of a collection |
+| collections | edit | `/v1/collections/edit` | Rename; keep a history as active; delete |
+| collections | record history | `/v1/collections/record` | A workflow run: what was asked, the items found, ranked |
 | admin | overview | `/v1/admin/overview` | Admins only. Collection, uploads, schedule and last runs, members, requests, disk, changed settings |
 | admin | settings | `/v1/admin/settings` | Admins only. Every setting; change one (not secrets, not the places of the server's parts) |
 | admin | members | `/v1/admin/members` | Admins only. Members with activity; add, revoke |
@@ -97,7 +103,7 @@ Collaborative implementation for Scriptorium with remote + client split. Server 
 | admin | runs | `/v1/admin/runs` | Admins only. Harvests and backups; start one |
 | admin | jobs | `/v1/admin/jobs` | Admins only. Jobs and failures; retry |
 
-Filters (find tools): author, year, venue, publisher, category, type, has full text, added since, provenance. The two search tools also take an exact phrase (keyword index).
+Filters (find tools): author, year, venue, publisher, category, type, has full text, added since, provenance, the member's collections. The two search tools also take an exact phrase (keyword index).
 
 ## 3. Server
 
@@ -108,7 +114,8 @@ Filters (find tools): author, year, venue, publisher, category, type, has full t
 - **Web service.** FastAPI under Uvicorn, behind the server's HTTPS front door, which admits VU network addresses only.
   - Authentication and usage logging in one place, before any request is handled.
   - API: one request per client tool (Table 1). Nothing is served without an API key. Addresses versioned (`/v1`); an outdated client is told to update.
-  - The server serves what the client asks for: how many results, which fields, in what order. It keeps no per-member results or sets.
+  - The server serves what the client asks for: how many results, which fields, in what order. It keeps no per-member results; a member's collections (below) are the lists they chose to keep.
+  - Collections: a member's own lists of items, private to them. History = recorded by a workflow run (workflow, what was asked, the items found with their rank). Active = named by the member; filing an item under a name is how it is labelled. A history can be kept as an active collection; either kind can be deleted by its member. Two tables (`collections`, `collection_items`); a collection is also a filter of the find requests.
   - Two protective limits: a maximum per request and a rate per member. A refused request says which limit it hit.
   - A donation is queued: the PDF to a holding area, an entry to the job queue.
 - **Database.** PostgreSQL with pgvector, run as a server: tables, keyword search and vector search in one place. Revisited only if latency or other trouble appears.
@@ -152,7 +159,7 @@ Planned after the hub and the workflows.
 - One API key per member, created and revoked through the admin command; shown once; stored hashed.
 - A donation sends the PDF and its DOI or arXiv ID only. Donor noted per file.
 - Member names are visible to administrators only, through the admin command and the admin menu. No tool reply to another member names a member.
-- Usage log: maximal. One entry per request: time, duration, member, the request with all inputs (query text and filters included), the full reply or the error, client version, agent name. Network addresses are not logged. Conversations stay on the member's machine.
+- Usage log: maximal. One entry per request: time, duration, member, the request with all inputs (query text and filters included), the full reply or the error, client version, agent name, server code version. A search's entry also holds each returned item's key, rank and score, whatever fields the reply carried. Network addresses are not logged. Conversations stay on the member's machine.
 
 ## 7. Build order
 

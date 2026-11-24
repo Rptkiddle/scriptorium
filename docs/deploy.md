@@ -82,7 +82,7 @@ An admin runs the server from their own agent, without a terminal on the host. M
 docker compose run --rm cli members admin <name>      # --remove takes the mark away
 ```
 
-Their client then shows six more tools, from the session after their next request on:
+Their client then shows six more tools, from the session after their next request on (they restart their agent, or reconnect the client, once):
 
 | Tool | What it does |
 |---|---|
@@ -175,7 +175,7 @@ docker compose run --rm cli backup
 
 writes a backup to the backup folder (setting `backup.folder`, by default `/srv/scriptorium/data/backups` on the host): every table of the database under `runs/<date-time>/`, and one copy of the held PDFs and the parsed full texts under `files/`, to which each backup adds what is new. The server keeps running meanwhile. Backups older than `backup.days_kept` days (14) are removed; the newest always stays. The worker writes a backup every week, directly after the harvest (see [Weekly surveillance](#weekly-surveillance)); the command above writes one by hand, and an admin can start one from the admin menu.
 
-The backup holds what the database holds, the usage log included, for as long as backups are kept. Not in it: donations still waiting to be processed, run folders, the embedding model, `.env` and the settings file. A PDF removed from the collection stays under `files/` until it is deleted there. The backup folder is on the same machine as the data; copy it elsewhere to survive the loss of the machine.
+The backup holds what the database holds, the usage log and members' collections included, for as long as backups are kept. Not in it: donations still waiting to be processed, run folders, the embedding model, `.env` and the settings file. A PDF removed from the collection stays under `files/` until it is deleted there. The backup folder is on the same machine as the data; copy it elsewhere to survive the loss of the machine.
 
 ```sh
 docker compose run --rm cli restore latest

@@ -118,6 +118,12 @@ class Server:
         return reply.content, name, reply.headers.get("x-scriptorium-sha256", "")
 
 
+    # -- collections (the member's own) --------------------------------------------
+
+    def collections(self, action: str, /, **body) -> dict:
+        """One collections request: list, show, add, record, remove or edit."""
+        return self._json("POST", f"/v1/collections/{action}", _clean(body))
+
     # -- the admin menu (the server refuses these to members who are not admins) ----
 
     def admin_overview(self) -> dict:

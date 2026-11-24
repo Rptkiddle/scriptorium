@@ -86,10 +86,20 @@ The third line is needed only if the app also cannot show the notice. The app th
 | `pdf_upload_progress` | What became of the PDFs you donated |
 | `zotero_add_items` | Add chosen items to your Zotero library, with their PDFs where held (needs the plugin below) |
 | `zotero_pdf_upload` | Donate PDFs from your Zotero library (needs the plugin below) |
+| `collections` | Your own collections, with how many items each holds |
+| `collection` | One collection with its items |
+| `collection_add` | File items under a name, to find them again; a new name makes a new collection |
+| `collection_remove` | Take items out of a collection |
+| `collection_edit` | Rename a collection, keep a history under a name, or delete a collection |
+| `history_record` | Record a workflow run (what was asked, what it found) in your history |
+
+## Collections
+
+A collection is your own list of items, kept on the server so that you find it again from any agent or machine. No other member sees it. There are two kinds. An active collection is one you name ("To read", "Chapter 2"); ask your agent to file papers under a name, and that name is the label you find them by later. A history is made by a workflow run and records what was asked and what came back, in rank order; keep one under a name and it becomes an active collection. You can delete any collection of yours; the papers themselves stay in Scriptorium. Any search can be confined to a collection, and `item` shows which of your collections hold a paper.
 
 ## The admin menu
 
-If the server's administrator has made you an admin, your agent also has six tools for running the server: `admin_overview` (the state of the server on one page; start here), `admin_settings`, `admin_members`, `admin_venues`, `admin_runs` (harvests and backups) and `admin_jobs` (PDF uploads and their failures). They appear in the session after your first request as an admin; an agent app that follows changes of the tool list shows them at once.
+If the server's administrator has made you an admin, your agent also has six tools for running the server: `admin_overview` (the state of the server on one page; start here), `admin_settings`, `admin_members`, `admin_venues`, `admin_runs` (harvests and backups) and `admin_jobs` (PDF uploads and their failures). They appear from the session after your first request as an admin: restart the agent, or reconnect the client, once.
 
 Nothing is changed without your yes: a request that would change something first returns a preview, which your agent shows you, and the change is made only when you agree. Every change is recorded on the server. When you add a member, their key appears once in your conversation and is stored nowhere, so pass it on at once.
 

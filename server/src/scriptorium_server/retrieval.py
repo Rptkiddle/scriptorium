@@ -114,8 +114,11 @@ _COLUMNS = ("i.key, i.citation_key, i.type, i.title, i.creators, i.year, i.date,
 
 
 def list_items(conn: psycopg.Connection, filters: dict | None = None, count: int = 20,
-               offset: int = 0, order: str = "added", fields: list[str] | None = None) -> dict:
-    """Items by filters only: {"total", "items"}. count=0 gives the total alone."""
+               offset: int = 0, order: str = "added", fields: list[str] | None = None,
+               ranking: list | None = None) -> dict:
+    """Items by filters only: {"total", "items"}. count=0 gives the total
+    alone. `ranking`, when given, is filled with each returned item's key
+    and rank, whatever fields the reply holds (for the usage log)."""
     if order not in ORDERS:
         raise BadRequest(f"order must be one of {', '.join(ORDERS)}")
     chosen = _fields(fields)
@@ -123,6 +126,8 @@ def list_items(conn: psycopg.Connection, filters: dict | None = None, count: int
     total = conn.execute(f"SELECT count(*) AS n {_FROM} WHERE {condition}", values).fetchone()["n"]
     rows = conn.execute(f"SELECT {_COLUMNS} {_FROM} WHERE {condition} ORDER BY {ORDERS[order]}"
                         " LIMIT %s OFFSET %s", [*values, count, offset]).fetchall() if count else []
+    if ranking is not None:
+        ranking += [{"key": r["key"], "rank": offset + n} for n, r in enumerate(rows, 1)]
     return {"total": total, "items": [_item(r, chosen) for r in rows]}
 
 
@@ -178,10 +183,13 @@ def _phrase(phrase: str | None, column: str) -> tuple[str, list]:
 
 def search_items(conn: psycopg.Connection, embedder: Embedder, query: str,
                  filters: dict | None = None, count: int = 20,
-                 fields: list[str] | None = None, phrase: str | None = None) -> dict:
+                 fields: list[str] | None = None, phrase: str | None = None,
+                 ranking: list | None = None) -> dict:
     """Items whose title and abstract are nearest the query, within the
     filters and, when given, holding the exact phrase: {"items"}, each with
-    a "score" (cosine similarity, 1 = identical)."""
+    a "score" (cosine similarity, 1 = identical). `ranking`, when given, is
+    filled with each returned item's key, rank and score, whatever fields
+    the reply holds (for the usage log)."""
     if not (query or "").strip():
         raise BadRequest("a search needs a query")
     chosen = _fields(fields)
@@ -200,6 +208,9 @@ def search_items(conn: psycopg.Connection, embedder: Embedder, query: str,
         sql = (f"SELECT {_COLUMNS}, i.embedding <=> %s::halfvec AS distance {_FROM}"
                f" WHERE {condition} ORDER BY distance LIMIT %s")
         rows = conn.execute(sql, [vector, *values, count]).fetchall()
+    if ranking is not None:
+        ranking += [{"key": r["key"], "rank": n, "score": round(1 - r["distance"], 4)}
+                    for n, r in enumerate(rows, 1)]
     return {"items": [{**_item(r, chosen), "score": round(1 - r["distance"], 4)} for r in rows]}
 
 

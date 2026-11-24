@@ -22,6 +22,7 @@ from scriptorium_client import settings as client_settings
 from scriptorium_client.http import RateLimited, Server, ServerError
 
 UPLOAD_BATCH = 20  # PDFs an upload sends per call; call again for the rest
+COLLECTION_BATCH = 500  # item keys one request carries to a collection
 ADD_BATCH = 25  # items one call adds to Zotero; call again for the rest
 
 INSTRUCTIONS = """Scriptorium is a shared collection of academic literature: items (publications \
@@ -36,7 +37,8 @@ the number alone).
 - One item in full -> item. Values a filter can take -> facets. Entries for a .bib file -> bibtex.
 
 Filters (one object, for all find tools): authors, authors_all, years, year_from, year_to, \
-venues, publishers, categories, types, has_fulltext, added_since (YYYY-MM-DD), provenance. \
+venues, publishers, categories, types, has_fulltext, added_since (YYYY-MM-DD), provenance, \
+collections (the member's own, by number or name). \
 Values within one filter match any; different filters must all hold. Resolve venue, publisher \
 and category names with facets first. The query holds the topic only; who, where and when are \
 filters.
@@ -44,6 +46,15 @@ filters.
 A large result is saved whole to a file and the reply gives its path, the count and the first \
 rows: read on with set_read, narrow a later search to it with within_set, mark items with \
 set_mark, export with set_export_bibtex.
+
+Collections are the member's own lists of items, kept on the server and seen by no one else. \
+An active collection is named by the member: collection_add files items under a name (a new \
+name makes a new collection), which is how an item is labelled to find it again. A history is \
+the record of a workflow run (what was asked and what came back, ranked), made with \
+history_record at the end of a search, discovery or interrogation workflow. collections lists \
+them, collection shows one with its items, collection_remove takes items out, collection_edit \
+renames, keeps a history as an active collection, or deletes. item shows which of the member's \
+collections hold an item.
 
 PDFs: pdf_download saves a held PDF on this machine. pdf_upload shares the member's PDFs with \
 all members (only on the member's request); pdf_upload_progress shows what became of them.
@@ -454,6 +465,88 @@ class Tools:
         return {"saved_to": str(out), "entries": len(keys) - len(missing), "missing": missing}
 
 
+    # -- collections -----------------------------------------------------------------
+
+    def _keys(self, keys: list[str] | None, from_set: str | None) -> list[str]:
+        """The item keys given, and those of a saved result when one is named."""
+        return list(dict.fromkeys([*(keys or []), *(results.set_keys(from_set) if from_set else [])]))
+
+    def collections(self, kind: str | None = None, contains: str = "", count: int = 50,
+                    offset: int = 0) -> dict:
+        """The member's own collections, newest first, each with its number,
+        name and how many items it holds. kind: active (named by the
+        member) or history (recorded by a workflow run, with what was
+        asked); none for both. contains narrows by a part of the name or of
+        what was asked."""
+        return self.server.collections("list", kind=kind, contains=contains or None,
+                                       count=count, offset=offset or None)
+
+    def collection(self, collection: str, count: int = 50, offset: int = 0,
+                   fields: list[str] | None = None) -> dict:
+        """One of the member's collections with its items: a history in the
+        order of its result (each item with its rank), an active collection
+        in the order the items were added. collection: its number, or an
+        active collection's name. fields as in list_items. To search or
+        filter inside a collection, give the find tools the filter
+        collections instead."""
+        request = {"collection": str(collection), "count": count, "offset": offset or None,
+                   "fields": fields}
+        return self._fit(self.server.collections("show", **request), "items",
+                         f"collection {collection}", request)
+
+    def collection_add(self, collection: str, keys: list[str] | None = None,
+                       from_set: str | None = None, from_collection: str | None = None) -> dict:
+        """File items under a name so the member finds them again: add them
+        to an active collection, by its number or name. A name the member
+        has no collection of makes a new one. keys: item or citation keys.
+        from_set: the path of a saved result, to add its items (the
+        included ones, when items were marked). from_collection: another of
+        the member's collections, to add all its items. Items it holds
+        already are skipped."""
+        todo = self._keys(keys, from_set)
+        reply = self.server.collections("add", collection=str(collection),
+                                        keys=todo[:COLLECTION_BATCH], from_collection=from_collection)
+        new, added, not_held = reply["new_collection"], reply["added"], reply["not_held"]
+        for start in range(COLLECTION_BATCH, len(todo), COLLECTION_BATCH):
+            reply = self.server.collections("add", collection=str(reply["collection"]),
+                                            keys=todo[start:start + COLLECTION_BATCH])
+            added, not_held = added + reply["added"], not_held + reply["not_held"]
+        return {**reply, "new_collection": new, "added": added, "not_held": not_held}
+
+    def collection_remove(self, collection: str, keys: list[str]) -> dict:
+        """Take items (item or citation keys) out of one of the member's
+        collections, named by its number or name. The items stay in
+        Scriptorium."""
+        return self.server.collections("remove", collection=str(collection), keys=keys)
+
+    def collection_edit(self, collection: str, name: str | None = None, keep: bool = False,
+                        delete: bool = False) -> dict:
+        """Change one of the member's collections, named by its number or
+        name. name: rename it. keep=true: turn a history into an active
+        collection (under name, when given). delete=true: delete the
+        collection, of either kind, on the member's request; its items
+        stay in Scriptorium and the collection cannot be brought back."""
+        return self.server.collections("edit", collection=str(collection), name=name,
+                                       keep=keep or None, delete=delete or None)
+
+    def history_record(self, workflow: str, name: str, keys: list[str] | None = None,
+                       request: dict | None = None, from_set: str | None = None) -> dict:
+        """Record a finished workflow run in the member's history: the
+        workflow (search, discovery, interrogation), a short name for the
+        run (its question), what was asked (request: query, filters,
+        question) and the items it found, best first (keys, or from_set:
+        the path of a saved result). Called once at the end of a workflow;
+        the member sees the run under collections with kind history."""
+        todo = self._keys(keys, from_set)
+        reply = self.server.collections("record", workflow=workflow, name=name, request=request,
+                                        keys=todo[:COLLECTION_BATCH])
+        added, not_held = reply["added"], reply["not_held"]
+        for start in range(COLLECTION_BATCH, len(todo), COLLECTION_BATCH):
+            reply = self.server.collections("record", collection=str(reply["collection"]),
+                                            keys=todo[start:start + COLLECTION_BATCH])
+            added, not_held = added + reply["added"], not_held + reply["not_held"]
+        return {**reply, "added": added, "not_held": not_held}
+
     # -- the admin menu ------------------------------------------------------------
     # Registered only when the server says this member is an admin.
 
@@ -565,7 +658,9 @@ ADMIN_TOOL_NAMES = ("admin_overview", "admin_settings", "admin_members", "admin_
 TOOL_NAMES = ("lookup", "list_items", "search_items", "search_passages", "item", "facets",
               "bibtex", "status", "set_read", "set_mark", "set_export_bibtex",
               "pdf_download", "pdf_upload", "pdf_upload_progress",
-              "zotero_add_items", "zotero_pdf_upload")
+              "zotero_add_items", "zotero_pdf_upload",
+              "collections", "collection", "collection_add", "collection_remove",
+              "collection_edit", "history_record")
 
 
 def agent_name() -> str:

@@ -285,6 +285,229 @@
     "title": "BibtexBody",
     "type": "object"
    },
+   "CollectionAddBody": {
+    "additionalProperties": false,
+    "properties": {
+     "collection": {
+      "description": "Number or name; a new name makes a new collection.",
+      "title": "Collection",
+      "type": "string"
+     },
+     "from_collection": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Add every item of this collection too.",
+      "title": "From Collection"
+     },
+     "keys": {
+      "description": "Item keys or citation keys.",
+      "items": {
+       "type": "string"
+      },
+      "title": "Keys",
+      "type": "array"
+     }
+    },
+    "required": [
+     "collection"
+    ],
+    "title": "CollectionAddBody",
+    "type": "object"
+   },
+   "CollectionEditBody": {
+    "additionalProperties": false,
+    "properties": {
+     "collection": {
+      "title": "Collection",
+      "type": "string"
+     },
+     "delete": {
+      "default": false,
+      "title": "Delete",
+      "type": "boolean"
+     },
+     "keep": {
+      "default": false,
+      "description": "Turn a history into an active collection.",
+      "title": "Keep",
+      "type": "boolean"
+     },
+     "name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
+     }
+    },
+    "required": [
+     "collection"
+    ],
+    "title": "CollectionEditBody",
+    "type": "object"
+   },
+   "CollectionRecordBody": {
+    "additionalProperties": false,
+    "properties": {
+     "collection": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Continue this history with more items.",
+      "title": "Collection"
+     },
+     "keys": {
+      "description": "The items found, best first.",
+      "items": {
+       "type": "string"
+      },
+      "title": "Keys",
+      "type": "array"
+     },
+     "name": {
+      "default": "",
+      "description": "A short name for the run, e.g. its question.",
+      "title": "Name",
+      "type": "string"
+     },
+     "request": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "What was asked: query, filters, question.",
+      "title": "Request"
+     },
+     "workflow": {
+      "default": "",
+      "description": "The workflow that ran: search, discovery, ...",
+      "title": "Workflow",
+      "type": "string"
+     }
+    },
+    "title": "CollectionRecordBody",
+    "type": "object"
+   },
+   "CollectionRemoveBody": {
+    "additionalProperties": false,
+    "properties": {
+     "collection": {
+      "title": "Collection",
+      "type": "string"
+     },
+     "keys": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Keys",
+      "type": "array"
+     }
+    },
+    "required": [
+     "collection",
+     "keys"
+    ],
+    "title": "CollectionRemoveBody",
+    "type": "object"
+   },
+   "CollectionShowBody": {
+    "additionalProperties": false,
+    "properties": {
+     "collection": {
+      "description": "The collection's number, or an active one's name.",
+      "title": "Collection",
+      "type": "string"
+     },
+     "count": {
+      "default": 50,
+      "minimum": 0.0,
+      "title": "Count",
+      "type": "integer"
+     },
+     "fields": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Fields"
+     },
+     "offset": {
+      "default": 0,
+      "minimum": 0.0,
+      "title": "Offset",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "collection"
+    ],
+    "title": "CollectionShowBody",
+    "type": "object"
+   },
+   "CollectionsListBody": {
+    "additionalProperties": false,
+    "properties": {
+     "contains": {
+      "default": "",
+      "description": "A part of the name or of what was asked.",
+      "title": "Contains",
+      "type": "string"
+     },
+     "count": {
+      "default": 50,
+      "minimum": 1.0,
+      "title": "Count",
+      "type": "integer"
+     },
+     "kind": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "history or active; none for both.",
+      "title": "Kind"
+     },
+     "offset": {
+      "default": 0,
+      "minimum": 0.0,
+      "title": "Offset",
+      "type": "integer"
+     }
+    },
+    "title": "CollectionsListBody",
+    "type": "object"
+   },
    "FacetsBody": {
     "additionalProperties": false,
     "properties": {
@@ -378,6 +601,21 @@
        }
       ],
       "title": "Categories"
+     },
+     "collections": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Only items in any of these collections of the member (number or name).",
+      "title": "Collections"
      },
      "has_fulltext": {
       "anyOf": [
@@ -974,6 +1212,235 @@
      }
     },
     "summary": "Bibtex"
+   }
+  },
+  "/v1/collections/add": {
+   "post": {
+    "operationId": "collection_add_v1_collections_add_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CollectionAddBody"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "title": "Response Collection Add V1 Collections Add Post"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Collection Add"
+   }
+  },
+  "/v1/collections/edit": {
+   "post": {
+    "operationId": "collection_edit_v1_collections_edit_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CollectionEditBody"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "title": "Response Collection Edit V1 Collections Edit Post"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Collection Edit"
+   }
+  },
+  "/v1/collections/list": {
+   "post": {
+    "operationId": "collections_list_v1_collections_list_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CollectionsListBody"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "title": "Response Collections List V1 Collections List Post"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Collections List"
+   }
+  },
+  "/v1/collections/record": {
+   "post": {
+    "operationId": "collection_record_v1_collections_record_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CollectionRecordBody"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "title": "Response Collection Record V1 Collections Record Post"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Collection Record"
+   }
+  },
+  "/v1/collections/remove": {
+   "post": {
+    "operationId": "collection_remove_v1_collections_remove_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CollectionRemoveBody"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "title": "Response Collection Remove V1 Collections Remove Post"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Collection Remove"
+   }
+  },
+  "/v1/collections/show": {
+   "post": {
+    "description": "One collection and a page of its items, in the collection's order.",
+    "operationId": "collection_show_v1_collections_show_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CollectionShowBody"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "title": "Response Collection Show V1 Collections Show Post"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Collection Show"
    }
   },
   "/v1/facets": {

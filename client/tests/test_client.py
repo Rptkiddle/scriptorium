@@ -491,3 +491,73 @@ def test_each_admin_tool_sends_the_request_in_the_contract(tools, fake):
     assert bodies[5] == {"action": "list", "contains": "press", "count": 50, "offset": 50}
     assert bodies[6] == {"action": "start", "kind": "surveillance", "dry_run": True, "count": 10}
     assert bodies[7] == {"action": "retry", "job_id": 7, "count": 20, "confirm": True}
+
+
+# --- collections ---------------------------------------------------------------
+
+
+def collection_reply(number=7, **more):
+    return {"collection": number, "kind": "active", "name": "Reading", "item_count": 3,
+            "new_collection": True, "added": 0, "already_in_it": 0, "not_held": [], **more}
+
+
+def test_each_collection_tool_sends_the_request_in_the_contract(tools, fake):
+    for name in ("list", "show", "add", "record", "remove", "edit"):
+        fake.replies[f"/v1/collections/{name}"] = collection_reply(items=many(2))
+    tools.collections(kind="history", contains="echo")
+    tools.collection("Reading", count=10, fields=["key", "title"])
+    tools.collection_add("Reading", ["K0001"], from_collection="12")
+    tools.history_record("search", "echo chambers", ["K0002", "K0001"], {"query": "echo chambers"})
+    tools.collection_remove(7, ["K0001"])
+    tools.collection_edit("12", name="Echo chambers", keep=True)
+    tools.collection_edit("Reading", delete=True)
+    tools.list_items({"collections": ["Reading"]}, count=0)
+    paths, schemas = CONTRACT["paths"], CONTRACT["components"]["schemas"]
+    for method, path, body, headers in fake.calls:
+        ref = paths[path][method.lower()]["requestBody"]["content"]["application/json"]["schema"]["$ref"]
+        assert set(body) <= set(schemas[ref.rsplit("/", 1)[1]]["properties"]), (path, body)
+    bodies = [c[2] for c in fake.calls]
+    assert bodies[0] == {"kind": "history", "contains": "echo", "count": 50}
+    assert bodies[1] == {"collection": "Reading", "count": 10, "fields": ["key", "title"]}
+    assert bodies[2] == {"collection": "Reading", "keys": ["K0001"], "from_collection": "12"}
+    assert bodies[3] == {"workflow": "search", "name": "echo chambers",
+                         "request": {"query": "echo chambers"}, "keys": ["K0002", "K0001"]}
+    assert bodies[4] == {"collection": "7", "keys": ["K0001"]}
+    assert bodies[5] == {"collection": "12", "name": "Echo chambers", "keep": True}
+    assert bodies[6] == {"collection": "Reading", "delete": True}
+    assert "collections" in schemas["Filters"]["properties"]
+    assert bodies[7]["filters"] == {"collections": ["Reading"]}
+
+
+def test_a_saved_result_goes_to_a_collection_in_portions(tools, fake, monkeypatch):
+    from scriptorium_client import tools as tools_module
+
+    monkeypatch.setattr(tools_module, "COLLECTION_BATCH", 120)
+    path = tools.list_items(count=300)["saved_to"]  # a result of 300 items, saved as a set
+    fake.calls.clear()
+    sent = []
+
+    def reply(request):
+        body = json.loads(request.content)
+        sent.append(body)
+        return httpx.Response(200, json=collection_reply(
+            added=len(body["keys"]), not_held=body["keys"][:1] if len(sent) == 2 else []))
+    tools.server._http = httpx.Client(base_url="https://scriptorium.test",
+                                      transport=httpx.MockTransport(reply))
+    done = tools.collection_add("Reading", from_set=path)
+    assert [len(b["keys"]) for b in sent] == [120, 120, 60]
+    assert sent[0]["collection"] == "Reading" and sent[1]["collection"] == "7"  # then by number
+    assert done["added"] == 300 and done["new_collection"] and len(done["not_held"]) == 1
+    sent.clear()
+    recorded = tools.history_record("discovery", "a long run", from_set=path,
+                                    request={"question": "q"})
+    assert [len(b["keys"]) for b in sent] == [120, 120, 60] and recorded["added"] == 300
+    assert sent[0]["workflow"] == "discovery" and "workflow" not in sent[1]
+    assert sent[1] == {"collection": "7", "keys": sent[1]["keys"]}
+    assert [k for b in sent for k in b["keys"]][:2] == ["K0000", "K0001"]  # the result's order
+
+
+def test_a_large_collection_is_saved_to_a_file_like_any_large_result(tools, fake):
+    fake.replies["/v1/collections/show"] = collection_reply(item_count=300, items=many(300))
+    shown = tools.collection("Reading", count=300)
+    assert shown["count"] == 300 and Path(shown["saved_to"]).exists() and len(shown["items"]) < 300

@@ -9,7 +9,8 @@ ITEM = ("INSERT INTO items (key, type, title, title_norm, doi, arxiv_id, provena
         " VALUES (%s, 'journalArticle', 'A Title', 'a title', %s, %s, %s)")
 TABLES = {"items", "item_creators", "passages", "venues", "members", "files", "jobs",
           "usage_log", "meta", "pending_files",
-          "schema_migrations", "admin_log"}
+          "schema_migrations", "admin_log",
+          "collections", "collection_items"}
 
 
 def vector(*head: float) -> str:

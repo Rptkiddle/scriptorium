@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from scriptorium_server import __version__, adminmenu, auth, files, members, retrieval
+from scriptorium_server import collections as member_collections
 from scriptorium_server.filestore import FileStore
 from scriptorium_server.embedding import Embedder
 from scriptorium_server.settings import Settings
@@ -43,6 +44,8 @@ class Filters(_Body):
     added_since: str | None = Field(None, description="YYYY-MM-DD.")
     provenance: list[str] | None = Field(None, description="venue, pdf_upload, activity.")
     item_keys: list[str] | None = Field(None, description="Only these items (a set sent back).")
+    collections: list[str] | None = Field(
+        None, description="Only items in any of these collections of the member (number or name).")
 
 
 class LookupBody(_Body):
@@ -83,6 +86,46 @@ class BibtexBody(_Body):
     keys: list[str]
     format: str = "biblatex"
     abstracts: bool = False
+
+
+class CollectionsListBody(_Body):
+    kind: str | None = Field(None, description="history or active; none for both.")
+    contains: str = Field("", description="A part of the name or of what was asked.")
+    count: int = Field(50, ge=1)
+    offset: int = Field(0, ge=0)
+
+
+class CollectionShowBody(_Body):
+    collection: str = Field(description="The collection's number, or an active one's name.")
+    count: int = Field(50, ge=0)
+    offset: int = Field(0, ge=0)
+    fields: list[str] | None = None
+
+
+class CollectionAddBody(_Body):
+    collection: str = Field(description="Number or name; a new name makes a new collection.")
+    keys: list[str] = Field(default_factory=list, description="Item keys or citation keys.")
+    from_collection: str | None = Field(None, description="Add every item of this collection too.")
+
+
+class CollectionRecordBody(_Body):
+    workflow: str = Field("", description="The workflow that ran: search, discovery, ...")
+    name: str = Field("", description="A short name for the run, e.g. its question.")
+    request: dict | None = Field(None, description="What was asked: query, filters, question.")
+    keys: list[str] = Field(default_factory=list, description="The items found, best first.")
+    collection: str | None = Field(None, description="Continue this history with more items.")
+
+
+class CollectionRemoveBody(_Body):
+    collection: str
+    keys: list[str]
+
+
+class CollectionEditBody(_Body):
+    collection: str
+    name: str | None = None
+    keep: bool = Field(False, description="Turn a history into an active collection.")
+    delete: bool = False
 
 
 class AdminSettingsBody(_Body):
@@ -127,8 +170,28 @@ class AdminJobsBody(_Body):
     confirm: bool = False
 
 
-def _filters(filters: Filters | None) -> dict:
-    return filters.model_dump(exclude_none=True) if filters else {}
+def _filters(filters: Filters | None, conn=None, member: dict | None = None) -> dict:
+    """The filters as retrieval takes them. `collections` names the
+    member's own collections and becomes the keys of their items."""
+    chosen = filters.model_dump(exclude_none=True) if filters else {}
+    named = chosen.pop("collections", None)
+    if named:
+        try:
+            inside = member_collections.keys(conn, member["id"], named)
+        except member_collections.NotFound as exc:
+            raise auth.Refused(404, str(exc)) from exc
+        if "item_keys" in chosen:
+            inside = sorted(set(inside) & set(chosen["item_keys"]))
+        chosen["item_keys"] = inside or [""]  # an empty collection matches nothing
+    return chosen
+
+
+def _logged(reply: dict, ranking: list) -> JSONResponse:
+    """The reply as it is, with the returned items' keys, ranks and scores
+    added in the usage log only."""
+    response = JSONResponse(reply)
+    response.logged = {**reply, "ranking": ranking}
+    return response
 
 
 def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
@@ -180,24 +243,30 @@ def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
     def list_items(body: ListBody, request: Request) -> Any:
         def run(conn, member):
             auth.check_limit(body.count, limit("per_request"))
-            return retrieval.list_items(conn, _filters(body.filters), body.count, body.offset,
-                                        body.order, body.fields)
+            ranking: list = []
+            reply = retrieval.list_items(conn, _filters(body.filters, conn, member), body.count,
+                                         body.offset, body.order, body.fields, ranking)
+            return _logged(reply, ranking)
         return serve(request, "items", body.model_dump(exclude_none=True), run)
 
     @app.post("/v1/search/items")
     def search_items(body: SearchItemsBody, request: Request) -> Any:
         def run(conn, member):
             auth.check_limit(body.count, limit("per_request"))
-            return retrieval.search_items(conn, embedder, body.query, _filters(body.filters),
-                                          body.count, body.fields, body.phrase)
+            ranking: list = []
+            reply = retrieval.search_items(conn, embedder, body.query,
+                                           _filters(body.filters, conn, member), body.count,
+                                           body.fields, body.phrase, ranking)
+            return _logged(reply, ranking)
         return serve(request, "search/items", body.model_dump(exclude_none=True), run)
 
     @app.post("/v1/search/passages")
     def search_passages(body: SearchPassagesBody, request: Request) -> Any:
         def run(conn, member):
             auth.check_limit(body.count, limit("per_request"))
-            return retrieval.search_passages(conn, embedder, body.query, _filters(body.filters),
-                                             body.count, body.phrase)
+            return retrieval.search_passages(conn, embedder, body.query,
+                                             _filters(body.filters, conn, member), body.count,
+                                             body.phrase)
         return serve(request, "search/passages", body.model_dump(exclude_none=True), run)
 
     @app.get("/v1/items/{key}")
@@ -206,15 +275,16 @@ def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
             found = retrieval.item(conn, key)
             if found is None:
                 raise auth.Refused(404, f"no item with key or citation key {key!r}")
-            return found
+            return {**found, "collections": member_collections.for_item(
+                conn, member["id"], found["key"])}
         return serve(request, "item", {"key": key}, run)
 
     @app.post("/v1/facets")
     def facets(body: FacetsBody, request: Request) -> Any:
         def run(conn, member):
             auth.check_limit(body.count, limit("per_request"), "values")
-            return retrieval.facets(conn, body.field, _filters(body.filters), body.contains,
-                                    body.count)
+            return retrieval.facets(conn, body.field, _filters(body.filters, conn, member),
+                                    body.contains, body.count)
         return serve(request, "facets", body.model_dump(exclude_none=True), run)
 
     @app.post("/v1/bibtex")
@@ -308,6 +378,77 @@ def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
                                "bytes": found["bytes"]}
             return response
         return serve(request, "files/download", {"key": key}, run)
+
+    # -- collections ---------------------------------------------------------------
+    # A member's own lists of items; no member sees another's.
+
+    def own(request: Request, name: str, inputs: dict, work) -> Any:
+        def run(conn, member):
+            try:
+                return work(conn, member["id"])
+            except member_collections.NotFound as exc:
+                raise auth.Refused(404, str(exc)) from exc
+            except member_collections.Invalid as exc:
+                raise auth.Refused(400, str(exc)) from exc
+        return serve(request, f"collections/{name}", inputs, run)
+
+    @app.post("/v1/collections/list")
+    def collections_list(body: CollectionsListBody, request: Request) -> Any:
+        def work(conn, member):
+            auth.check_limit(body.count, limit("per_request"), "collections")
+            return member_collections.listing(conn, member, **body.model_dump())
+        return own(request, "list", body.model_dump(exclude_none=True), work)
+
+    @app.post("/v1/collections/show")
+    def collection_show(body: CollectionShowBody, request: Request) -> Any:
+        """One collection and a page of its items, in the collection's order."""
+        def work(conn, member):
+            auth.check_limit(body.count, limit("per_request"))
+            row = member_collections.find(conn, member, body.collection)
+            page = member_collections.ordered_keys(conn, row["id"], body.count, body.offset)
+            fields = list(body.fields or retrieval.DEFAULT_FIELDS)
+            with_key = fields if "key" in fields else ["key", *fields]
+            got = retrieval.list_items(conn, {"item_keys": [p["item"] for p in page]}, len(page),
+                                       0, "added", with_key)["items"] if page else []
+            by_key = {item["key"]: item for item in got}
+            items = []
+            for p in page:
+                item = dict(by_key[p["item"]])
+                if "key" not in fields:
+                    del item["key"]
+                items.append({**item, **({"rank": p["rank"]} if p["rank"] is not None else {})})
+            return {**member_collections.shown(row, member_collections.size(conn, row["id"])),
+                    "items": items}
+        return own(request, "show", body.model_dump(exclude_none=True), work)
+
+    @app.post("/v1/collections/add")
+    def collection_add(body: CollectionAddBody, request: Request) -> Any:
+        def work(conn, member):
+            auth.check_limit(len(body.keys), limit("per_request"), "items")
+            return member_collections.add(conn, member, body.collection, body.keys,
+                                          body.from_collection)
+        return own(request, "add", body.model_dump(exclude_none=True), work)
+
+    @app.post("/v1/collections/record")
+    def collection_record(body: CollectionRecordBody, request: Request) -> Any:
+        def work(conn, member):
+            auth.check_limit(len(body.keys), limit("per_request"), "items")
+            return member_collections.record(conn, member, body.workflow, body.name, body.request,
+                                             body.keys, body.collection)
+        return own(request, "record", body.model_dump(exclude_none=True), work)
+
+    @app.post("/v1/collections/remove")
+    def collection_remove(body: CollectionRemoveBody, request: Request) -> Any:
+        def work(conn, member):
+            auth.check_limit(len(body.keys), limit("per_request"), "items")
+            return member_collections.remove(conn, member, body.collection, body.keys)
+        return own(request, "remove", body.model_dump(), work)
+
+    @app.post("/v1/collections/edit")
+    def collection_edit(body: CollectionEditBody, request: Request) -> Any:
+        return own(request, "edit", body.model_dump(exclude_none=True),
+                   lambda conn, member: member_collections.edit(
+                       conn, member, body.collection, body.name, body.keep, body.delete))
 
     # -- the admin menu ------------------------------------------------------------
     # For admins only (403 otherwise). A request that changes something

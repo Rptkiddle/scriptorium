@@ -5,10 +5,11 @@ handle() finds the member for the API key (401 otherwise), refuses a
 client older than the server supports (426), applies the rate per member
 (429), runs the request, and writes one usage_log row whatever the
 outcome: member, request name, all inputs, the full reply or the error,
-status, duration, client version, agent name. No network address is read
-or stored.
+status, duration, client version, agent name, and the server's code
+version. No network address is read or stored.
 """
 
+import os
 import time
 from collections.abc import Callable
 from contextlib import AbstractContextManager
@@ -110,7 +111,8 @@ def handle(connect: Connect, request: Request, name: str, inputs: dict,
         finally:
             conn.execute(
                 "INSERT INTO usage_log (member, request, inputs, reply, status, duration_ms,"
-                " client_version, agent) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                " client_version, agent, server_commit) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 (member_id, name, Jsonb(inputs), Jsonb(logged), status,
-                 int((time.monotonic() - started) * 1000), client, agent))
+                 int((time.monotonic() - started) * 1000), client, agent,
+                 os.environ.get("SCRIPTORIUM_COMMIT") or None))
             conn.commit()

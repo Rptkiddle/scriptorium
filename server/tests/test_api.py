@@ -114,7 +114,10 @@ def test_log_row_holds_inputs_and_full_reply(world):
     reply = world.client.post("/v1/search/items", json=body)
     (row,) = log(world)
     assert row["request"] == "search/items" and row["status"] == 200
+    ranking = row["reply"].pop("ranking")  # kept in the log only: key, rank and score
     assert row["inputs"] == body and row["reply"] == reply.json()
+    assert [(r["key"], r["rank"]) for r in ranking] == [
+        (item["key"], n) for n, item in enumerate(reply.json()["items"], 1)]
     assert len(row["reply"]["items"]) == 2 and row["duration_ms"] >= 0
     assert (row["client_version"], row["agent"]) == ("0.3.0", "test-agent")
     member = world.db.execute("SELECT name FROM members WHERE id = %s", (row["member"],)).fetchone()
