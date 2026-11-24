@@ -60,10 +60,10 @@ To use the machine's NVIDIA GPU, remove the `#` before `COMPOSE_FILE=compose.yam
 
 The worker embeds what has no vector yet whenever no job waits, a portion at a time. `settings set embedding.when_idle off` pauses that, for instance to leave a shared GPU to others, and `on` resumes it; `embedding.batch_size` sets how many texts the model takes at once. Both take effect within a minute, without a restart.
 
-A container that loses the GPU while it runs goes on embedding on the CPU until it is restarted. On machines where this happens, `scripts/gpu-check.sh` restarts the web service and the worker when they have lost the GPU and no job is running. Run it from the crontab of an account that may run Docker, after the hours in which the GPU tends to be lost:
+A container that loses the GPU while it runs goes on embedding on the CPU until it is restarted. On machines where this happens, `scripts/gpu-check.sh` restarts the web service and the worker when they have lost the GPU and no job is running. Run it every hour from the crontab of an account that may run Docker:
 
 ```
-10 3,5 * * * /path/to/scriptorium/scripts/gpu-check.sh >> /srv/scriptorium/data/logs/gpu-check.log 2>&1
+10 * * * * /path/to/scriptorium/scripts/gpu-check.sh >> /srv/scriptorium/data/logs/gpu-check.log 2>&1
 ```
 
 ## Members
@@ -74,6 +74,29 @@ docker compose run --rm cli members add <name>
 
 prints the member's API key once. The member installs the client (`docs/client.md`), runs `scriptorium-client setup` and enters the server's address and that key.
 
+## The admin menu
+
+An admin runs the server from their own agent, without a terminal on the host. Make a member an admin with
+
+```sh
+docker compose run --rm cli members admin <name>      # --remove takes the mark away
+```
+
+Their client then shows six more tools, from the session after their next request on:
+
+| Tool | What it does |
+|---|---|
+| `admin_overview` | The state of the server on one page: collection, PDF uploads, the schedule and the last runs, members and requests, disk space, changed settings |
+| `admin_settings` | Show every setting with its value, default and explanation; change one |
+| `admin_members` | Members with their activity; add a member, revoke one |
+| `admin_venues` | The subscribed venues with the items held from each; subscribe, unsubscribe |
+| `admin_runs` | Harvests and backups: the next scheduled moment, the latest runs; start one now |
+| `admin_jobs` | The worker's jobs and their failures; run a failed one again |
+
+A request that would change something answers with a preview first and makes the change only when it is sent again with a confirmation, which the agent sends after the admin's yes. Every change is recorded with its value before and after (table `admin_log`); the overview shows the latest. The server refuses these requests to any member who is not an admin.
+
+The menu holds what an admin does while the server runs. Four things stay with the admin command on the host: installing and repairing (`migrate`, `seed`, `load`, `restore`); the keys for outside sources, which would otherwise pass through an agent's conversation; the settings that say where the installation's parts are (`database.address`, `data.folder`, `backup.folder`, `grobid.address`); and the admin mark itself, so that a stolen admin key cannot make more admins. A new member's key appears once in the admin's conversation and is stored nowhere.
+
 ## Administer
 
 Every admin command runs in a container of its own:
@@ -81,13 +104,14 @@ Every admin command runs in a container of its own:
 ```sh
 docker compose run --rm cli members add <name>     # prints the member's API key once
 docker compose run --rm cli members list
+docker compose run --rm cli members admin <name>   # let a member use the admin menu
 docker compose run --rm cli venues add "<name>" --adapter crossref --issn 1234-5678
 docker compose run --rm cli venues import /srv/scriptorium/<list>.csv   # a journal list, harvested through OpenAlex
 docker compose run --rm cli backfill --all          # queue a harvest of every such journal since 2020
 docker compose run --rm cli backfill --source-id S107737141   # or of named journals
 docker compose run --rm cli fetch /srv/scriptorium/<list>.csv --out /srv/scriptorium/harvest   # or: fetch the journals' papers to files first,
 docker compose run --rm cli load /srv/scriptorium/harvest --all     # then load the files in bulk
-docker compose run --rm cli surveil                 # harvest the journals' recent papers (see below)
+docker compose run --rm cli surveil                 # harvest the journals' recent papers now (see below)
 docker compose run --rm cli jobs list
 docker compose run --rm cli jobs retry <id>        # run a failed job again
 docker compose run --rm cli settings show
@@ -102,15 +126,13 @@ For a first harvest of many journals, `fetch` and `load` do the same in two step
 
 ### Weekly surveillance
 
-`surveil` keeps the collection current. It asks OpenAlex for every paper the listed journals published in the last 90 days (setting `surveillance.window_days`), and admits those that pass the same rules as the first harvest and are not yet held. The window is far wider than a week because OpenAlex lists some papers weeks after their publication date and fills in a paper's type, language and topic later still; a paper not admitted one week for a missing label is seen again the next. Papers harvested before are recognised by their OpenAlex work and skipped, so the wide window costs little: the journals are asked for together, 50 to a request, and a run over two thousand journals takes minutes.
+The weekly surveillance keeps the collection current. The worker starts it itself, on the day and hour the settings `surveillance.day` and `surveillance.hour` name (Monday 03:00 by default; `surveillance.day off` switches the schedule off), and writes the backup directly after it. A worker that was not running at that moment starts both when it comes up, if no more than twelve hours have passed. `surveil` runs a harvest by hand, at once, and an admin can start one from the admin menu.
+
+A harvest asks OpenAlex for every paper the listed journals published in the last 90 days (setting `surveillance.window_days`), and admits those that pass the same rules as the first harvest and are not yet held. The window is far wider than a week because OpenAlex lists some papers weeks after their publication date and fills in a paper's type, language and topic later still; a paper not admitted one week for a missing label is seen again the next. Papers harvested before are recognised by their OpenAlex work and skipped, so the wide window costs little: the journals are asked for together, 50 to a request, and a run over two thousand journals takes minutes.
 
 Recent papers without an abstract take the one OpenAlex has gained since, and are otherwise looked up at Scopus, ScienceDirect (Elsevier's papers, which it has from the day of publication) and Springer Nature where their keys are set (`sources.elsevier_api_key`, `sources.springer_api_key`). New items, and items whose abstract arrived, get their vectors from the worker.
 
-`surveil --dry-run` fetches and counts without writing to the collection. Each run's counts per journal and totals are in its run folder (`runs/surveillance/`); a run stops asking once its cost passes `--max-cost` (1 US dollar by default), and journals it could not read are named in the totals and covered by the next run. For a weekly run, add a line to the crontab of an account that may run Docker:
-
-```
-0 3 * * 1 cd /path/to/scriptorium && docker compose run --rm -T cli surveil >> /srv/scriptorium/data/logs/surveillance.log 2>&1
-```
+`surveil --dry-run` fetches and counts without writing to the collection. Each run's counts per journal and totals are in its run folder (`runs/surveillance/`); a run stops asking once its cost passes the setting `surveillance.max_cost` (1 US dollar by default), and journals it could not read are named in the totals and covered by the next run. While a harvest runs, uploaded PDFs wait their turn: the worker does one job at a time.
 
 The database's address and password come from `.env`; every other setting is in `settings/settings.toml`, shown and changed with the `settings` commands.
 
@@ -151,11 +173,7 @@ Each PDF whose full text the import brought is recognised by its content and sto
 docker compose run --rm cli backup
 ```
 
-writes a backup to the backup folder (setting `backup.folder`, by default `/srv/scriptorium/data/backups` on the host): every table of the database under `runs/<date-time>/`, and one copy of the held PDFs and the parsed full texts under `files/`, to which each backup adds what is new. The server keeps running meanwhile. Backups older than `backup.days_kept` days (14) are removed; the newest always stays. For a nightly backup, add a line to the crontab of an account that may run Docker:
-
-```
-30 3 * * * cd /path/to/scriptorium && docker compose run --rm -T cli backup >> /srv/scriptorium/data/logs/backup.log 2>&1
-```
+writes a backup to the backup folder (setting `backup.folder`, by default `/srv/scriptorium/data/backups` on the host): every table of the database under `runs/<date-time>/`, and one copy of the held PDFs and the parsed full texts under `files/`, to which each backup adds what is new. The server keeps running meanwhile. Backups older than `backup.days_kept` days (14) are removed; the newest always stays. The worker writes a backup every week, directly after the harvest (see [Weekly surveillance](#weekly-surveillance)); the command above writes one by hand, and an admin can start one from the admin menu.
 
 The backup holds what the database holds, the usage log included, for as long as backups are kept. Not in it: donations still waiting to be processed, run folders, the embedding model, `.env` and the settings file. A PDF removed from the collection stays under `files/` until it is deleted there. The backup folder is on the same machine as the data; copy it elsewhere to survive the loss of the machine.
 

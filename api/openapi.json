@@ -1,6 +1,263 @@
 {
  "components": {
   "schemas": {
+   "AdminJobsBody": {
+    "additionalProperties": false,
+    "properties": {
+     "action": {
+      "default": "list",
+      "description": "list, show or retry.",
+      "title": "Action",
+      "type": "string"
+     },
+     "confirm": {
+      "default": false,
+      "title": "Confirm",
+      "type": "boolean"
+     },
+     "count": {
+      "default": 20,
+      "minimum": 1.0,
+      "title": "Count",
+      "type": "integer"
+     },
+     "job_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Job Id"
+     },
+     "status": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "list: waiting, running, done or failed.",
+      "title": "Status"
+     }
+    },
+    "title": "AdminJobsBody",
+    "type": "object"
+   },
+   "AdminMembersBody": {
+    "additionalProperties": false,
+    "properties": {
+     "action": {
+      "default": "list",
+      "description": "list, add or revoke.",
+      "title": "Action",
+      "type": "string"
+     },
+     "confirm": {
+      "default": false,
+      "title": "Confirm",
+      "type": "boolean"
+     },
+     "name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
+     }
+    },
+    "title": "AdminMembersBody",
+    "type": "object"
+   },
+   "AdminRunsBody": {
+    "additionalProperties": false,
+    "properties": {
+     "action": {
+      "default": "list",
+      "description": "list or start.",
+      "title": "Action",
+      "type": "string"
+     },
+     "confirm": {
+      "default": false,
+      "title": "Confirm",
+      "type": "boolean"
+     },
+     "count": {
+      "default": 10,
+      "minimum": 1.0,
+      "title": "Count",
+      "type": "integer"
+     },
+     "dry_run": {
+      "default": false,
+      "description": "start: a harvest that writes nothing.",
+      "title": "Dry Run",
+      "type": "boolean"
+     },
+     "kind": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "surveillance or backup.",
+      "title": "Kind"
+     }
+    },
+    "title": "AdminRunsBody",
+    "type": "object"
+   },
+   "AdminSettingsBody": {
+    "additionalProperties": false,
+    "properties": {
+     "confirm": {
+      "default": false,
+      "description": "Make the change the preview showed.",
+      "title": "Confirm",
+      "type": "boolean"
+     },
+     "name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "A setting's name; none for all of them.",
+      "title": "Name"
+     },
+     "value": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The new value; none to read the setting.",
+      "title": "Value"
+     }
+    },
+    "title": "AdminSettingsBody",
+    "type": "object"
+   },
+   "AdminVenuesBody": {
+    "additionalProperties": false,
+    "properties": {
+     "action": {
+      "default": "list",
+      "description": "list, add or remove.",
+      "title": "Action",
+      "type": "string"
+     },
+     "category": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Journals, Proceedings, Preprints, ...",
+      "title": "Category"
+     },
+     "confirm": {
+      "default": false,
+      "title": "Confirm",
+      "type": "boolean"
+     },
+     "contains": {
+      "default": "",
+      "description": "list: a part of the venue's or publisher's name.",
+      "title": "Contains",
+      "type": "string"
+     },
+     "count": {
+      "default": 50,
+      "minimum": 1.0,
+      "title": "Count",
+      "type": "integer"
+     },
+     "issns": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Issns"
+     },
+     "name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
+     },
+     "needs_filter": {
+      "default": false,
+      "description": "add: admit only its social-science papers.",
+      "title": "Needs Filter",
+      "type": "boolean"
+     },
+     "offset": {
+      "default": 0,
+      "minimum": 0.0,
+      "title": "Offset",
+      "type": "integer"
+     },
+     "publisher": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Publisher"
+     },
+     "source_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "add: the venue's OpenAlex source ID.",
+      "title": "Source Id"
+     }
+    },
+    "title": "AdminVenuesBody",
+    "type": "object"
+   },
    "BibtexBody": {
     "additionalProperties": false,
     "properties": {
@@ -472,6 +729,215 @@
  },
  "openapi": "3.1.0",
  "paths": {
+  "/v1/admin/jobs": {
+   "post": {
+    "operationId": "admin_jobs_v1_admin_jobs_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AdminJobsBody"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "title": "Response Admin Jobs V1 Admin Jobs Post"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Admin Jobs"
+   }
+  },
+  "/v1/admin/members": {
+   "post": {
+    "operationId": "admin_members_v1_admin_members_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AdminMembersBody"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "title": "Response Admin Members V1 Admin Members Post"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Admin Members"
+   }
+  },
+  "/v1/admin/overview": {
+   "get": {
+    "description": "The state of the server on one page.",
+    "operationId": "admin_overview_v1_admin_overview_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "title": "Response Admin Overview V1 Admin Overview Get"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Admin Overview"
+   }
+  },
+  "/v1/admin/runs": {
+   "post": {
+    "operationId": "admin_runs_v1_admin_runs_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AdminRunsBody"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "title": "Response Admin Runs V1 Admin Runs Post"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Admin Runs"
+   }
+  },
+  "/v1/admin/settings": {
+   "post": {
+    "operationId": "admin_settings_v1_admin_settings_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AdminSettingsBody"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "title": "Response Admin Settings V1 Admin Settings Post"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Admin Settings"
+   }
+  },
+  "/v1/admin/venues": {
+   "post": {
+    "operationId": "admin_venues_v1_admin_venues_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AdminVenuesBody"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "title": "Response Admin Venues V1 Admin Venues Post"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Admin Venues"
+   }
+  },
   "/v1/bibtex": {
    "post": {
     "operationId": "bibtex_v1_bibtex_post",

@@ -45,7 +45,8 @@ def setup(
     except ServerError as exc:
         typer.echo(f"Not saved. {exc}", err=True)
         raise typer.Exit(1) from None
-    stored = {k: values[k] for k in ("server", "api_key", "reply_chars", "notice_accepted")}
+    stored = {k: values[k] for k in ("server", "api_key", "reply_chars", "notice_accepted",
+                                         "admin")}
     path = client_settings.save(stored)
     typer.echo(f"Connected: {health['items']} items, {health['fulltexts']} with full text.")
     typer.echo(f"Settings saved to {path}.\n")
@@ -73,7 +74,7 @@ def notice(
         typer.echo("Not recorded.")
         raise typer.Exit(1)
     values = client_settings.load(environment=False)
-    stored = {k: values[k] for k in ("server", "api_key", "reply_chars")}
+    stored = {k: values[k] for k in ("server", "api_key", "reply_chars", "admin")}
     stored["notice_accepted"] = member_notice.record(date.today().isoformat())
     path = client_settings.save(stored)
     typer.echo(f"Recorded in {path}.")

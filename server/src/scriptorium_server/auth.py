@@ -62,6 +62,12 @@ def check_limit(count: int | None, per_request: int, what: str = "results") -> N
                            f" for is {per_request} (the server's limit per request)")
 
 
+def require_admin(member: dict) -> None:
+    """Refuse a member who is not an admin."""
+    if not member.get("admin"):
+        raise Refused(403, "this request is for the server's admins")
+
+
 def _key(request: Request) -> str:
     scheme, _, value = request.headers.get("authorization", "").partition(" ")
     return value.strip() if scheme.lower() == "bearer" else ""

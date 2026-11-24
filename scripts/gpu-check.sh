@@ -7,7 +7,7 @@
 # Nothing is done when the machine itself has no working GPU, when the
 # containers still have theirs, or while a job is running (the next call
 # tries again). Run it from the crontab of an account that may run Docker:
-#   10 3,5 * * * /path/to/scriptorium/scripts/gpu-check.sh >> /srv/scriptorium/data/logs/gpu-check.log 2>&1
+#   10 * * * * /path/to/scriptorium/scripts/gpu-check.sh >> /srv/scriptorium/data/logs/gpu-check.log 2>&1
 # DOCKER names the Docker command, e.g. DOCKER="sudo docker".
 
 cd "$(dirname "$0")/.." || exit 1

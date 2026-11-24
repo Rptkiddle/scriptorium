@@ -52,6 +52,15 @@ Zotero (when the member runs Zotero with the scriptorium-bridge plugin; status s
 zotero_add_items puts chosen items, with their PDFs where held, into the member's library; \
 zotero_pdf_upload donates PDFs from it. Neither changes or removes anything in the library."""
 
+ADMIN_INSTRUCTIONS = """
+
+The admin menu (this member is an admin of the server): start with admin_overview, the state of \
+the server on one page. admin_settings shows and changes settings; admin_members, admin_venues, \
+admin_runs (harvests and backups) and admin_jobs (PDF uploads) list first and act on request. A \
+call that would change something changes nothing the first time: it returns a preview. Show the \
+preview to the admin, and only after their yes call again with confirm=true. A new member's key \
+is shown once: give it to the admin in full and do not repeat it afterwards."""
+
 
 class Tools:
     """The tools, as methods; build_server() registers them."""
@@ -159,6 +168,8 @@ class Tools:
                          fulltexts=health["fulltexts"], server_version=health["server"],
                          pdf_download=health.get("pdf_download", True),
                          pdf_upload=health.get("pdf_upload", True))
+            if health.get("admin"):
+                state.update(admin=True)
         except ServerError as exc:
             state.update(server_reachable=False, server_problem=str(exc))
         return {**state, **self._zotero()}
@@ -443,6 +454,114 @@ class Tools:
         return {"saved_to": str(out), "entries": len(keys) - len(missing), "missing": missing}
 
 
+    # -- the admin menu ------------------------------------------------------------
+    # Registered only when the server says this member is an admin.
+
+    def _admin_note(self) -> Path:
+        return self._ledger().with_name("admin.json")
+
+    def admin_known(self) -> bool:
+        """Whether the admin menu is shown from the start of this session:
+        the client's note from an earlier session says the server counts
+        the member as an admin, or the setting `admin` is "yes". Nothing is
+        asked of the server here: no request leaves before the member has
+        accepted the notice."""
+        if str(self.settings.get("admin", "")).lower() == "yes":
+            return True
+        try:
+            note = json.loads(self._admin_note().read_text())
+        except (OSError, ValueError):
+            return False
+        return bool(note.get("admin")) and note.get("server") == self.server.address
+
+    def learn_admin(self) -> bool:
+        """Ask the server whether the member is an admin and keep the
+        answer for the next session; False when it cannot be asked."""
+        try:
+            admin = bool(self.server.health().get("admin"))
+        except (ServerError, ValueError):
+            return False
+        try:
+            note = self._admin_note()
+            note.parent.mkdir(parents=True, exist_ok=True)
+            note.write_text(json.dumps({"server": self.server.address, "admin": admin}))
+        except OSError:  # an agent app that keeps the client from its files
+            pass
+        return admin
+
+    def admin_overview(self) -> dict:
+        """ADMIN. The state of the server on one page: the collection's
+        size and what waits for a vector, PDF uploads waiting and failed,
+        the next scheduled harvest and backup and how the last ones went,
+        members and requests, disk space, the settings that differ from
+        their defaults, and the latest admin changes. Start here."""
+        return self.server.admin_overview()
+
+    def admin_settings(self, name: str | None = None, value: str | None = None,
+                       confirm: bool = False) -> dict:
+        """ADMIN. The server's settings. No inputs: every setting with its
+        value, default, what it does, what a value must be, when a change
+        takes effect and whether it can be changed here. name: that
+        setting. name and value: a preview of the change; it is made only
+        with confirm=true, after the admin's yes. Keys for outside sources
+        and the places of the server's parts are changed on the host only."""
+        return self.server.admin("settings", name=name, value=value, confirm=confirm or None)
+
+    def admin_members(self, action: str = "list", name: str | None = None,
+                      confirm: bool = False) -> dict:
+        """ADMIN. Members. action list: every member with status, date
+        added, last request, requests in all and in the last seven days,
+        and PDFs uploaded. add (name): a new member; their API key is in
+        the reply once and stored nowhere. revoke (name): the member's key
+        is refused from now on. add and revoke return a preview first and
+        act only with confirm=true, after the admin's yes."""
+        return self.server.admin("members", action=action, name=name, confirm=confirm or None)
+
+    def admin_venues(self, action: str = "list", name: str | None = None, contains: str = "",
+                     source_id: str | None = None, issns: list[str] | None = None,
+                     publisher: str | None = None, category: str | None = None,
+                     needs_filter: bool = False, count: int = 50, offset: int = 0,
+                     confirm: bool = False) -> dict:
+        """ADMIN. The venues the weekly harvest takes new items from.
+        action list: subscribed venues by name with the items held from
+        each (contains: a part of the venue's or publisher's name; count,
+        offset). add (name, source_id = the venue's OpenAlex source ID;
+        optional issns, publisher, category, needs_filter for a journal too
+        broad to take whole): subscribe. remove (name): stop harvesting;
+        its items stay. add and remove return a preview first and act only
+        with confirm=true, after the admin's yes."""
+        return self.server.admin(
+            "venues", action=action, name=name, contains=contains or None, source_id=source_id,
+            issns=issns, publisher=publisher, category=category,
+            needs_filter=needs_filter or None, count=count, offset=offset or None,
+            confirm=confirm or None)
+
+    def admin_runs(self, action: str = "list", kind: str | None = None, dry_run: bool = False,
+                   count: int = 10, confirm: bool = False) -> dict:
+        """ADMIN. Harvests (kind surveillance) and backups. action list:
+        the next scheduled moment, what is queued or running, and the
+        latest runs with their result in one line. start (kind; dry_run
+        for a harvest that only counts): queue a run for the worker now.
+        start returns a preview first and acts only with confirm=true,
+        after the admin's yes. The weekly moment is the settings
+        surveillance.day and surveillance.hour."""
+        return self.server.admin("runs", action=action, kind=kind, dry_run=dry_run or None,
+                                 count=count, confirm=confirm or None)
+
+    def admin_jobs(self, action: str = "list", status: str | None = None,
+                   job_id: int | None = None, count: int = 20, confirm: bool = False) -> dict:
+        """ADMIN. The worker's jobs, mostly members' uploaded PDFs. action
+        list: counts by kind and status, failures grouped by reason, and
+        the newest jobs (status: waiting, running, done or failed). show
+        (job_id): one job in full. retry (job_id): run a failed job again;
+        a preview first, done only with confirm=true after the admin's
+        yes. A failure that starts with "Rejected:" is final."""
+        return self.server.admin("jobs", action=action, status=status, job_id=job_id,
+                                 count=count, confirm=confirm or None)
+
+
+ADMIN_TOOL_NAMES = ("admin_overview", "admin_settings", "admin_members", "admin_venues",
+                    "admin_runs", "admin_jobs")
 TOOL_NAMES = ("lookup", "list_items", "search_items", "search_passages", "item", "facets",
               "bibtex", "status", "set_read", "set_mark", "set_export_bibtex",
               "pdf_download", "pdf_upload", "pdf_upload_progress",
@@ -567,17 +686,35 @@ class Consent:
 
 
 def build_server(tools: Tools | None = None) -> FastMCP:
-    """The MCP server with every tool registered. Each call first makes sure
-    the member has agreed to the notice in this session, and notes which
-    agent is asking, so the server's usage log can record it."""
+    """The MCP server with every tool registered, and the admin menu's
+    tools as well when the server says the member is an admin. Each call
+    first makes sure the member has agreed to the notice in this session,
+    and notes which agent is asking, so the server's usage log can record
+    it."""
     import functools
 
     import anyio
 
     tools = tools or Tools()
     consent = Consent(lambda: member_notice.accepted(client_settings.load()))
-    mcp = FastMCP("scriptorium", instructions=INSTRUCTIONS)
-    for name in TOOL_NAMES:
+    admin = tools.admin_known()
+    mcp = FastMCP("scriptorium", instructions=INSTRUCTIONS + (ADMIN_INSTRUCTIONS if admin else ""))
+    shown = {"admin": admin, "asked": False}
+
+    def learn() -> None:
+        """Once per session, after the notice is accepted: ask the server
+        whether the member is an admin. A new admin gets the menu at once
+        where the agent app follows a change of the tool list, and
+        otherwise at the next start."""
+        try:
+            if tools.learn_admin() and not shown["admin"]:
+                shown["admin"] = True
+                for name in ADMIN_TOOL_NAMES:
+                    register(name)
+        except Exception:  # noqa: BLE001 — the member's own request must still be served
+            pass
+
+    def register(name: str) -> None:
         method = getattr(tools, name)
 
         @functools.wraps(method)
@@ -585,9 +722,15 @@ def build_server(tools: Tools | None = None) -> FastMCP:
             if (ask := await consent.check()) is not None:
                 return ask  # the agent app asks the member, then calls again
             tools.server.agent = agent_name() or tools.server.agent
+            if not shown["asked"]:
+                shown["asked"] = True
+                await anyio.to_thread.run_sync(learn)
             return await anyio.to_thread.run_sync(functools.partial(_method, *args, **kwargs))
 
         del tool.__wrapped__  # the tool's inputs are the method's, as wraps() copied them
         tool.__signature__ = __import__("inspect").signature(method)
         mcp.add_tool(tool)
+
+    for name in TOOL_NAMES + (ADMIN_TOOL_NAMES if admin else ()):
+        register(name)
     return mcp

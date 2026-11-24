@@ -125,6 +125,14 @@ def runs(folder: Path) -> list[Path]:
     return sorted(p for p in base.iterdir() if (p / MANIFEST).is_file())
 
 
+def read_manifest(run: Path) -> dict:
+    """A finished backup's manifest; {} when it cannot be read."""
+    try:
+        return json.loads((Path(run) / MANIFEST).read_text())
+    except (OSError, ValueError):
+        return {}
+
+
 def _made(run: Path) -> datetime | None:
     try:
         return datetime.strptime(run.name[:17], STAMP)

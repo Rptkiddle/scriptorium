@@ -87,6 +87,14 @@ The third line is needed only if the app also cannot show the notice. The app th
 | `zotero_add_items` | Add chosen items to your Zotero library, with their PDFs where held (needs the plugin below) |
 | `zotero_pdf_upload` | Donate PDFs from your Zotero library (needs the plugin below) |
 
+## The admin menu
+
+If the server's administrator has made you an admin, your agent also has six tools for running the server: `admin_overview` (the state of the server on one page; start here), `admin_settings`, `admin_members`, `admin_venues`, `admin_runs` (harvests and backups) and `admin_jobs` (PDF uploads and their failures). They appear in the session after your first request as an admin; an agent app that follows changes of the tool list shows them at once.
+
+Nothing is changed without your yes: a request that would change something first returns a preview, which your agent shows you, and the change is made only when you agree. Every change is recorded on the server. When you add a member, their key appears once in your conversation and is stored nowhere, so pass it on at once.
+
+In an agent app that keeps the client from your files, add `SCRIPTORIUM_ADMIN=yes` to the connector's environment variables to see the menu from the start.
+
 ## Zotero (optional)
 
 With the [scriptorium-bridge plugin](../scriptorium-bridge/README.md) installed in Zotero, your agent can add items from Scriptorium to your library and you can donate PDFs from it. Added items land in a collection named "Scriptorium"; publications you already hold are skipped. A donation sends only the PDF and its DOI or arXiv ID, after you have been told how many PDFs would go and have agreed. Nothing in your library is changed or removed. Zotero must be running.

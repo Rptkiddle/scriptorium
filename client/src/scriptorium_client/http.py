@@ -118,6 +118,16 @@ class Server:
         return reply.content, name, reply.headers.get("x-scriptorium-sha256", "")
 
 
+    # -- the admin menu (the server refuses these to members who are not admins) ----
+
+    def admin_overview(self) -> dict:
+        return self._json("GET", "/v1/admin/overview")
+
+    def admin(self, menu: str, **body) -> dict:
+        """One request of the admin menu: settings, members, venues, runs or jobs."""
+        return self._json("POST", f"/v1/admin/{menu}", _clean(body))
+
+
 def _clean(body: dict) -> dict:
     """The body without inputs left empty."""
     return {k: v for k, v in body.items() if v is not None and v != {} and v != []}

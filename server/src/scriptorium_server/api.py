@@ -17,7 +17,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from scriptorium_server import __version__, auth, files, members, retrieval
+from scriptorium_server import __version__, adminmenu, auth, files, members, retrieval
 from scriptorium_server.filestore import FileStore
 from scriptorium_server.embedding import Embedder
 from scriptorium_server.settings import Settings
@@ -85,6 +85,48 @@ class BibtexBody(_Body):
     abstracts: bool = False
 
 
+class AdminSettingsBody(_Body):
+    name: str | None = Field(None, description="A setting's name; none for all of them.")
+    value: str | None = Field(None, description="The new value; none to read the setting.")
+    confirm: bool = Field(False, description="Make the change the preview showed.")
+
+
+class AdminMembersBody(_Body):
+    action: str = Field("list", description="list, add or revoke.")
+    name: str | None = None
+    confirm: bool = False
+
+
+class AdminVenuesBody(_Body):
+    action: str = Field("list", description="list, add or remove.")
+    name: str | None = None
+    contains: str = Field("", description="list: a part of the venue's or publisher's name.")
+    source_id: str | None = Field(None, description="add: the venue's OpenAlex source ID.")
+    issns: list[str] | None = None
+    publisher: str | None = None
+    category: str | None = Field(None, description="Journals, Proceedings, Preprints, ...")
+    needs_filter: bool = Field(False, description="add: admit only its social-science papers.")
+    count: int = Field(50, ge=1)
+    offset: int = Field(0, ge=0)
+    confirm: bool = False
+
+
+class AdminRunsBody(_Body):
+    action: str = Field("list", description="list or start.")
+    kind: str | None = Field(None, description="surveillance or backup.")
+    dry_run: bool = Field(False, description="start: a harvest that writes nothing.")
+    count: int = Field(10, ge=1)
+    confirm: bool = False
+
+
+class AdminJobsBody(_Body):
+    action: str = Field("list", description="list, show or retry.")
+    status: str | None = Field(None, description="list: waiting, running, done or failed.")
+    job_id: int | None = None
+    count: int = Field(20, ge=1)
+    confirm: bool = False
+
+
 def _filters(filters: Filters | None) -> dict:
     return filters.model_dump(exclude_none=True) if filters else {}
 
@@ -98,17 +140,22 @@ def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
     effect while the server runs (without it, those given at the start)."""
     app = FastAPI(title="Scriptorium", version=__version__, docs_url=None, redoc_url=None,
                   openapi_url=None)
-    per_request = int(settings["limits.per_request"])
-    per_minute = int(settings["limits.requests_per_minute"])
-    upload_bytes = int(settings["limits.upload_megabytes"]) * 1024 * 1024
     data = Path(str(settings["data.folder"]))
     store = FileStore(data)
 
+    def live() -> Settings:
+        """The settings in force now: the limits and switches take effect
+        while the server runs."""
+        return current() if current else settings
+
+    def limit(name: str) -> int:
+        return int(live()[f"limits.{name}"])
+
     def serve(request: Request, name: str, inputs: dict, run) -> Any:
-        return auth.handle(connect, request, name, inputs, run, per_minute)
+        return auth.handle(connect, request, name, inputs, run, limit("requests_per_minute"))
 
     def switched_on(name: str) -> bool:
-        return (current() if current else settings)[name] == "on"
+        return live()[name] == "on"
 
     @app.get("/v1/health")
     def health(request: Request) -> Any:
@@ -118,20 +165,21 @@ def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
                     "min_client": ".".join(map(str, auth.MIN_CLIENT)),
                     "pdf_download": switched_on("files.pdf_download"),
                     "pdf_upload": switched_on("files.pdf_upload"),
+                    "admin": bool(member.get("admin")),
                     **retrieval.collection_size(conn)}
         return serve(request, "health", {}, run)
 
     @app.post("/v1/lookup")
     def lookup(body: LookupBody, request: Request) -> Any:
         def run(conn, member):
-            auth.check_limit(len(body.inputs), per_request, "lookups")
+            auth.check_limit(len(body.inputs), limit("per_request"), "lookups")
             return retrieval.lookup(conn, body.inputs, member["id"], registry)
         return serve(request, "lookup", body.model_dump(), run)
 
     @app.post("/v1/items")
     def list_items(body: ListBody, request: Request) -> Any:
         def run(conn, member):
-            auth.check_limit(body.count, per_request)
+            auth.check_limit(body.count, limit("per_request"))
             return retrieval.list_items(conn, _filters(body.filters), body.count, body.offset,
                                         body.order, body.fields)
         return serve(request, "items", body.model_dump(exclude_none=True), run)
@@ -139,7 +187,7 @@ def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
     @app.post("/v1/search/items")
     def search_items(body: SearchItemsBody, request: Request) -> Any:
         def run(conn, member):
-            auth.check_limit(body.count, per_request)
+            auth.check_limit(body.count, limit("per_request"))
             return retrieval.search_items(conn, embedder, body.query, _filters(body.filters),
                                           body.count, body.fields, body.phrase)
         return serve(request, "search/items", body.model_dump(exclude_none=True), run)
@@ -147,7 +195,7 @@ def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
     @app.post("/v1/search/passages")
     def search_passages(body: SearchPassagesBody, request: Request) -> Any:
         def run(conn, member):
-            auth.check_limit(body.count, per_request)
+            auth.check_limit(body.count, limit("per_request"))
             return retrieval.search_passages(conn, embedder, body.query, _filters(body.filters),
                                              body.count, body.phrase)
         return serve(request, "search/passages", body.model_dump(exclude_none=True), run)
@@ -164,7 +212,7 @@ def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
     @app.post("/v1/facets")
     def facets(body: FacetsBody, request: Request) -> Any:
         def run(conn, member):
-            auth.check_limit(body.count, per_request, "values")
+            auth.check_limit(body.count, limit("per_request"), "values")
             return retrieval.facets(conn, body.field, _filters(body.filters), body.contains,
                                     body.count)
         return serve(request, "facets", body.model_dump(exclude_none=True), run)
@@ -172,7 +220,7 @@ def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
     @app.post("/v1/bibtex")
     def bibtex(body: BibtexBody, request: Request) -> Any:
         def run(conn, member):
-            auth.check_limit(len(body.keys), per_request, "entries")
+            auth.check_limit(len(body.keys), limit("per_request"), "entries")
             return retrieval.bibtex(conn, body.keys, body.format, body.abstracts)
         return serve(request, "bibtex", body.model_dump(), run)
 
@@ -191,6 +239,7 @@ def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
         # within the limit; a body without a declared size is read only up
         # to the limit.
         inputs: dict = {"identifier": identifier, "item": item}
+        upload_bytes = limit("upload_megabytes") * 1024 * 1024
         declared = request.headers.get("content-length", "")
         too_big = declared.isdigit() and int(declared) > upload_bytes
         accepted = switched_on("files.pdf_upload")
@@ -237,7 +286,7 @@ def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
     def pdf_uploads(request: Request, count: int = Query(50, ge=1), offset: int = Query(0, ge=0)) -> Any:
         """The member's own PDF uploads, newest first, with their state."""
         def run(conn, member):
-            auth.check_limit(count, per_request, "pdf_uploads")
+            auth.check_limit(count, limit("per_request"), "pdf_uploads")
             return files.pdf_uploads(conn, member["id"], count, offset)
         return serve(request, "pdf_uploads", {"count": count, "offset": offset}, run)
 
@@ -259,6 +308,62 @@ def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
                                "bytes": found["bytes"]}
             return response
         return serve(request, "files/download", {"key": key}, run)
+
+    # -- the admin menu ------------------------------------------------------------
+    # For admins only (403 otherwise). A request that changes something
+    # answers with a preview until it is sent with confirm (adminmenu).
+
+    def admin(request: Request, name: str, inputs: dict, work) -> Any:
+        def run(conn, member):
+            auth.require_admin(member)
+            try:
+                return work(conn, member)
+            except adminmenu.Invalid as exc:
+                raise auth.Refused(400, str(exc)) from exc
+        return serve(request, f"admin/{name}", inputs, run)
+
+    @app.get("/v1/admin/overview")
+    def admin_overview(request: Request) -> Any:
+        """The state of the server on one page."""
+        return admin(request, "overview", {}, lambda conn, member: adminmenu.overview(
+            conn, live(), getattr(embedder, "device", "")))
+
+    @app.post("/v1/admin/settings")
+    def admin_settings(body: AdminSettingsBody, request: Request) -> Any:
+        return admin(request, "settings", body.model_dump(exclude_none=True),
+                     lambda conn, member: adminmenu.settings_request(
+                         conn, member, live(), body.name, body.value, body.confirm))
+
+    @app.post("/v1/admin/members")
+    def admin_members(body: AdminMembersBody, request: Request) -> Any:
+        def work(conn, member):
+            reply = adminmenu.members_request(conn, member, body.action, body.name, body.confirm)
+            if "api_key" not in reply:
+                return reply
+            response = JSONResponse(reply)  # a new key is shown once and never logged
+            response.logged = {k: v for k, v in reply.items() if k != "api_key"}
+            return response
+        return admin(request, "members", body.model_dump(exclude_none=True), work)
+
+    @app.post("/v1/admin/venues")
+    def admin_venues(body: AdminVenuesBody, request: Request) -> Any:
+        def work(conn, member):
+            auth.check_limit(body.count, limit("per_request"), "venues")
+            return adminmenu.venues_request(conn, member, live(), **body.model_dump())
+        return admin(request, "venues", body.model_dump(exclude_none=True), work)
+
+    @app.post("/v1/admin/runs")
+    def admin_runs(body: AdminRunsBody, request: Request) -> Any:
+        return admin(request, "runs", body.model_dump(exclude_none=True),
+                     lambda conn, member: adminmenu.runs_request(
+                         conn, member, live(), **body.model_dump()))
+
+    @app.post("/v1/admin/jobs")
+    def admin_jobs(body: AdminJobsBody, request: Request) -> Any:
+        def work(conn, member):
+            auth.check_limit(body.count, limit("per_request"), "jobs")
+            return adminmenu.jobs_request(conn, member, **body.model_dump())
+        return admin(request, "jobs", body.model_dump(exclude_none=True), work)
 
     @app.exception_handler(Exception)
     def unexpected(request: Request, exc: Exception) -> JSONResponse:

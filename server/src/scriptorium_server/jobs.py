@@ -251,17 +251,26 @@ def requeue_unfinished(conn: psycopg.Connection) -> int:
 def run_worker(conn: psycopg.Connection, runs_dir: Path, handlers: dict[str, Handler], *,
                poll_seconds: float = 5.0, until_idle: bool = False,
                stop: Callable[[], bool] = lambda: False,
-               idle: Callable[[psycopg.Connection], object] | None = None) -> int:
+               idle: Callable[[psycopg.Connection], object] | None = None,
+               before: Callable[[psycopg.Connection], object] | None = None) -> int:
     """Run waiting jobs one at a time, oldest first, until `stop()` is true
     (or, with until_idle, until nothing waits); returns how many ran. A
     handler that raises fails its job with the error; the worker goes on.
     `idle` is called whenever the queue is empty (the worker embeds what
     waits for a vector there, a portion at a time); when it returns
     something true it did work and more may wait, so the queue is looked at
-    again at once. An error in it is printed, not raised."""
+    again at once. `before` is called before each look at the queue (the
+    worker queues the scheduled runs there). An error in either is
+    printed, not raised."""
     requeue_unfinished(conn)
     ran = 0
     while not stop():
+        if before is not None:
+            try:
+                before(conn)
+            except Exception as exc:  # noqa: BLE001 — the worker must keep running
+                conn.rollback()
+                print(f"before the queue: {type(exc).__name__}: {exc}", flush=True)
         job = claim(conn, runs_dir)
         if job is None:
             if idle is not None:

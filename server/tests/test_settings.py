@@ -21,11 +21,11 @@ def test_without_a_file_every_setting_has_its_default(path):
 
 def test_a_set_value_is_read_back_and_the_rest_stay_default(path):
     set_value("limits.per_request", "250", path)  # as typed at the command line
-    set_value("surveillance.day", "monday", path)
+    set_value("surveillance.day", "tuesday", path)
     current = load(path)
-    assert current["limits.per_request"] == 250 and current["surveillance.day"] == "monday"
+    assert current["limits.per_request"] == 250 and current["surveillance.day"] == "tuesday"
     assert current["backup.days_kept"] == 14
-    assert path.read_text() == '[surveillance]\nday = "monday"\n\n[limits]\nper_request = 250\n'
+    assert path.read_text() == '[surveillance]\nday = "tuesday"\n\n[limits]\nper_request = 250\n'
 
 
 def test_setting_the_default_removes_the_entry(path):

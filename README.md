@@ -90,6 +90,12 @@ Collaborative implementation for Scriptorium with remote + client split. Server 
 | Zotero | add items | `/v1/items/{key}`, `/v1/files/{key}` | Fetched, then written to Zotero locally |
 | Zotero | donate PDFs | `/v1/files/held`, `/v1/files` | Client fetches the list of held PDFs, compares locally, sends only PDFs the server lacks |
 | workflow | workflow | none (local) | Returns the instruction text |
+| admin | overview | `/v1/admin/overview` | Admins only. Collection, uploads, schedule and last runs, members, requests, disk, changed settings |
+| admin | settings | `/v1/admin/settings` | Admins only. Every setting; change one (not secrets, not the places of the server's parts) |
+| admin | members | `/v1/admin/members` | Admins only. Members with activity; add, revoke |
+| admin | venues | `/v1/admin/venues` | Admins only. Subscribed venues with item counts; subscribe, unsubscribe |
+| admin | runs | `/v1/admin/runs` | Admins only. Harvests and backups; start one |
+| admin | jobs | `/v1/admin/jobs` | Admins only. Jobs and failures; retry |
 
 Filters (find tools): author, year, venue, publisher, category, type, has full text, added since, provenance. The two search tools also take an exact phrase (keyword index).
 
@@ -114,6 +120,8 @@ Filters (find tools): author, year, venue, publisher, category, type, has full t
   - Full-text job: parse (GROBID), check the PDF against its item (DOI on the first page, or title), strip annotations and file metadata, cut into paragraph passages (references, captions and tables excluded; publishers' download stamps removed), store, embed. A PDF outside the collection creates a verified item. A rejected PDF is deleted, with the reason in the member's donation progress. In the hub, PDFs arrive by donation only.
 - **Backup.** Nightly, Scriptorium data only: database dump and new PDFs, kept for a set number of days, to a separate folder on the server; off-server storage when available. Restore tested once before members rely on it.
 - **Admin command.** Members and keys; subscribed venues (adding one backfills it); job status and failures; settings.
+- **Admin menu.** The same for a running server, from an admin's own agent (the admin tools of Table 1): shown only to members marked admin; the mark is set on the host only. Every change previewed first, made on confirmation, logged with before and after. Host only: install and repair, keys for outside sources, places of the server's parts, the admin mark.
+- **Schedule.** The worker starts the weekly harvest and, after it, the backup, at the day and hour in the settings.
 - **Settings.** One readable file, shown and changed through the admin command, each setting with a one-line explanation. Keys for outside sources shown as set or not set. Venues and members are data, not settings.
 - **Deployment.** Docker Compose: `db` (PostgreSQL with pgvector), `server` and `worker` (one Scriptorium image), `grobid` (GROBID's image). All data in one folder on the host, mounted into the containers; the admin command runs in a container. Steps: `docs/deploy.md`.
 
@@ -143,7 +151,7 @@ Planned after the hub and the workflows.
 
 - One API key per member, created and revoked through the admin command; shown once; stored hashed.
 - A donation sends the PDF and its DOI or arXiv ID only. Donor noted per file.
-- Member names are visible to administrators only, through the admin command. No tool reply names a member.
+- Member names are visible to administrators only, through the admin command and the admin menu. No tool reply to another member names a member.
 - Usage log: maximal. One entry per request: time, duration, member, the request with all inputs (query text and filters included), the full reply or the error, client version, agent name. Network addresses are not logged. Conversations stay on the member's machine.
 
 ## 7. Build order

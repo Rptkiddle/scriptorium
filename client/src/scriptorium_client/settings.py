@@ -9,6 +9,10 @@
     notice_accepted   set by `scriptorium-client notice --accept`: the date and
                   the notice text the member accepted, for agent apps that
                   cannot ask
+    admin         "yes" shows the admin menu from the start of a session. The
+                  client keeps its own note of whether the server counts the
+                  member as an admin, so this is only for agent apps that
+                  keep the client from its files
 
 The file holds the API key, so it is written readable by its owner only.
 
@@ -25,7 +29,7 @@ from pathlib import Path
 import platformdirs
 
 DEFAULTS = {"server": "", "api_key": "", "reply_chars": 24000, "results_dir": "", "pdf_dir": "",
-            "notice_accepted": ""}
+            "notice_accepted": "", "admin": ""}
 
 
 def settings_path() -> Path:

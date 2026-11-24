@@ -13,7 +13,7 @@ from fastmcp import Client
 
 from scriptorium_client import __version__, results, settings
 from scriptorium_client.http import Server, ServerError
-from scriptorium_client.tools import TOOL_NAMES, Tools, build_server
+from scriptorium_client.tools import ADMIN_TOOL_NAMES, TOOL_NAMES, Tools, build_server
 
 CONTRACT = json.loads((Path(__file__).resolve().parents[2] / "api" / "openapi.json").read_text())
 
@@ -402,3 +402,92 @@ def test_a_settings_file_that_cannot_be_read_counts_as_absent(tmp_path, monkeypa
     monkeypatch.setenv("SCRIPTORIUM_CLIENT_SETTINGS", str(folder / "client.toml"))
     monkeypatch.setenv("SCRIPTORIUM_SERVER", "https://env.test")
     assert settings.load()["server"] == "https://env.test"
+
+
+# --- the admin menu -------------------------------------------------------------
+
+
+def served(tools):
+    server = build_server(tools)
+
+    async def listed():
+        async with Client(server) as client:
+            return await client.list_tools()
+
+    return asyncio.run(listed()), server.instructions
+
+
+def test_the_admin_menu_is_shown_once_the_server_has_said_so(tools, fake, tmp_path):
+    listed, instructions = served(tools)  # nothing known yet: no menu, and nothing asked
+    assert {t.name for t in listed} == set(TOOL_NAMES) and "admin_overview" not in instructions
+    assert fake.calls == [] and not tools.admin_known() and "admin" not in tools.status()
+    assert not tools.learn_admin() and not tools.admin_known()  # a plain member
+    fake.replies["/v1/health"]["admin"] = True
+    assert tools.learn_admin() and tools.admin_known()  # noted for the next session
+    assert json.loads((tmp_path / "admin.json").read_text()) == {
+        "server": "https://scriptorium.test", "admin": True}
+    listed, instructions = served(tools)
+    found = {t.name: t.description for t in listed}
+    assert set(found) == set(TOOL_NAMES) | set(ADMIN_TOOL_NAMES)
+    assert all(found[name].startswith("ADMIN.") for name in ADMIN_TOOL_NAMES)
+    assert "confirm=true" in instructions and tools.status()["admin"] is True
+    fake.replies["/v1/health"]["admin"] = False  # the mark was taken away
+    assert not tools.learn_admin() and not tools.admin_known()
+
+
+def test_the_note_counts_for_its_server_only_and_the_setting_shows_the_menu(tools, fake):
+    fake.replies["/v1/health"]["admin"] = True
+    tools.learn_admin()
+    tools.server.address = "https://another.test"
+    assert not tools.admin_known()
+    tools.settings["admin"] = "yes"
+    assert tools.admin_known()
+    fake.error = httpx.ConnectError("no route")
+    assert not tools.learn_admin()  # a server that cannot be asked changes nothing
+
+
+def test_a_new_admin_gets_the_menu_with_the_first_request_after_the_notice(tools, fake):
+    fake.replies["/v1/health"]["admin"] = True
+
+    async def session():
+        async def accept(message, response_type, params, context):
+            return {}
+        async with Client(build_server(tools), elicitation_handler=accept) as client:
+            before = {t.name for t in await client.list_tools()}
+            await client.call_tool("item", {"key": "K0001"})
+            return before, {t.name for t in await client.list_tools()}
+
+    before, after = asyncio.run(session())
+    assert before == set(TOOL_NAMES) and after == set(TOOL_NAMES) | set(ADMIN_TOOL_NAMES)
+    assert [c[1] for c in fake.calls] == ["/v1/health", "/v1/items/K0001"]  # asked once
+
+
+def test_each_admin_tool_sends_the_request_in_the_contract(tools, fake):
+    for menu in ("settings", "members", "venues", "runs", "jobs"):
+        fake.replies[f"/v1/admin/{menu}"] = {"menu": menu}
+    fake.replies["/v1/admin/overview"] = {"collection": {}}
+    assert tools.admin_overview() == {"collection": {}}
+    tools.admin_settings()
+    tools.admin_settings("limits.per_request", "500", confirm=True)
+    tools.admin_members("add", "hedy")
+    tools.admin_venues("add", "Political Communication", source_id="S2", needs_filter=True,
+                       confirm=True)
+    tools.admin_venues(contains="press", offset=50)
+    tools.admin_runs("start", "surveillance", dry_run=True)
+    tools.admin_jobs("retry", job_id=7, confirm=True)
+    paths, schemas = CONTRACT["paths"], CONTRACT["components"]["schemas"]
+    for method, path, body, headers in fake.calls:
+        operation = paths[path][method.lower()]
+        if body is not None:
+            ref = operation["requestBody"]["content"]["application/json"]["schema"]["$ref"]
+            assert set(body) <= set(schemas[ref.rsplit("/", 1)[1]]["properties"]), (path, body)
+        assert headers["authorization"] == "Bearer scr_key"
+    bodies = [c[2] for c in fake.calls]
+    assert bodies[1] == {}  # inputs left at their defaults are not sent
+    assert bodies[2] == {"name": "limits.per_request", "value": "500", "confirm": True}
+    assert bodies[3] == {"action": "add", "name": "hedy"}  # no confirm: a preview
+    assert bodies[4] == {"action": "add", "name": "Political Communication", "source_id": "S2",
+                         "needs_filter": True, "count": 50, "confirm": True}
+    assert bodies[5] == {"action": "list", "contains": "press", "count": 50, "offset": 50}
+    assert bodies[6] == {"action": "start", "kind": "surveillance", "dry_run": True, "count": 10}
+    assert bodies[7] == {"action": "retry", "job_id": 7, "count": 20, "confirm": True}

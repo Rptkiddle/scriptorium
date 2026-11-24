@@ -3,14 +3,16 @@ jobs, settings, the database schema, the worker, the seed import and
 passage cleaning."""
 
 import collections
+import os
 from pathlib import Path
 from typing import Annotated
 
 import psycopg
 import typer
 
-from scriptorium_server import __version__, db, embedding, jobs, members, settings
+from scriptorium_server import __version__, db, embedding, jobs, members, schedule, settings
 from scriptorium_server import seed as seeding
+from scriptorium_server import venues as subscriptions
 
 app = typer.Typer(no_args_is_help=True, help="Administer a Scriptorium server.")
 members_app = typer.Typer(no_args_is_help=True, help="Members and their API keys.")
@@ -24,7 +26,8 @@ app.add_typer(jobs_app, name="jobs")
 app.add_typer(settings_app, name="settings")
 app.add_typer(passages_app, name="passages")
 
-ADAPTERS = ("crossref", "openalex")
+ADAPTERS = subscriptions.ADAPTERS
+SCHEDULE_EVERY = 60.0  # seconds between the worker's looks at the weekly schedule
 # Handlers added to (or replacing) the standard ones of job_handlers().
 HANDLERS: dict[str, jobs.Handler] = {}
 # Whether the worker embeds waiting items and passages when idle (off in tests).
@@ -62,7 +65,60 @@ def job_handlers(current: settings.Settings) -> dict[str, jobs.Handler]:
                                  since=job.payload.get("since") or intake.DEFAULT_SINCE)
         return intake.summary(result)
 
-    return {"fulltext": run_fulltext, "backfill": run_backfill}
+    def run_surveillance(conn, job):
+        """The weekly harvest, or one an admin started. The settings are
+        read when it starts, so a change needs no restart."""
+        from scriptorium_server import surveillance
+
+        now = settings.load(current.path)
+        try:
+            result = harvest(conn, now, job.run_dir, dry_run=bool(job.payload.get("dry_run")),
+                             days=job.payload.get("days"))
+        except Exception as exc:  # noqa: BLE001 — the message may hold the key
+            conn.rollback()
+            raise RuntimeError(f"surveillance stopped ({type(exc).__name__})") from None
+        return surveillance.summary(result)
+
+    def run_backup(conn, job):
+        from scriptorium_server import backup as backups
+
+        now = settings.load(current.path)
+        result = backups.backup(conn, _data(now), Path(str(now["backup.folder"])),
+                                int(now["backup.days_kept"]))
+        return backups.summary_line(result)
+
+    return {"fulltext": run_fulltext, "backfill": run_backfill,
+            "surveillance": run_surveillance, "backup": run_backup}
+
+
+class NoKey(RuntimeError):
+    """No OpenAlex key is set, so nothing can be harvested."""
+
+
+def harvest(conn, current: settings.Settings, run_dir: Path, *, dry_run: bool = False,
+            days: int | None = None, parallel: int | None = None,
+            max_cost: float | None = None, report=print) -> dict:
+    """One surveillance run over every subscribed OpenAlex venue, by the
+    settings unless an input says otherwise. The key is the
+    OPENALEX_API_KEY environment variable, else the setting."""
+    import os
+
+    from scriptorium_server import surveillance
+    from scriptorium_server.sources import apis
+
+    sources = current.section("sources")
+    key = os.environ.get("OPENALEX_API_KEY") or str(sources["openalex_api_key"])
+    if not key:
+        raise NoKey("no OpenAlex key: set OPENALEX_API_KEY or sources.openalex_api_key")
+    apis.configure(str(sources["contact_email"]), str(sources["s2_api_key"]))
+    venues = conn.execute("SELECT * FROM venues WHERE subscribed AND adapter = 'openalex'"
+                          " ORDER BY id").fetchall()
+    return surveillance.surveil(
+        conn, venues, run_dir, days=days or int(current["surveillance.window_days"]),
+        api_key=key, sources=sources, dry_run=dry_run,
+        parallel=parallel or int(current["surveillance.parallel"]),
+        max_cost=max_cost if max_cost is not None else float(current["surveillance.max_cost"]),
+        report=report)
 
 
 def worker_context(conn, current: settings.Settings, made: list):
@@ -119,10 +175,22 @@ def migrate() -> None:
 @app.command()
 def worker(poll_seconds: Annotated[float, typer.Option(help="Wait between looks at an empty queue.")] = 5.0,
            until_idle: Annotated[bool, typer.Option(help="Stop when nothing waits.")] = False) -> None:
-    """Run waiting jobs, one at a time, until stopped."""
+    """Run waiting jobs, one at a time, until stopped. The worker also
+    keeps the weekly schedule: at the day and hour the settings name it
+    queues the harvest and, behind it, the backup."""
+    import time
+
     current = settings.load()
     handlers = {**job_handlers(current), **HANDLERS}
     made: list = []
+    looked = [0.0]
+
+    def scheduled(conn) -> None:
+        if time.monotonic() - looked[0] < SCHEDULE_EVERY:
+            return
+        looked[0] = time.monotonic()
+        if queued := schedule.due(conn, settings.load()):
+            typer.echo(f"Queued the scheduled harvest and backup (jobs {queued}).")
 
     def idle(conn) -> bool:
         """Items and passages still without a vector get one, a portion at
@@ -140,7 +208,8 @@ def worker(poll_seconds: Annotated[float, typer.Option(help="Wait between looks 
 
     with connect() as conn:
         ran = jobs.run_worker(conn, _data(current) / "runs", handlers, poll_seconds=poll_seconds,
-                              until_idle=until_idle, idle=idle)
+                              until_idle=until_idle, idle=idle,
+                              before=None if until_idle else scheduled)
     typer.echo(f"Ran {ran} job(s).")
 
 
@@ -343,7 +412,22 @@ def members_list() -> None:
         typer.echo("No members.")
     for row in rows:
         state = f"revoked {_when(row['revoked_at'])}" if row["revoked_at"] else "active"
-        typer.echo(f"{row['id']}\t{row['name']}\tadded {_when(row['created_at'])}\t{state}")
+        typer.echo(f"{row['id']}\t{row['name']}\tadded {_when(row['created_at'])}\t{state}"
+                   + ("\tadmin" if row["admin"] else ""))
+
+
+@members_app.command("admin")
+def members_admin(
+    name: str,
+    remove: Annotated[bool, typer.Option("--remove", help="Make them a plain member again.")] = False,
+) -> None:
+    """Make a member an admin: their client then shows the admin menu
+    (after it restarts). Only this command gives or takes the mark."""
+    with connect() as conn:
+        found = members.set_admin(conn, name, not remove)
+    if not found:
+        _fail(f"no active member named {name.strip()!r}")
+    typer.echo(f"Member {name.strip()!r} is " + ("no longer an admin." if remove else "an admin."))
 
 
 @members_app.command("revoke")
@@ -370,20 +454,14 @@ def venues_add(
     needs_filter: Annotated[bool, typer.Option(help="Too broad to take whole: only its social-science papers are admitted.")] = False,
 ) -> None:
     """Subscribe to a venue (adds it, or updates one already known)."""
-    if adapter not in ADAPTERS:
-        _fail(f"--adapter must be one of {', '.join(ADAPTERS)}")
-    if not name.strip():
-        _fail("a venue needs a name")
     with connect() as conn:
-        conn.execute(
-            "INSERT INTO venues (name, issns, adapter, source_id, publisher, category,"
-            " subscribed, needs_filter) VALUES (%s, %s, %s, %s, %s, %s, true, %s)"
-            " ON CONFLICT (lower(name)) DO UPDATE SET issns = EXCLUDED.issns,"
-            " adapter = EXCLUDED.adapter, source_id = EXCLUDED.source_id,"
-            " publisher = coalesce(EXCLUDED.publisher, venues.publisher),"
-            " category = coalesce(EXCLUDED.category, venues.category),"
-            " subscribed = true, needs_filter = EXCLUDED.needs_filter",
-            (name.strip(), issn or [], adapter, source_id, publisher, category, needs_filter))
+        try:
+            subscriptions.subscribe(conn, name, adapter, issns=issn, source_id=source_id,
+                                    publisher=publisher, category=category,
+                                    needs_filter=needs_filter)
+        except ValueError as exc:
+            _fail(str(exc) if "adapter" not in str(exc)
+                  else f"--adapter must be one of {', '.join(ADAPTERS)}")
     typer.echo(f"Subscribed to {name.strip()!r}.")
 
 
@@ -405,8 +483,7 @@ def venues_list() -> None:
 def venues_remove(name: str) -> None:
     """Stop harvesting a venue. Its items stay in the collection."""
     with connect() as conn:
-        row = conn.execute("UPDATE venues SET subscribed = false WHERE lower(name) = lower(%s)"
-                           " AND subscribed RETURNING id", (name.strip(),)).fetchone()
+        row = subscriptions.unsubscribe(conn, name)
     if row is None:
         _fail(f"no subscribed venue named {name.strip()!r}")
     typer.echo(f"Unsubscribed from {name.strip()!r}; its items stay.")
@@ -561,35 +638,30 @@ def surveil(
                                                   " the setting surveillance.window_days.")] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Fetch and count; write nothing"
                                           " to the collection.")] = False,
-    parallel: Annotated[int, typer.Option(help="Requests to OpenAlex at once.")] = 8,
-    max_cost: Annotated[float, typer.Option(help="Stop asking at this cost (USD).")] = 1.0,
+    parallel: Annotated[int | None, typer.Option(help="Requests to OpenAlex at once; by default"
+                                                      " the setting surveillance.parallel.")] = None,
+    max_cost: Annotated[float | None, typer.Option(help="Stop asking at this cost (USD); by"
+                                                        " default the setting surveillance.max_cost.")] = None,
 ) -> None:
     """Harvest the subscribed venues' recent papers: every work published
     in the last days that passes the harvest rules becomes an item, unless
     the collection holds it; recent items without an abstract are looked
-    up again. Items get their vectors from the worker afterwards. Meant
-    for a weekly line in the crontab; run again, it adds only what is new.
-    The key is the OPENALEX_API_KEY environment variable, else the setting."""
-    import os
-
+    up again. Items get their vectors from the worker afterwards. The
+    worker runs this every week by the settings surveillance.day and
+    surveillance.hour; this command runs it by hand, at once. Run again,
+    it adds only what is new. The key is the OPENALEX_API_KEY environment
+    variable, else the setting."""
     from scriptorium_server import surveillance
-    from scriptorium_server.sources import apis
 
     current = settings.load()
-    sources = current.section("sources")
-    key = os.environ.get("OPENALEX_API_KEY") or str(sources["openalex_api_key"])
-    if not key:
+    if not (os.environ.get("OPENALEX_API_KEY") or current["sources.openalex_api_key"]):
         _fail("no OpenAlex key: set OPENALEX_API_KEY or sources.openalex_api_key")
-    apis.configure(str(sources["contact_email"]), str(sources["s2_api_key"]))
     with connect() as conn:
-        venues = _openalex_venues(conn, None, True)
         run_dir = jobs.new_run(_data(current) / "runs", "surveillance",
                                "dry-run" if dry_run else None)
         try:
-            result = surveillance.surveil(
-                conn, venues, run_dir, days=days or int(current["surveillance.window_days"]),
-                api_key=key, sources=sources, dry_run=dry_run, parallel=parallel,
-                max_cost=max_cost, report=typer.echo)
+            result = harvest(conn, current, run_dir, dry_run=dry_run, days=days,
+                             parallel=parallel, max_cost=max_cost, report=typer.echo)
         except Exception as exc:  # noqa: BLE001 — the message may hold the key
             jobs.finish_run(run_dir, "failed", f"stopped: {type(exc).__name__}")
             _fail(f"surveillance stopped ({type(exc).__name__}); run folder {run_dir}")
@@ -672,7 +744,8 @@ def settings_show() -> None:
 
 @settings_app.command("set")
 def settings_set(name: str, value: str) -> None:
-    """Change one setting. Takes effect when the server and worker restart."""
+    """Change one setting. `settings show` and the admin menu say when
+    each setting takes effect."""
     try:
         settings.set_value(name, value)
     except settings.SettingsError as exc:

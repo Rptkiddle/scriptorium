@@ -164,3 +164,17 @@ def test_a_rejected_donation_is_not_retried(run, db):
     result = run("jobs", "retry", str(job_id))
     assert result.exit_code == 1 and "rejected for good" in result.output
     assert db.execute("SELECT status FROM jobs").fetchone()["status"] == "failed"
+
+
+def test_only_the_host_command_makes_and_unmakes_an_admin(run, db):
+    run("members", "add", "ada")
+    assert members.listing(db)[0]["admin"] is False
+    result = run("members", "admin", "ada")
+    assert result.exit_code == 0 and "is an admin" in result.output
+    assert members.listing(db)[0]["admin"] is True and "admin" in run("members", "list").output
+    assert "no longer an admin" in run("members", "admin", "ada", "--remove").output
+    assert members.listing(db)[0]["admin"] is False
+    assert run("members", "admin", "nobody").exit_code == 1
+    run("members", "revoke", "ada")
+    assert run("members", "admin", "ada").exit_code == 1  # a revoked member cannot be one
+
