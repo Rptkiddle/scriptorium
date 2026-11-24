@@ -40,7 +40,7 @@ scriptorium.example.org {
 }
 ```
 
-Nothing is served without a member's API key: `curl -H "Authorization: Bearer <key>" http://127.0.0.1:8765/v1/health` shows whether the service answers and how large the collection is.
+Nothing is served without a member's API key: `curl -H "Authorization: Bearer <key>" http://127.0.0.1:8765/v1/health` shows whether the service answers and how large the collection is. The server's address in a browser shows a page about Scriptorium, where members sign in with their lab account to see and search the collection (see [Signing in to the web page](#signing-in-to-the-web-page)).
 
 On a btrfs disk, switch copy-on-write off for the database's folder while it is still empty: `sudo chattr +C /srv/scriptorium/postgres`.
 
@@ -73,6 +73,34 @@ docker compose run --rm cli members add <name>
 ```
 
 prints the member's API key once. The member installs the client (`docs/client.md`), runs `scriptorium-client setup` and enters the server's address and that key.
+
+## Signing in to the web page
+
+The web page signs members in through the same login provider as the client (`login.issuer`, e.g. Keycloak). Everyone the provider lets in may sign in, and becomes a member at the first sign-in; a person who signs in to the page and logs in with the client is one member, found by the provider's identifier for them. As for the client's login, the members table keeps no name: the page shows the person's name from the sign-in, kept with the session until it ends, and `members list` shows the provider's identifier. `members revoke <identifier>` refuses that member's sign-in, login and key. The page has its own client at the provider, a confidential one beside the client's public `scriptorium-client`: the browser only ever holds a session cookie, never a token.
+
+In the realm, create a client (Clients → Create client):
+
+| Setting | Value |
+|---|---|
+| Client type, Client ID | OpenID Connect, `scriptorium-web` |
+| Client authentication | On (a confidential client) |
+| Authentication flow | Standard flow only (no direct access grants, implicit flow, service accounts or device grant) |
+| Root URL, Home URL | `https://scriptorium.example.org` |
+| Valid redirect URIs | `https://scriptorium.example.org/auth/callback`, exactly, without a wildcard |
+| Web origins | empty (the browser never calls Keycloak's endpoints itself) |
+| Advanced → Proof Key for Code Exchange Code Challenge Method | `S256` |
+
+Keep the default client scope `profile`, so the page can greet the person by name. Then take the secret from the client's Credentials tab and set, on the host:
+
+```sh
+docker compose run --rm cli settings set web.address https://scriptorium.example.org
+docker compose run --rm cli settings set login.issuer https://<keycloak>/realms/<realm>   # if not set already
+docker compose run --rm cli settings set web.client_id scriptorium-web
+docker compose run --rm cli settings set web.client_secret <secret>
+docker compose up -d --force-recreate server
+```
+
+The server must be able to reach the issuer address (it fetches `<issuer>/.well-known/openid-configuration` at the first sign-in). Signing out ends the Scriptorium session only; the Keycloak session stays, so signing in again within it asks for no password. `web.session_hours` (default 12) sets how long a sign-in lasts.
 
 ## The admin menu
 

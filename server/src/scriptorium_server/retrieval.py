@@ -22,13 +22,28 @@ from scriptorium_server.identity import author_names, classify, query_key
 from scriptorium_server.sources.crossref import RegistryUnavailable
 
 FILTERS = ("authors", "authors_all", "years", "year_from", "year_to", "venues", "publishers",
-           "categories", "types", "has_fulltext", "added_since", "provenance", "item_keys")
+           "categories", "types", "has_fulltext", "added_since", "provenance", "item_keys",
+           "text", "text_in")
+# Where the words of the `text` filter are looked for. The expressions are
+# those of the indexes in migrations/0009_keyword_indexes.sql; "all" also
+# takes items whose venue name holds the words.
+_AUTHOR_WORDS = "to_tsvector('simple', i.creators)"
+_VENUE_WORDS = ("i.venue_id IN (SELECT id FROM venues WHERE to_tsvector('simple', name)"
+                " @@ websearch_to_tsquery('simple', %s))")
+KEYWORD_FIELDS = {
+    "all": f"((i.tsv || {_AUTHOR_WORDS}) @@ websearch_to_tsquery('simple', %s) OR {_VENUE_WORDS})",
+    "title": "to_tsvector('simple', i.title) @@ websearch_to_tsquery('simple', %s)",
+    "abstract": "to_tsvector('simple', coalesce(i.abstract, '')) @@ websearch_to_tsquery('simple', %s)",
+    "authors": f"{_AUTHOR_WORDS} @@ websearch_to_tsquery('simple', %s)",
+    "venue": _VENUE_WORDS,
+}
 FIELDS = ("key", "citation_key", "type", "title", "authors", "year", "date", "venue",
           "publisher", "category", "doi", "arxiv_id", "abstract", "has_fulltext", "provenance",
           "added_at", "preprints", "details")
 DEFAULT_FIELDS = ("key", "citation_key", "type", "title", "authors", "year", "venue", "doi",
                   "has_fulltext")
-ORDERS = {"added": "i.added_at DESC, i.key", "year": "i.year DESC NULLS LAST, i.key",
+ORDERS = {"added": "i.added_at DESC, i.key",
+          "year": "i.year DESC NULLS LAST, i.added_at DESC, i.key",
           "title": "i.title_norm, i.key"}
 FACETS = {"year": "i.year::text", "venue": "v.name", "publisher": "i.publisher",
           "category": "i.category", "type": "i.type", "provenance": "i.provenance_kind",
@@ -79,6 +94,13 @@ def where(filters: dict | None) -> tuple[str, list]:
         if name in filters:
             sql.append(condition)
             values.append(_lower(filters[name]))
+    field = filters.get("text_in") or "all"
+    if field not in KEYWORD_FIELDS:
+        raise BadRequest(f"text_in must be one of {', '.join(KEYWORD_FIELDS)}")
+    if (words := str(filters.get("text") or "").strip()):
+        condition = KEYWORD_FIELDS[field]
+        sql.append(condition)
+        values += [words] * condition.count("%s")
     return " AND ".join(sql), values
 
 

@@ -9,7 +9,9 @@ A member who logs in through the login provider (login.py) is known by
 the provider's address and its identifier for the person. The server makes
 that row at the first login, with no name and no key; such a member is
 named by the provider's identifier. A member with a key who logs in while
-sending the key keeps their row: the login is attached to it.
+sending the key keeps their row: the login is attached to it. Signing in
+to the web page (web.py) goes through the same provider and finds or makes
+the same row, so the client and the page lead to one member.
 
 An admin is a member who may use the admin menu. The mark is set and
 removed on the host only, so a stolen admin key cannot make more admins.
@@ -73,6 +75,11 @@ def attach_login(conn: psycopg.Connection, member: int, issuer: str, subject: st
     conn.execute("UPDATE members SET issuer = %s, subject = %s WHERE id = %s",
                  (issuer, subject, member))
     return by_login(conn, issuer, subject)
+
+
+def for_login(conn: psycopg.Connection, issuer: str, subject: str) -> dict:
+    """The member row of a login, made at the first login; revoked or not."""
+    return by_login(conn, issuer, subject) or create_login(conn, issuer, subject)
 
 
 # -- naming a member ------------------------------------------------------------

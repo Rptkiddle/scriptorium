@@ -38,7 +38,8 @@ the number alone).
 
 Filters (one object, for all find tools): authors, authors_all, years, year_from, year_to, \
 venues, publishers, categories, types, has_fulltext, added_since (YYYY-MM-DD), provenance, \
-collections (the member's own, by number or name). \
+collections (the member's own, by number or name), text (words the item must hold: \
+"a phrase", `or`, -word) with text_in (all, title, abstract, authors or venue). \
 Values within one filter match any; different filters must all hold. Resolve venue, publisher \
 and category names with facets first. The query holds the topic only; who, where and when are \
 filters.
