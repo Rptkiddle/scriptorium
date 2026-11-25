@@ -1,7 +1,8 @@
 """The server's requests, one function each (Table 1 of the README).
 
-Every request carries the member's API key, this client's version and the
-name of the agent using it. What can go wrong between client and server is
+Every request carries the member's login (an access token of the server's
+login provider, renewed when needed) or, where the member has none, their
+API key; this client's version; and the name of the agent using it. What can go wrong between client and server is
 turned into one plain sentence the agent can pass on: an old client, a key
 the server does not accept, a limit, a server that cannot be reached.
 """
@@ -9,6 +10,8 @@ the server does not accept, a limit, a server that cannot be reached.
 import httpx
 
 from scriptorium_client import __version__
+from scriptorium_client import settings as client_settings
+from scriptorium_client.login import LoginError, Provider, Session
 
 
 class ServerError(Exception):
@@ -25,30 +28,48 @@ class RateLimited(ServerError):
 
 
 class Server:
-    def __init__(self, settings: dict, agent: str = "", transport: httpx.BaseTransport | None = None):
+    def __init__(self, settings: dict, agent: str = "", transport: httpx.BaseTransport | None = None,
+                 session: Session | None = None):
         self.address = str(settings.get("server", "")).rstrip("/")
         self.agent = agent
-        self._http = httpx.Client(
-            base_url=self.address, timeout=120, transport=transport,
-            headers={"Authorization": f"Bearer {settings.get('api_key', '')}",
-                     "X-Scriptorium-Client": __version__})
+        self._key = str(settings.get("api_key", ""))
+        self.session = session or stored_session(settings)
+        self._http = httpx.Client(base_url=self.address, timeout=120, transport=transport,
+                                  headers={"X-Scriptorium-Client": __version__})
+
+    def _bearer(self, renew: bool = False) -> str:
+        """What identifies the member: the login's access token, else the key."""
+        if self.session is None:
+            return self._key
+        try:
+            return self.session.renew() if renew else self.session.token()
+        except LoginError as exc:
+            raise ServerError(str(exc)) from exc
 
     def _send(self, method: str, path: str, body: dict | None = None, *,
-              content: bytes | None = None, params: dict | None = None) -> httpx.Response:
+              content: bytes | None = None, params: dict | None = None,
+              headers: dict | None = None) -> httpx.Response:
         if not self.address:
             raise ServerError("No server is set up yet. Run `scriptorium-client setup` in a"
-                              " terminal to enter the server's address and your API key.")
-        headers = {"X-Scriptorium-Agent": self.agent} if self.agent else {}
+                              " terminal to enter the server's address and log in.")
+        headers = {**(headers or {}), **({"X-Scriptorium-Agent": self.agent} if self.agent else {})}
         if content is not None:
             headers["Content-Type"] = "application/pdf"
-        try:
-            reply = self._http.request(method, path, json=body, content=content,
-                                       params={k: v for k, v in (params or {}).items()
-                                               if v is not None}, headers=headers)
-        except httpx.HTTPError as exc:
-            raise ServerError(
-                f"The Scriptorium server at {self.address} cannot be reached"
-                f" ({type(exc).__name__}). Off campus, connect the university VPN first.") from exc
+
+        def once(renew: bool = False) -> httpx.Response:
+            headers["Authorization"] = f"Bearer {self._bearer(renew)}"
+            try:
+                return self._http.request(method, path, json=body, content=content,
+                                          params={k: v for k, v in (params or {}).items()
+                                                  if v is not None}, headers=headers)
+            except httpx.HTTPError as exc:
+                raise ServerError(
+                    f"The Scriptorium server at {self.address} cannot be reached"
+                    f" ({type(exc).__name__}). Off campus, connect the university VPN first.") from exc
+
+        reply = once()
+        if reply.status_code == 401 and self.session is not None:
+            reply = once(renew=True)  # the token may have just expired: renew it and ask again
         if reply.status_code < 400:
             return reply
         try:
@@ -56,9 +77,12 @@ class Server:
             message = detail.get("error") or str(detail.get("detail") or detail)
         except ValueError:
             message = reply.text[:300]
+        if reply.status_code == 401 and self.session is not None:
+            raise ServerError(f"The server does not accept this login ({message}). Run"
+                              " `scriptorium-client login` in a terminal to log in again.")
         if reply.status_code == 401:
-            raise ServerError("The server does not accept this API key. Run `scriptorium-client"
-                              " setup` in a terminal to enter a valid one.")
+            raise ServerError(f"The server does not accept this API key ({message}). Run"
+                              " `scriptorium-client setup` in a terminal.")
         if reply.status_code == 429:
             raise RateLimited(f"The server refused the request (429): {message}", 429)
         if reply.status_code == 426:
@@ -72,8 +96,26 @@ class Server:
 
     # -- one function per request ------------------------------------------------
 
-    def health(self) -> dict:
-        return self._json("GET", "/v1/health")
+    def health(self, carry_key: bool = False) -> dict:
+        """`carry_key` sends the member's API key beside their login, once,
+        so the server attaches the login to the member the key belongs to."""
+        headers = {"X-Scriptorium-Key": self._key} if carry_key and self._key else None
+        return self._send("GET", "/v1/health", headers=headers).json()
+
+    def login_details(self) -> dict:
+        """Where members of this server log in ({"issuer": ""} when it uses
+        keys only, as servers from before the login do). Asked without a
+        key or login."""
+        try:
+            reply = self._http.get("/v1/login")
+        except httpx.HTTPError as exc:
+            raise ServerError(f"The Scriptorium server at {self.address} cannot be reached"
+                              f" ({type(exc).__name__}).") from exc
+        if reply.status_code == 404:
+            return {"issuer": "", "client_id": "", "keys_accepted": True}
+        if reply.status_code >= 400:
+            raise ServerError(f"The server refused the request ({reply.status_code}).")
+        return reply.json()
 
     def lookup(self, inputs: list[str]) -> dict:
         return self._json("POST", "/v1/lookup", {"inputs": inputs})
@@ -132,6 +174,27 @@ class Server:
     def admin(self, menu: str, **body) -> dict:
         """One request of the admin menu: settings, members, venues, runs or jobs."""
         return self._json("POST", f"/v1/admin/{menu}", _clean(body))
+
+
+def stored_session(settings: dict, transport: httpx.BaseTransport | None = None) -> Session | None:
+    """The member's login as the settings hold it; None when they hold none.
+    A renewed refresh token is written back to the settings file; where
+    the file cannot be written (an agent app that keeps the client from
+    its files) the one given stays in use."""
+    if not (settings.get("refresh_token") and settings.get("issuer") and settings.get("client_id")):
+        return None
+
+    def save(token: str) -> None:
+        try:
+            client_settings.update({"refresh_token": token})
+        except OSError:
+            pass
+
+    def stored() -> str:
+        return client_settings.load().get("refresh_token", "")
+
+    provider = Provider(settings["issuer"], settings["client_id"], transport=transport)
+    return Session(provider, settings["refresh_token"], save=save, stored=stored)
 
 
 def _clean(body: dict) -> dict:

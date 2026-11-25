@@ -162,7 +162,7 @@ def test_old_client_gets_one_clear_message(tools, fake):
 
 def test_other_failures_are_plain_sentences(tools, fake):
     fake.status = 401
-    with pytest.raises(ServerError, match="does not accept this API key. Run `scriptorium-client setup`"):
+    with pytest.raises(ServerError, match=r"does not accept this API key \(the server's own words\). Run `scriptorium-client setup`"):
         tools.list_items()
     fake.status = 429
     with pytest.raises(ServerError, match=r"refused the request \(429\): the server's own words"):

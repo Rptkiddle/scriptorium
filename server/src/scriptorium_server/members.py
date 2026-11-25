@@ -5,6 +5,12 @@ its SHA-256 hash. Keys are long random strings, so a plain hash is enough
 (there is nothing to guess). Revoking a member keeps the row, and with it
 what the member uploaded and the usage log, and refuses the key from then on.
 
+A member who logs in through the login provider (login.py) is known by
+the provider's address and its identifier for the person. The server makes
+that row at the first login, with no name and no key; such a member is
+named by the provider's identifier. A member with a key who logs in while
+sending the key keeps their row: the login is attached to it.
+
 An admin is a member who may use the admin menu. The mark is set and
 removed on the host only, so a stolen admin key cannot make more admins.
 """
@@ -41,30 +47,72 @@ def authenticate(conn: psycopg.Connection, key: str) -> dict | None:
     """The member row a key belongs to; None for an unknown or revoked key."""
     if not key:
         return None
-    return conn.execute("SELECT id, name, admin FROM members WHERE key_hash = %s"
+    return conn.execute("SELECT id, name, admin, subject FROM members WHERE key_hash = %s"
                         " AND revoked_at IS NULL", (hash_key(key),)).fetchone()
 
 
-def revoke(conn: psycopg.Connection, name: str) -> bool:
-    """Refuse the member's key from now on; False when there is no such
-    active member."""
-    row = conn.execute("UPDATE members SET revoked_at = now() WHERE name = %s"
-                       " AND revoked_at IS NULL RETURNING id", (name.strip(),)).fetchone()
-    return row is not None
+# -- members who log in ---------------------------------------------------------
+
+
+def by_login(conn: psycopg.Connection, issuer: str, subject: str) -> dict | None:
+    """The member row of a login, revoked or not; None when the person has
+    not logged in before."""
+    return conn.execute("SELECT id, name, admin, subject, revoked_at FROM members"
+                        " WHERE issuer = %s AND subject = %s", (issuer, subject)).fetchone()
+
+
+def create_login(conn: psycopg.Connection, issuer: str, subject: str) -> dict:
+    """The new member row of a first login: a number and the login, nothing else."""
+    conn.execute("INSERT INTO members (issuer, subject) VALUES (%s, %s)"
+                 " ON CONFLICT DO NOTHING", (issuer, subject))
+    return by_login(conn, issuer, subject)
+
+
+def attach_login(conn: psycopg.Connection, member: int, issuer: str, subject: str) -> dict:
+    """Attach a login to a member who has a key, so both lead to one row."""
+    conn.execute("UPDATE members SET issuer = %s, subject = %s WHERE id = %s",
+                 (issuer, subject, member))
+    return by_login(conn, issuer, subject)
+
+
+# -- naming a member ------------------------------------------------------------
+
+SHOWN = "coalesce(name, subject)"  # a member's name: the one given, else the login's identifier
+
+
+def find(conn: psycopg.Connection, who: str) -> dict | None:
+    """The member a name refers to: the name given with a key, or the
+    identifier of a member who logs in."""
+    return conn.execute(f"SELECT id, {SHOWN} AS name, admin, revoked_at FROM members"
+                        " WHERE name = %(who)s OR (name IS NULL AND subject = %(who)s)",
+                        {"who": who.strip()}).fetchone()
+
+
+def revoke(conn: psycopg.Connection, who: str) -> bool:
+    """Refuse the member's key and login from now on; False when there is
+    no such active member."""
+    found = find(conn, who)
+    if found is None or found["revoked_at"]:
+        return False
+    conn.execute("UPDATE members SET revoked_at = now() WHERE id = %s", (found["id"],))
+    return True
 
 
 def listing(conn: psycopg.Connection) -> list[dict]:
-    """Every member, oldest first: id, name, created_at, revoked_at."""
-    return conn.execute("SELECT id, name, admin, created_at, revoked_at FROM members"
-                        " ORDER BY id").fetchall()
+    """Every member, oldest first: id, name (the login's identifier for a
+    member without one), whether they log in, admin, created_at, revoked_at."""
+    return conn.execute(f"SELECT id, {SHOWN} AS name, subject IS NOT NULL AS login, admin,"
+                        " created_at, revoked_at FROM members ORDER BY id").fetchall()
 
 
-def set_admin(conn: psycopg.Connection, name: str, admin: bool = True) -> bool:
+def set_admin(conn: psycopg.Connection, who: str, admin: bool = True) -> bool:
     """Make an active member an admin, or an admin a plain member again;
     False when there is no such active member."""
-    row = conn.execute("UPDATE members SET admin = %s WHERE name = %s AND revoked_at IS NULL"
-                       " RETURNING id", (admin, name.strip())).fetchone()
-    return row is not None
+    found = find(conn, who)
+    if found is None or found["revoked_at"]:
+        return False
+    conn.execute("UPDATE members SET admin = %s WHERE id = %s", (admin, found["id"]))
+    return True
 
 
 def activity(conn: psycopg.Connection) -> list[dict]:
@@ -72,7 +120,8 @@ def activity(conn: psycopg.Connection) -> list[dict]:
     them, oldest first: requests in all and in the last seven days, the
     last request, PDFs uploaded and how many of those were stored."""
     return conn.execute(
-        "SELECT m.id, m.name, m.admin, m.created_at, m.revoked_at,"
+        "SELECT m.id, coalesce(m.name, m.subject) AS name,"
+        " m.subject IS NOT NULL AS login, m.admin, m.created_at, m.revoked_at,"
         " coalesce(u.requests, 0) AS requests, coalesce(u.requests_7_days, 0) AS requests_7_days,"
         " u.last_request, coalesce(j.uploads, 0) AS pdf_uploads,"
         " coalesce(j.stored, 0) AS pdf_uploads_stored"

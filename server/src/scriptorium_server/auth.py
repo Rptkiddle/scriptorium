@@ -1,7 +1,8 @@
 """Authentication, the two limits and the usage log, in one place: every
 request of a member passes through handle().
 
-handle() finds the member for the API key (401 otherwise), refuses a
+handle() finds the member for the API key or the login token (401
+otherwise; identify() below), refuses a
 client older than the server supports (426), applies the rate per member
 (429), runs the request, and writes one usage_log row whatever the
 outcome: member, request name, all inputs, the full reply or the error,
@@ -19,11 +20,13 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from psycopg.types.json import Jsonb
 
+from scriptorium_server import login as member_login
 from scriptorium_server import members
 from scriptorium_server.retrieval import BadRequest
 
 CLIENT_HEADER = "x-scriptorium-client"   # the client's version
 AGENT_HEADER = "x-scriptorium-agent"     # the name of the agent using the client
+KEY_HEADER = "x-scriptorium-key"         # a member's API key, sent once beside a first login
 MIN_CLIENT = (0, 3, 0)                   # the oldest client version this server serves (0.3.0: /v1/pdf_uploads)
 
 Connect = Callable[[], AbstractContextManager[psycopg.Connection]]
@@ -74,8 +77,44 @@ def _key(request: Request) -> str:
     return value.strip() if scheme.lower() == "bearer" else ""
 
 
+def identify(conn: psycopg.Connection, request: Request,
+             login: member_login.Login | None = None) -> dict:
+    """The member a request comes from; Refused otherwise.
+
+    The request carries an API key (they start with "scr_") or, where a
+    login provider is set up, the provider's access token. A token of a
+    person not seen before makes a new member, unless the request also
+    carries the API key of a member without a login: the login is then
+    attached to that member, so a member who moves from a key to the login
+    keeps their collections and history."""
+    bearer = _key(request)
+    if login is None or not login.issuer or bearer.startswith(members.KEY_PREFIX):
+        if login is not None and not login.keys_accepted:
+            raise Refused(401, "this server no longer accepts API keys; log in with"
+                               " `scriptorium-client login`")
+        member = members.authenticate(conn, bearer)
+        if member is None:
+            raise Refused(401, "unknown or revoked API key")
+        return member
+    try:
+        claims = login.claims(bearer)
+    except member_login.Invalid as exc:
+        raise Refused(401, f"login not accepted: {exc}") from exc
+    member = members.by_login(conn, login.issuer, claims["sub"])
+    if member is None:
+        keyed = members.authenticate(conn, request.headers.get(KEY_HEADER, ""))
+        if keyed is not None and keyed["subject"] is None:
+            member = members.attach_login(conn, keyed["id"], login.issuer, claims["sub"])
+        else:
+            member = members.create_login(conn, login.issuer, claims["sub"])
+    if member["revoked_at"]:
+        raise Refused(403, "this member has been revoked by the server's admins")
+    return member
+
+
 def handle(connect: Connect, request: Request, name: str, inputs: dict,
-           run: Callable[[psycopg.Connection, dict], dict], per_minute: int):
+           run: Callable[[psycopg.Connection, dict], dict], per_minute: int,
+           login: member_login.Login | None = None):
     """Serve one request of a member and log it. `run(conn, member)` does
     the work and returns the reply as a dict (or a ready response, whose
     `logged` attribute is what the log keeps)."""
@@ -84,10 +123,9 @@ def handle(connect: Connect, request: Request, name: str, inputs: dict,
     client, agent = request.headers.get(CLIENT_HEADER), request.headers.get(AGENT_HEADER)
     with connect() as conn:
         try:
-            member = members.authenticate(conn, _key(request))
-            if member is None:
-                raise Refused(401, "unknown or revoked API key")
+            member = identify(conn, request, login)
             member_id = member["id"]
+            conn.commit()  # a member made or attached by this request stays, whatever follows
             check_client(client)
             recent = conn.execute(
                 "SELECT count(*) AS n FROM usage_log WHERE member = %s"

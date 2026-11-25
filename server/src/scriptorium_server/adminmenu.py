@@ -49,7 +49,7 @@ def record(conn: psycopg.Connection, member: int, action: str, target: str | Non
 
 def recent_changes(conn: psycopg.Connection, count: int = 5) -> list[dict]:
     rows = conn.execute(
-        "SELECT a.at, m.name AS by, a.action, a.target, a.before, a.after FROM admin_log a"
+        "SELECT a.at, coalesce(m.name, m.subject) AS by, a.action, a.target, a.before, a.after FROM admin_log a"
         " LEFT JOIN members m ON m.id = a.member ORDER BY a.id DESC LIMIT %s", (count,)).fetchall()
     return [{**r, "at": _iso(r["at"])} for r in rows]
 
@@ -167,47 +167,53 @@ def settings_request(conn: psycopg.Connection, member: dict, current: settings.S
 def members_request(conn: psycopg.Connection, member: dict, action: str = "list",
                     name: str | None = None, confirm: bool = False) -> dict:
     """list: every member with their activity. add: a new member and their
-    key, shown once. revoke: refuse a member's key from now on."""
+    key, shown once. revoke: refuse a member's key and login from now on.
+    A member who logs in is named by the login provider's identifier."""
     if action == "list":
         rows = members.activity(conn)
         return {"members": [{
-            "name": r["name"], "admin": r["admin"],
+            "name": r["name"], "logs_in": r["login"], "admin": r["admin"],
             "status": "revoked" if r["revoked_at"] else "active",
             "added": _iso(r["created_at"]), "revoked": _iso(r["revoked_at"]),
             "last_request": _iso(r["last_request"]), "requests": r["requests"],
             "requests_last_7_days": r["requests_7_days"], "pdf_uploads": r["pdf_uploads"],
             "pdf_uploads_stored": r["pdf_uploads_stored"]} for r in rows],
-            "note": "Admins are made on the host: `scriptorium members admin <name>`."}
+            "note": "A member the server made at their first login is named by the login"
+                    " provider's identifier for the person; a member given a key has the"
+                    " name they were given. Admins are made on the host:"
+                    " `scriptorium members admin <name>`."}
     name = (name or "").strip()
     if not name:
         raise Invalid(f"{action} needs the member's name")
-    known = {r["name"]: r for r in members.listing(conn)}
     if action == "add":
-        if name in known:
+        if members.find(conn, name) is not None:
             raise Invalid(f"there is already a member named {name!r}")
         if not confirm:
             return _preview({"add_member": name, "what_happens":
                              "the member is created and their API key is shown here once; it"
                              " is stored nowhere, so pass it on at once"})
-        key = members.add(conn, name)
+        try:
+            key = members.add(conn, name)
+        except ValueError as exc:
+            raise Invalid(str(exc)) from exc
         record(conn, member["id"], "members.add", name)
         return {"changed": True, "added": name, "api_key": key,
                 "note": "This key is shown this once and is not stored. Give it to the member"
                         " privately; they enter it with `scriptorium-client setup`."}
     if action == "revoke":
-        row = known.get(name)
+        row = members.find(conn, name)
         if row is None or row["revoked_at"]:
-            raise Invalid(f"no active member named {name!r}")
+            raise Invalid(f"no active member {name!r}")
+        shown = row["name"]
         if row["id"] == member["id"]:
             raise Invalid("you cannot revoke yourself here; another admin can, or the host")
         if not confirm:
-            return _preview({"revoke_member": name, "what_happens":
-                             "their key is refused from now on; what they uploaded and the"
-                             " usage log stay. A revoked member gets a new key by being added"
-                             " under another name"})
+            return _preview({"revoke_member": shown, "what_happens":
+                             "their key and their login are refused from now on; what they"
+                             " uploaded, their collections and the usage log stay"})
         members.revoke(conn, name)
-        record(conn, member["id"], "members.revoke", name, "active", "revoked")
-        return {"changed": True, "revoked": name}
+        record(conn, member["id"], "members.revoke", shown, "active", "revoked")
+        return {"changed": True, "revoked": shown}
     raise Invalid("action must be list, add or revoke")
 
 
@@ -374,7 +380,7 @@ def jobs_request(conn: psycopg.Connection, member: dict, action: str = "list",
             "SELECT split_part(error, E'\\n', 1) AS reason, count(*) AS n, max(id) AS newest_job"
             " FROM jobs WHERE status = 'failed' GROUP BY 1 ORDER BY n DESC LIMIT 15").fetchall()
         rows = conn.execute(
-            "SELECT j.id, j.kind, j.status, m.name AS member, j.created_at, j.finished_at,"
+            "SELECT j.id, j.kind, j.status, coalesce(m.name, m.subject) AS member, j.created_at, j.finished_at,"
             " j.summary, split_part(j.error, E'\\n', 1) AS error FROM jobs j"
             " LEFT JOIN members m ON m.id = j.member"
             " WHERE %(status)s::text IS NULL OR j.status = %(status)s"
@@ -385,7 +391,7 @@ def jobs_request(conn: psycopg.Connection, member: dict, action: str = "list",
                 "note": "A failure that starts with 'Rejected:' is final: the PDF was not kept."}
     if job_id is None:
         raise Invalid(f"{action} needs job_id")
-    row = conn.execute("SELECT j.*, m.name AS member_name FROM jobs j"
+    row = conn.execute("SELECT j.*, coalesce(m.name, m.subject) AS member_name FROM jobs j"
                        " LEFT JOIN members m ON m.id = j.member WHERE j.id = %s",
                        (job_id,)).fetchone()
     if row is None:

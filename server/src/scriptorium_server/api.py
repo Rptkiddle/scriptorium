@@ -1,5 +1,6 @@
 """The API: one request per client tool (Table 1 of the README), under /v1.
-Nothing is served without a member's API key.
+Nothing is served without a member's API key or login, except /v1/login,
+which tells a client where members log in.
 
 Every request goes through auth.handle(), which
 authenticates, applies the limits and writes the usage log. The request
@@ -17,7 +18,8 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from scriptorium_server import __version__, adminmenu, auth, files, members, retrieval
+from scriptorium_server import __version__, adminmenu, auth, files, retrieval
+from scriptorium_server import login as member_login
 from scriptorium_server import collections as member_collections
 from scriptorium_server.filestore import FileStore
 from scriptorium_server.embedding import Embedder
@@ -196,11 +198,13 @@ def _logged(reply: dict, ranking: list) -> JSONResponse:
 
 def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
                registry: retrieval.Registry | None = None,
-               current: Callable[[], Settings] | None = None) -> FastAPI:
+               current: Callable[[], Settings] | None = None,
+               login_fetch: Callable[[str], dict] | None = None) -> FastAPI:
     """The web service. `connect()` gives a database connection as a
     context manager; `registry` is asked for identifiers not held;
     `current()` gives the settings in force now, for the settings that take
-    effect while the server runs (without it, those given at the start)."""
+    effect while the server runs (without it, those given at the start);
+    `login_fetch(address)` reads the login provider's public pages."""
     app = FastAPI(title="Scriptorium", version=__version__, docs_url=None, redoc_url=None,
                   openapi_url=None)
     data = Path(str(settings["data.folder"]))
@@ -214,8 +218,11 @@ def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
     def limit(name: str) -> int:
         return int(live()[f"limits.{name}"])
 
+    login = member_login.Login(live, login_fetch or member_login.fetch_json)
+
     def serve(request: Request, name: str, inputs: dict, run) -> Any:
-        return auth.handle(connect, request, name, inputs, run, limit("requests_per_minute"))
+        return auth.handle(connect, request, name, inputs, run, limit("requests_per_minute"),
+                           login)
 
     def switched_on(name: str) -> bool:
         return live()[name] == "on"
@@ -231,6 +238,13 @@ def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
                     "admin": bool(member.get("admin")),
                     **retrieval.collection_size(conn)}
         return serve(request, "health", {}, run)
+
+    @app.get("/v1/login")
+    def login_details() -> Any:
+        """Where members log in: the provider's address and the client id
+        (both empty when the server uses API keys only). Served without a
+        key, since a client needs it before the member can log in."""
+        return login.described()
 
     @app.post("/v1/lookup")
     def lookup(body: LookupBody, request: Request) -> Any:
@@ -339,7 +353,12 @@ def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
 
     def known_key(request: Request) -> bool:
         with connect() as conn:
-            return members.authenticate(conn, auth._key(request)) is not None
+            try:
+                auth.identify(conn, request, login)
+                conn.commit()
+            except auth.Refused:
+                return False
+            return True
 
     @app.get("/v1/files/held")
     def held(request: Request) -> Any:

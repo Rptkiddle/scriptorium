@@ -1,7 +1,12 @@
 """The client's settings: one small file in the user's own config folder.
 
     server        the Scriptorium server's address
-    api_key       the member's API key
+    api_key       the member's API key, where the server uses keys
+    issuer, client_id, refresh_token
+                  the member's login, where the server uses a login provider:
+                  the provider's address, the name it knows this client by,
+                  and the token that renews the login. Written by
+                  `scriptorium-client login`
     reply_chars   the most characters of a result a tool reply may hold;
                   a larger result is saved whole to a file instead
     results_dir   where such results (and sets) are saved
@@ -14,7 +19,8 @@
                   member as an admin, so this is only for agent apps that
                   keep the client from its files
 
-The file holds the API key, so it is written readable by its owner only.
+The file holds the API key or the login's refresh token, so it is written
+readable by its owner only.
 
 Each setting can also be given as an environment variable, SCRIPTORIUM_ and
 the setting's name in capitals (SCRIPTORIUM_SERVER, SCRIPTORIUM_API_KEY, ...),
@@ -29,7 +35,8 @@ from pathlib import Path
 import platformdirs
 
 DEFAULTS = {"server": "", "api_key": "", "reply_chars": 24000, "results_dir": "", "pdf_dir": "",
-            "notice_accepted": "", "admin": ""}
+            "notice_accepted": "", "admin": "", "issuer": "", "client_id": "",
+            "refresh_token": ""}
 
 
 def settings_path() -> Path:
@@ -86,3 +93,13 @@ def save(values: dict, path: Path | None = None) -> Path:
     os.chmod(tmp, 0o600)
     os.replace(tmp, path)
     return path
+
+
+def update(changes: dict, path: Path | None = None) -> Path:
+    """Change some settings in the file and leave the others as they are."""
+    path = path or settings_path()
+    try:
+        stored = tomllib.loads(path.read_text()) if path.exists() else {}
+    except OSError:
+        stored = {}
+    return save({**{k: v for k, v in stored.items() if k in DEFAULTS}, **changes}, path)

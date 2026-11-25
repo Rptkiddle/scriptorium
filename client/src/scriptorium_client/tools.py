@@ -170,8 +170,9 @@ class Tools:
     def status(self) -> dict:
         """Whether everything is in place: the server reachable, the size of
         its collection and whether it hands out PDFs and accepts donated
-        ones, this client's version, and whether Zotero and its Scriptorium
-        Bridge plugin answer on this machine."""
+        ones, this client's version, whether the member is signed in with a
+        login or an API key, and whether
+        Zotero and its Scriptorium Bridge plugin answer on this machine."""
         state = {"client_version": __version__, "server_address": self.server.address or None}
         try:
             health = self.server.health()
@@ -181,6 +182,7 @@ class Tools:
                          pdf_upload=health.get("pdf_upload", True))
             if health.get("admin"):
                 state.update(admin=True)
+            state.update(signed_in_with="login" if self.server.session else "API key")
         except ServerError as exc:
             state.update(server_reachable=False, server_problem=str(exc))
         return {**state, **self._zotero()}

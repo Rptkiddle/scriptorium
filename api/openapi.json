@@ -1703,6 +1703,25 @@
     "summary": "Item"
    }
   },
+  "/v1/login": {
+   "get": {
+    "description": "Where members log in: the provider's address and the client id\n(both empty when the server uses API keys only). Served without a\nkey, since a client needs it before the member can log in.",
+    "operationId": "login_details_v1_login_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "title": "Response Login Details V1 Login Get"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Login Details"
+   }
+  },
   "/v1/lookup": {
    "post": {
     "operationId": "lookup_v1_lookup_post",

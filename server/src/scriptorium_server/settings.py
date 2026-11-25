@@ -101,6 +101,25 @@ SETTINGS: tuple[Setting, ...] = (
     Setting("surveillance.parallel", 8,
             "How many requests a harvest sends to the source at once.", _between(1, 16),
             "a whole number from 1 to 16", effect=NEXT_RUN),
+    Setting("login.issuer", "",
+            "Address of the OpenID Connect provider members log in at, e.g."
+            " https://auth.example.org/realms/lab. Empty switches login off: members"
+            " then use API keys only. Anyone the provider lets log in becomes a member"
+            " at their first request.",
+            lambda v: v == "" or v.startswith("https://"),
+            "an address starting with https://, or empty", effect=AT_ONCE),
+    Setting("login.client_id", "scriptorium-client",
+            "The name the provider knows the Scriptorium client by (a public client"
+            " with PKCE). The server accepts only tokens issued to it.",
+            lambda v: bool(str(v).strip()), "a client id", effect=AT_ONCE),
+    Setting("login.audience", "scriptorium-api",
+            "The audience a token must name to be accepted here; the provider adds it"
+            " to the tokens of the Scriptorium client.",
+            lambda v: bool(str(v).strip()), "an audience name", effect=AT_ONCE),
+    Setting("login.keys", "on",
+            "Whether API keys are still accepted while a login provider is set. Set to"
+            " off once every member logs in.",
+            lambda v: v in ("on", "off"), "on or off", effect=AT_ONCE),
     Setting("limits.per_request", 1000,
             "The most items or passages one request may ask for.", _between(1, 100_000),
             "a whole number from 1 to 100000", effect=AT_ONCE),

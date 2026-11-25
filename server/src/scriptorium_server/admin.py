@@ -413,7 +413,7 @@ def members_list() -> None:
     for row in rows:
         state = f"revoked {_when(row['revoked_at'])}" if row["revoked_at"] else "active"
         typer.echo(f"{row['id']}\t{row['name']}\tadded {_when(row['created_at'])}\t{state}"
-                   + ("\tadmin" if row["admin"] else ""))
+                   + ("\tlogs in" if row["login"] else "") + ("\tadmin" if row["admin"] else ""))
 
 
 @members_app.command("admin")
@@ -422,21 +422,23 @@ def members_admin(
     remove: Annotated[bool, typer.Option("--remove", help="Make them a plain member again.")] = False,
 ) -> None:
     """Make a member an admin: their client then shows the admin menu
-    (after it restarts). Only this command gives or takes the mark."""
+    (after it restarts). Only this command gives or takes the mark. NAME is
+    the member's name: for a member who logs in, the login's identifier."""
     with connect() as conn:
         found = members.set_admin(conn, name, not remove)
     if not found:
-        _fail(f"no active member named {name.strip()!r}")
+        _fail(f"no active member {name.strip()!r}")
     typer.echo(f"Member {name.strip()!r} is " + ("no longer an admin." if remove else "an admin."))
 
 
 @members_app.command("revoke")
 def members_revoke(name: str) -> None:
-    """Refuse a member's API key from now on."""
+    """Refuse a member's API key and login from now on. NAME is the
+    member's name: for a member who logs in, the login's identifier."""
     with connect() as conn:
         found = members.revoke(conn, name)
     if not found:
-        _fail(f"no active member named {name.strip()!r}")
+        _fail(f"no active member {name.strip()!r}")
     typer.echo(f"Member {name.strip()!r} revoked.")
 
 
@@ -711,7 +713,7 @@ def jobs_show(job_id: int) -> None:
     """Show one job in full."""
     with connect() as conn:
         row = conn.execute(
-            "SELECT jobs.*, members.name AS member_name FROM jobs"
+            "SELECT jobs.*, coalesce(members.name, members.subject) AS member_name FROM jobs"
             " LEFT JOIN members ON members.id = jobs.member WHERE jobs.id = %s",
             (job_id,)).fetchone()
     if row is None:
