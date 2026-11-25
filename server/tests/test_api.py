@@ -89,13 +89,22 @@ def test_nothing_is_served_without_a_key(world):
     anonymous = TestClient(world.app)
     assert anonymous.get("/v1/health").status_code == 401
     assert anonymous.get(f"/v1/items/{world.keys[0]}").status_code == 401
-    for path in ("/", "/docs", "/openapi.json", "/v1"):
-        assert anonymous.get(path).status_code == 404  # no page describes the service
+    assert anonymous.get("/v1/contents").status_code == 401
+    for path in ("/docs", "/openapi.json", "/v1"):
+        assert anonymous.get(path).status_code == 404  # no page describes the API
     reply = world.client.get("/v1/health")
     assert reply.json() == {"status": "ok", "server": "0.1.0", "api": 1, "min_client": "0.3.0",
                             "pdf_download": True, "pdf_upload": True,
                             "admin": False, "items": 5, "fulltexts": 1}
     assert [r["request"] for r in log(world)][-1] == "health"
+
+
+def test_the_web_page_is_open_and_its_contents_need_a_key(world):
+    page = TestClient(world.app).get("/")
+    assert page.status_code == 200 and page.headers["content-type"].startswith("text/html")
+    assert "Scriptorium" in page.text and "/v1/contents" in page.text
+    assert world.client.get("/v1/contents").json() == {"items": 5, "venues": 2}
+    assert [r["request"] for r in log(world)] == ["contents"]  # the page itself is not logged
 
 
 def test_unknown_key_is_refused(world):
@@ -196,6 +205,26 @@ def test_author_matches_any_name_form(world):
     for typed in ("van Aalst", "Aalst", "Wim van Aalst", "aalst, w."):
         reply = world.client.post("/v1/items", json={"filters": {"authors": [typed]}})
         assert titles(reply) == ["Echo chambers in online news"], typed
+
+
+def test_text_filter_finds_words_in_the_chosen_field(world):
+    def total(text, text_in=None, **more):
+        filters = {"text": text, **({"text_in": text_in} if text_in else {}), **more}
+        reply = world.client.post("/v1/items", json={"filters": filters, "count": 0})
+        assert reply.status_code == 200, reply.json()
+        return reply.json()["total"]
+
+    assert total("echo") == 2 and total("ECHO") == 2                  # title or abstract, any case
+    assert total("echo", "title") == 1 and total("echo", "abstract") == 2
+    assert total("Terpstra", "authors") == 2 and total("Terpstra") == 2
+    assert total("Terpstra", "title") == 0
+    assert total("proceedings", "venue") == 1 and total("proceedings") == 1  # all takes the venue
+    assert total('"filter bubbles"') == 2 and total('"bubbles filter"') == 0
+    assert total("echo -recommender") == 1 and total("protein or opinion") == 2
+    assert total("terpstra diversity") == 1                            # words in different fields
+    assert total("echo", year_from=2023) == 1 and total("") == 5
+    reply = world.client.post("/v1/items", json={"filters": {"text": "echo", "text_in": "body"}})
+    assert reply.status_code == 400 and "text_in must be one of" in reply.json()["error"]
 
 
 def test_list_gives_chosen_fields_order_and_pages(world):

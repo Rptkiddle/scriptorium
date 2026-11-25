@@ -1,0 +1,649 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scriptorium</title>
+<style>
+  :root {
+    --bg: #fbfaf7; --surface: #ffffff; --text: #1f1d1a; --muted: #6b665e;
+    --line: #e4e0d8; --accent: #7a3e1d; --accent-text: #ffffff; --error: #a32020;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161513; --surface: #1f1d1a; --text: #ece8e1; --muted: #a39d93;
+      --line: #34312c; --accent: #e0a074; --accent-text: #161513; --error: #f08080;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 64rem; margin: 0 auto; padding: 2rem 16px 4rem; }
+  #about { max-width: 46rem; }  /* the page is as wide as the dashboard; the text keeps a readable line length */
+  h1 { font: 600 2rem/1.2 Georgia, "Times New Roman", serif; margin: 0; }
+  h1 a { color: inherit; text-decoration: none; }
+  h2 { font-size: 1.1rem; margin: 1.75rem 0 .5rem; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  header.top {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem 1rem;
+    border-bottom: 1px solid var(--line); padding-bottom: .9rem; margin-bottom: 1.5rem;
+  }
+  .brand { display: flex; align-items: baseline; gap: 1.5rem; }
+  .menu { display: flex; gap: 1rem; }
+  .menu a { color: var(--muted); font-size: .95rem; padding: .2rem 0; border-bottom: 2px solid transparent; }
+  .menu a:hover { color: var(--text); text-decoration: none; }
+  .menu a[aria-current="page"] { color: var(--text); border-bottom-color: var(--accent); }
+  .menu a[aria-disabled="true"] { opacity: .45; cursor: default; }
+  .menu a[aria-disabled="true"]:hover { color: var(--muted); }
+  .session { display: flex; align-items: center; gap: 1rem; }
+  button.quiet { background: transparent; color: var(--muted); border: 1px solid var(--line); padding: .35rem .8rem; }
+  button.quiet:hover { color: var(--text); border-color: var(--muted); }
+  .session [hidden] { display: none; }
+  .signin {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+    padding: 1rem 1.25rem; margin: 1.5rem 0;
+  }
+  .signin h2 { margin-top: 0; }
+  a.button {
+    display: inline-block; padding: .55rem 1rem; border-radius: 6px; text-decoration: none;
+    background: var(--accent); color: var(--accent-text);
+  }
+  a.button:hover { text-decoration: none; filter: brightness(1.08); }
+  .signin p { margin: 0 0 .5rem; }
+  section[hidden] { display: none; }
+  .figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 1rem; }
+  .figure { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 1rem 1.25rem; }
+  .figure .value { font-size: 2rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .figure .label { color: var(--muted); }
+  form { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0; }
+  input {
+    flex: 1 1 16rem; min-width: 0; padding: .55rem .7rem; font: inherit; color: var(--text);
+    background: var(--surface); border: 1px solid var(--line); border-radius: 6px;
+  }
+  button {
+    padding: .55rem 1rem; font: inherit; border: 0; border-radius: 6px;
+    background: var(--accent); color: var(--accent-text); cursor: pointer;
+  }
+  .muted { color: var(--muted); }
+  .error { color: var(--error); }
+  .linkbutton { background: none; color: var(--accent); padding: 0; }
+  .linkbutton:hover { text-decoration: underline; }
+
+  .bar { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: .5rem 1rem; }
+  .figures.compact .figure { padding: .6rem 1rem; }
+  .figures.compact .value { font-size: 1.5rem; }
+  .finder { margin: 1.5rem 0 1rem; }
+  .searchrow { display: flex; flex-wrap: wrap; gap: .5rem; margin: 0 0 .75rem; }
+  .searchrow input { flex: 1 1 18rem; }
+  select {
+    font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--line);
+    border-radius: 6px; padding: .45rem .5rem;
+  }
+  .filters { display: grid; gap: .5rem; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: .75rem 1rem; }
+  .filter { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .5rem; }
+  .filter-label { color: var(--muted); font-size: .92rem; width: 6.5rem; flex: none; }
+  .filter input, .filter select { padding: .3rem .5rem; font-size: .95rem; flex: 0 1 16rem; }
+  .filter input.year { flex: 0 0 5.5rem; }
+  .chips { display: contents; }
+  .chip {
+    display: inline-flex; align-items: center; gap: .35rem; padding: .15rem .3rem .15rem .6rem;
+    border-radius: 999px; background: var(--bg); border: 1px solid var(--line); font-size: .92rem;
+  }
+  .chip button { background: none; color: var(--muted); padding: 0 .3rem; line-height: 1; }
+  .chip button:hover { color: var(--error); }
+  .check { display: inline-flex; align-items: center; gap: .35rem; font-size: .95rem; margin-left: .5rem; }
+  .check input { flex: none; }
+  .picker { position: relative; flex: none; }
+  .picker-toggle {
+    display: inline-flex; align-items: center; gap: .4rem; padding: .3rem .6rem; font-size: .95rem;
+    background: var(--surface); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+  }
+  .picker-toggle::after { content: "▾"; color: var(--muted); font-size: .8rem; }
+  .picker-toggle[aria-expanded="true"] { border-color: var(--accent); }
+  .picker-toggle .badge {
+    background: var(--accent); color: var(--accent-text); border-radius: 999px;
+    padding: 0 .45rem; font-size: .8rem; font-variant-numeric: tabular-nums;
+  }
+  .picker-panel {
+    position: absolute; z-index: 5; top: calc(100% + .25rem); left: 0; width: min(24rem, calc(100vw - 32px));
+    background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+    box-shadow: 0 6px 20px rgb(0 0 0 / .15); padding: .5rem;
+  }
+  .picker-panel input[type="search"] { width: 100%; flex: none; margin-bottom: .4rem; }
+  .picker-list { list-style: none; margin: 0; padding: 0; max-height: 18rem; overflow-y: auto; }
+  .picker-list label {
+    display: flex; align-items: flex-start; gap: .5rem; padding: .3rem .4rem; border-radius: 4px;
+    cursor: pointer; font-size: .95rem;
+  }
+  .picker-list label:hover { background: var(--bg); }
+  .picker-list input { flex: none; margin-top: .3rem; }
+  .picker-list .name { flex: 1; overflow-wrap: anywhere; }
+  .picker-list .n { color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
+  .picker-list .divider { border-top: 1px solid var(--line); margin: .3rem 0; }
+  .picker-foot { display: flex; justify-content: space-between; align-items: center; gap: .5rem; margin-top: .4rem; padding-top: .4rem; border-top: 1px solid var(--line); }
+  .picker-foot button:not(.linkbutton) { padding: .3rem .8rem; font-size: .95rem; }
+  @media (max-width: 40rem) { .filter-label { width: 100%; } .check { margin-left: 0; } }
+  .pane { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 1rem; min-width: 0; }
+  .listhead h2 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 1.3rem; }
+  .listhead { margin-bottom: .5rem; }
+  .listhead select { padding: .3rem .4rem; }
+  .items { list-style: none; margin: 0; padding: 0; }
+  .items > li { border-top: 1px solid var(--line); padding: .7rem 0; }
+  .items .title {
+    display: block; width: 100%; text-align: left; background: none; padding: 0;
+    color: var(--text); font-weight: 600; line-height: 1.4;
+  }
+  .items .title:hover { color: var(--accent); }
+  .items .meta { color: var(--muted); font-size: .92rem; }
+  .detail { margin-top: .6rem; padding: .75rem 1rem; border-left: 3px solid var(--line); background: var(--bg); border-radius: 0 6px 6px 0; }
+  .detail p { margin: 0 0 .6rem; }
+  .detail .actions { display: flex; flex-wrap: wrap; gap: .4rem 1rem; align-items: center; }
+  .small { font-size: .92rem; }
+  .pager { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-top: 1rem; }
+  .pager button:disabled { opacity: .4; cursor: default; }
+</style>
+</head>
+<body>
+<main>
+  <header class="top">
+    <div class="brand">
+      <h1><a href="#about" id="home">Scriptorium</a></h1>
+      <nav class="menu" aria-label="Pages">
+        <a href="#about" id="dashboard-link" aria-disabled="true" title="Sign in to use the dashboard">Dashboard</a>
+      </nav>
+    </div>
+    <div class="session">
+      <a class="button" href="/auth/login" id="signin-open">Sign in</a>
+      <span class="muted small" id="who" hidden></span>
+      <button type="button" class="quiet" id="signout" hidden>Sign out</button>
+    </div>
+  </header>
+
+  <section id="about">
+    <p>Scriptorium is a shared literature collection for the 
+      <a href="https://societal-analytics.nl">Societal Analytics Lab</a>. It holds the
+      publications of the journals, proceedings and preprint servers we follow, with their
+      abstracts, and the full text of many of them. Members' agents search it to find,
+      read and cite literature.</p>
+
+    <div class="signin" id="signin">
+      <h2>Members</h2>
+      <p>Sign in with your lab account to see and search the collection.</p>
+      <p><a class="button" href="/auth/login">Sign in with your lab account</a></p>
+      <p id="error" class="error" role="alert"></p>
+    </div>
+
+    <h2>How it works</h2>
+    <p>The server keeps the collection up to date. Each week it collects the new
+      publications of every venue it follows, and it reads the PDFs members donate.
+      Each publication is indexed, so it can be found by meaning as well as by exact
+      words.</p>
+    <p>Members use Scriptorium through their own AI agent, such as Claude, with any agent
+      that supports MCP. A small program on the member's computer, the Scriptorium
+      client, gives the agent tools to look up, search and inspect publications,
+      download and donate PDFs, export BibTeX, and exchange items with Zotero.</p>
+
+    <h2>Getting started</h2>
+    <p>Ask an admin for an API key, then install the client:
+      see the <a href="https://github.com/rptkiddle/scriptorium/blob/main/docs/client.md">client setup guide</a>.</p>
+  </section>
+
+  <section id="dashboard" hidden>
+    <div>
+      <div class="figures compact">
+        <div class="figure"><div class="value" id="items">–</div><div class="label">articles</div></div>
+        <div class="figure"><div class="value" id="venues">–</div><div class="label">journals and other venues</div></div>
+      </div>
+
+      <div class="finder">
+        <form id="search-form" class="searchrow" role="search">
+          <input id="q" type="search" aria-label="Search"
+                 placeholder='Search: polarization "news media" -twitter'>
+          <select id="q-in" aria-label="Search in">
+            <option value="all">All fields</option>
+            <option value="title">Title</option>
+            <option value="abstract">Abstract</option>
+            <option value="authors">Authors</option>
+            <option value="venue">Journal</option>
+          </select>
+          <button type="submit">Search</button>
+        </form>
+
+        <div class="filters">
+          <div class="filter">
+            <span class="filter-label">Journals</span>
+            <div class="picker" id="venue-picker"></div>
+            <span class="chips" id="venue-chips"></span>
+          </div>
+          <div class="filter">
+            <span class="filter-label">Years</span>
+            <input id="year-from" class="year" type="number" inputmode="numeric" placeholder="from" aria-label="From year">
+            <span class="muted">–</span>
+            <input id="year-to" class="year" type="number" inputmode="numeric" placeholder="to" aria-label="To year">
+            <label class="check"><input id="fulltext" type="checkbox"> with full text only</label>
+            <button type="button" class="linkbutton small" id="clear">Clear search and filters</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="pane" id="listing">
+        <div class="listhead bar">
+          <h2 id="list-title">Articles</h2>
+          <label class="muted small">Sort
+            <select id="order">
+              <option value="year">year, newest first</option>
+              <option value="added">newest in Scriptorium</option>
+              <option value="title">title</option>
+            </select>
+          </label>
+        </div>
+        <p class="muted small" id="list-note"></p>
+        <ul class="items" id="item-list"></ul>
+        <div class="pager" id="pager" hidden>
+          <button type="button" id="prev">← Previous</button>
+          <span class="muted small" id="page-info"></span>
+          <button type="button" id="next">Next →</button>
+        </div>
+      </div>
+
+    </div>
+  </section>
+</main>
+<script>
+(() => {
+  const PAGE = 25;          // articles per page
+  const $ = (id) => document.getElementById(id);
+  const fmt = new Intl.NumberFormat();
+
+  // A small element builder; text always goes in as text, never as HTML.
+  function el(tag, props = {}, ...children) {
+    const node = document.createElement(tag);
+    for (const [name, value] of Object.entries(props)) {
+      if (name === "on") for (const [ev, fn] of Object.entries(value)) node.addEventListener(ev, fn);
+      else if (name in node) node[name] = value;
+      else node.setAttribute(name, value);
+    }
+    for (const child of children.flat()) if (child != null && child !== false) node.append(child);
+    return node;
+  }
+
+  // --- talking to the server: the session cookie goes along, with the web header
+  // that makes it count (the server explains why in web.py) --------------------
+
+  class NotSignedIn extends Error {}
+
+  async function api(path, body, raw = false) {
+    const options = { credentials: "same-origin",
+                      headers: { "X-Scriptorium-Web": "1", "X-Scriptorium-Agent": "web" } };
+    if (body !== undefined) {
+      options.method = "POST";
+      options.headers["Content-Type"] = "application/json";
+      options.body = JSON.stringify(body);
+    }
+    let reply;
+    try { reply = await fetch(path, options); }
+    catch { throw new Error("The server could not be reached."); }
+    if (reply.ok && raw) return reply;
+    const data = await reply.json().catch(() => ({}));
+    if (reply.status === 401) {
+      signedOut(data.error || "You are no longer signed in.");
+      throw new NotSignedIn();
+    }
+    if (!reply.ok) throw new Error(data.error || "The server answered with an error (" + reply.status + ").");
+    return data;
+  }
+
+  function failed(where, error) {
+    if (!(error instanceof NotSignedIn)) where.textContent = error.message;
+  }
+
+  // --- the search: its state lives in the address, so a search can be bookmarked --
+
+  const state = { q: "", in: "all", venues: [], from: "", to: "",
+                  fulltext: false, order: "year", offset: 0 };
+  let lastSearch = "#";  // the dashboard's address, to come back to from About
+
+  function readAddress() {
+    const query = new URLSearchParams(location.hash.startsWith("#?") ? location.hash.slice(2) : "");
+    state.q = query.get("q") || "";
+    state.in = query.get("in") || "all";
+    state.venues = query.getAll("venue");
+    state.from = query.get("from") || "";
+    state.to = query.get("to") || "";
+    state.fulltext = query.get("fulltext") === "1";
+    state.order = query.get("order") || "year";
+    state.offset = Math.max(0, parseInt(query.get("offset") || "0", 10) || 0);
+  }
+
+  function writeAddress() {
+    const query = new URLSearchParams();
+    if (state.q) query.set("q", state.q);
+    if (state.in !== "all") query.set("in", state.in);
+    for (const v of state.venues) query.append("venue", v);
+    if (state.from) query.set("from", state.from);
+    if (state.to) query.set("to", state.to);
+    if (state.fulltext) query.set("fulltext", "1");
+    if (state.order !== "year") query.set("order", state.order);
+    if (state.offset) query.set("offset", state.offset);
+    const text = query.toString();
+    lastSearch = text ? "#?" + text : "#";
+    history.replaceState(null, "", text ? lastSearch : location.pathname);
+  }
+
+  function filters({ withVenues = true } = {}) {
+    const f = {};
+    if (state.q) { f.text = state.q; if (state.in !== "all") f.text_in = state.in; }
+    if (withVenues && state.venues.length) f.venues = state.venues;
+    const from = parseInt(state.from, 10), to = parseInt(state.to, 10);
+    if (from) f.year_from = from;
+    if (to) f.year_to = to;
+    if (state.fulltext) f.has_fulltext = true;
+    return f;
+  }
+
+  function showControls() {
+    $("q").value = state.q;
+    $("q-in").value = state.in;
+    $("year-from").value = state.from;
+    $("year-to").value = state.to;
+    $("fulltext").checked = state.fulltext;
+    $("order").value = state.order;
+    const chip = (label, remove) => el("span", { className: "chip" }, label,
+      el("button", { type: "button", "aria-label": "Remove " + label, on: { click: remove } }, "×"));
+    $("venue-chips").replaceChildren(...state.venues.map((v) =>
+      chip(v, () => { state.venues = state.venues.filter((x) => x !== v); changed(); })));
+    venuePicker?.label();
+  }
+
+  function changed() {          // any change of search or filters starts at the first page
+    state.offset = 0;
+    run();
+  }
+
+  function run() {
+    writeAddress();
+    showControls();
+    loadItems();
+  }
+
+  // --- signing in: the home page until signed in, then the dashboard ------------
+
+  let signedIn = false, loaded = false;
+
+  function signedOut(message) {   // never signed in, signed out, or the session ended
+    signedIn = false;
+    loaded = false;
+    $("error").textContent = message || "";
+    view();
+  }
+
+  async function signIn() {
+    let me, body;
+    try {   // not signed in is no error here: the home page shows the sign-in
+      const reply = await fetch("/auth/me", { credentials: "same-origin",
+                                              headers: { "X-Scriptorium-Web": "1" } });
+      if (reply.status === 401) return view();
+      if (!reply.ok) throw new Error("The server answered with an error (" + reply.status + ").");
+      me = await reply.json();
+      body = await api("/v1/contents");
+    } catch (error) {
+      if (!(error instanceof NotSignedIn)) signedOut(error.message === "Failed to fetch" ? "The server could not be reached." : error.message);
+      return;
+    }
+    signedIn = true;
+    $("error").textContent = "";
+    $("who").textContent = me.name;
+    $("items").textContent = fmt.format(body.items);
+    $("venues").textContent = fmt.format(body.venues);
+    view();
+  }
+
+  function view() {
+    const dashboard = signedIn && location.hash !== "#about";
+    $("about").hidden = dashboard;
+    $("dashboard").hidden = !dashboard;
+    $("signin").hidden = signedIn;
+    $("signin-open").hidden = signedIn;
+    $("signout").hidden = !signedIn;
+    $("who").hidden = !signedIn;
+    const link = $("dashboard-link");
+    link.href = signedIn ? lastSearch : "#about";
+    if (signedIn) { link.removeAttribute("aria-disabled"); link.removeAttribute("title"); }
+    else { link.setAttribute("aria-disabled", "true"); link.title = "Sign in to use the dashboard"; }
+    if (dashboard) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
+    if (dashboard && !loaded) {
+      loaded = true;
+      readAddress();
+      run();
+    }
+  }
+
+  // --- the results ----------------------------------------------------------------
+
+  let itemSeq = 0;
+
+  function authors(list) {
+    if (!list || !list.length) return "";
+    return list.length > 3 ? list.slice(0, 3).join(", ") + " et al." : list.join(", ");
+  }
+
+  async function loadItems() {
+    const seq = ++itemSeq, note = $("list-note");
+    note.textContent = "Loading…";
+    try {
+      const reply = await api("/v1/items", { filters: filters(), count: PAGE, offset: state.offset,
+                                             order: state.order });
+      if (seq !== itemSeq) return;
+      const total = reply.total;
+      const searching = Object.keys(filters()).length > 0;
+      $("list-title").textContent = fmt.format(total) + (total === 1 ? " article" : " articles");
+      $("item-list").replaceChildren(...reply.items.map(articleRow));
+      note.textContent = total ? "" : (searching ? "Nothing matches this search. Try fewer words or filters." : "The collection is empty.");
+      $("pager").hidden = total <= PAGE;
+      $("prev").disabled = state.offset === 0;
+      $("next").disabled = state.offset + PAGE >= total;
+      $("page-info").textContent = total
+        ? `${fmt.format(state.offset + 1)}–${fmt.format(Math.min(state.offset + PAGE, total))} of ${fmt.format(total)}` : "";
+    } catch (error) { if (seq === itemSeq) { $("item-list").replaceChildren(); failed(note, error); } }
+  }
+
+  function articleRow(item) {
+    const li = el("li");
+    const meta = [authors(item.authors), item.year, item.venue,
+                  item.has_fulltext && "full text"].filter(Boolean).join(" · ");
+    li.append(
+      el("button", { type: "button", className: "title", "aria-expanded": "false",
+                     on: { click: (e) => toggleDetail(li, item.key, e.currentTarget) } }, item.title),
+      el("div", { className: "meta" }, meta));
+    return li;
+  }
+
+  async function toggleDetail(li, key, button) {
+    const open = li.querySelector(".detail");
+    if (open) { open.remove(); button.setAttribute("aria-expanded", "false"); return; }
+    button.setAttribute("aria-expanded", "true");
+    const box = el("div", { className: "detail small" }, "Loading…");
+    li.append(box);
+    let item;
+    try { item = await api("/v1/items/" + encodeURIComponent(key)); }
+    catch (error) { failed(box, error); return; }
+    const status = el("span", { className: "muted" });
+    const links = [
+      item.doi && el("a", { href: "https://doi.org/" + item.doi, target: "_blank", rel: "noopener" }, "doi:" + item.doi),
+      item.arxiv_id && el("a", { href: "https://arxiv.org/abs/" + item.arxiv_id, target: "_blank", rel: "noopener" }, "arXiv:" + item.arxiv_id),
+      el("button", { type: "button", className: "linkbutton", on: { click: () => copyBibtex(item, box, status) } }, "Copy BibTeX"),
+      item.pdf_held && el("button", { type: "button", className: "linkbutton", on: { click: () => downloadPdf(item, status) } }, "Download PDF"),
+      status,
+    ];
+    box.replaceChildren(
+      el("p", {}, item.abstract || el("span", { className: "muted" }, "No abstract.")),
+      el("p", { className: "muted" }, [item.venue, item.publisher, item.date || item.year,
+        item.citation_key && "cite as " + item.citation_key].filter(Boolean).join(" · ")),
+      el("div", { className: "actions" }, links));
+  }
+
+  async function copyBibtex(item, box, status) {
+    try {
+      const reply = await api("/v1/bibtex", { keys: [item.key] });
+      try {
+        await navigator.clipboard.writeText(reply.bibtex);
+        status.textContent = "BibTeX copied.";
+      } catch {
+        box.append(el("pre", { className: "small", style: "white-space: pre-wrap" }, reply.bibtex));
+      }
+    } catch (error) { failed(status, error); }
+  }
+
+  async function downloadPdf(item, status) {
+    status.textContent = "Downloading…";
+    try {
+      const reply = await api("/v1/files/" + encodeURIComponent(item.key), undefined, true);
+      const url = URL.createObjectURL(await reply.blob());
+      el("a", { href: url, download: (item.citation_key || item.key) + ".pdf" }).click();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      status.textContent = "";
+    } catch (error) { failed(status, error); }
+  }
+
+  // --- the picker: a dropdown with a search box and check boxes ------------------
+  // Used for the journals (and, later, the member's collections). `load(contains)` gives the choices as
+  // [{value, label, count, note}]; the chosen values stay at the top of the list,
+  // also when the search hides them. Each tick applies at once.
+
+  function picker({ root, title, placeholder, load, chosen, setChosen, labelOf }) {
+    const toggle = el("button", { type: "button", className: "picker-toggle", "aria-expanded": "false",
+                                  "aria-haspopup": "true" });
+    const search = el("input", { type: "search", placeholder, "aria-label": placeholder });
+    const list = el("ul", { className: "picker-list" });
+    const note = el("p", { className: "muted small", style: "margin: .3rem .4rem" });
+    const clear = el("button", { type: "button", className: "linkbutton small" }, "Clear");
+    const done = el("button", { type: "button" }, "Done");
+    const panel = el("div", { className: "picker-panel", hidden: true, role: "dialog", "aria-label": title },
+                     search, list, note, el("div", { className: "picker-foot" }, clear, done));
+    root.replaceChildren(toggle, panel);
+    let seq = 0, timer, choices = [];
+
+    function label() {
+      const n = chosen().length;
+      toggle.replaceChildren(...(n ? [el("span", { className: "badge" }, String(n)), "chosen"] : ["Any"]));
+    }
+
+    function row(value, text, count, extra, checked) {
+      const box = el("input", { type: "checkbox", checked, on: { change: () => {
+        const now = chosen().filter((v) => v !== value);
+        setChosen(box.checked ? [...now, value] : now);
+        label();
+      } } });
+      return el("li", {}, el("label", {}, box, el("span", { className: "name" }, text, extra),
+                             count != null ? el("span", { className: "n" }, fmt.format(count)) : ""));
+    }
+
+    function render() {
+      const picked = chosen();
+      const byValue = Object.fromEntries(choices.map((c) => [c.value, c]));
+      const top = picked.map((v) => {
+        const c = byValue[v];
+        return row(v, labelOf(v), c ? c.count : null, c && c.note, true);
+      });
+      const rest = choices.filter((c) => !picked.includes(c.value))
+                          .map((c) => row(c.value, c.label, c.count, c.note, false));
+      list.replaceChildren(...top, top.length && rest.length ? el("li", { className: "divider" }) : "", ...rest);
+    }
+
+    async function refresh() {
+      const mine = ++seq;
+      note.textContent = "Loading…";
+      try {
+        const reply = await load(search.value.trim());
+        if (mine !== seq) return;
+        choices = reply.choices;
+        note.textContent = reply.note || "";
+        render();
+      } catch (error) { if (mine === seq) failed(note, error); }
+    }
+
+    function open(yes) {
+      panel.hidden = !yes;
+      toggle.setAttribute("aria-expanded", yes);
+      if (yes) { refresh(); search.focus(); }
+    }
+
+    toggle.addEventListener("click", () => open(panel.hidden));
+    done.addEventListener("click", () => { open(false); toggle.focus(); });
+    clear.addEventListener("click", () => { setChosen([]); label(); render(); });
+    search.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(refresh, 250); });
+    panel.addEventListener("keydown", (e) => { if (e.key === "Escape") { open(false); toggle.focus(); } });
+    document.addEventListener("click", (e) => { if (!panel.hidden && !root.contains(e.target)) open(false); });
+    label();
+    return { label };
+  }
+
+  const venuePicker = picker({
+    root: $("venue-picker"), title: "Journals", placeholder: "Find a journal",
+    chosen: () => state.venues,
+    setChosen: (values) => { state.venues = values; changed(); },
+    labelOf: (v) => v,
+    // the venues within the current search and other filters, with how many articles each
+    load: async (contains) => {
+      const reply = await api("/v1/facets", { field: "venue", contains, count: 50,
+                                              filters: filters({ withVenues: false }) });
+      return { choices: reply.values.map((v) => ({ value: v.value, label: v.value, count: v.items })),
+               note: !reply.values.length ? "No journal matches." : reply.more ? "Showing the 50 with most articles; type to find others." : "" };
+    },
+  });
+
+  // --- the other controls -----------------------------------------------------------
+
+  $("search-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    state.q = $("q").value.trim();
+    state.in = $("q-in").value;
+    changed();
+  });
+  $("q-in").addEventListener("change", () => { if (state.q) { state.in = $("q-in").value; changed(); } });
+  for (const id of ["year-from", "year-to"]) {
+    $(id).addEventListener("change", () => {
+      state.from = $("year-from").value.trim();
+      state.to = $("year-to").value.trim();
+      changed();
+    });
+  }
+  $("fulltext").addEventListener("change", () => { state.fulltext = $("fulltext").checked; changed(); });
+  $("order").addEventListener("change", () => { state.order = $("order").value; changed(); });
+  $("clear").addEventListener("click", () => {
+    Object.assign(state, { q: "", in: "all", venues: [], from: "", to: "",
+                           fulltext: false, offset: 0 });
+    run();
+  });
+  $("prev").addEventListener("click", () => { state.offset = Math.max(0, state.offset - PAGE); run(); });
+  $("next").addEventListener("click", () => { state.offset += PAGE; run(); $("listing").scrollIntoView({ behavior: "smooth" }); });
+
+  // --- the header and the sign-in form ----------------------------------------------
+
+  $("dashboard-link").addEventListener("click", (e) => {
+    if (!signedIn) { e.preventDefault(); $("signin").scrollIntoView({ behavior: "smooth", block: "center" }); }
+  });
+  $("signout").addEventListener("click", async () => {
+    try { await fetch("/auth/logout", { method: "POST", credentials: "same-origin",
+                                        headers: { "X-Scriptorium-Web": "1" } }); } catch {}
+    history.replaceState(null, "", location.pathname);
+    signedOut();
+  });
+  addEventListener("hashchange", () => {
+    if (signedIn && location.hash !== "#about" && loaded) { readAddress(); run(); }
+    view();
+  });
+  // a sign-in that failed comes back as #signin-error=<why>
+  if (location.hash.startsWith("#signin-error=")) {
+    $("error").textContent = decodeURIComponent(location.hash.slice("#signin-error=".length));
+    history.replaceState(null, "", location.pathname);
+  }
+  view();
+  signIn();
+})();
+</script>
+</body>
+</html>

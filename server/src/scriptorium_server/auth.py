@@ -1,8 +1,8 @@
 """Authentication, the two limits and the usage log, in one place: every
 request of a member passes through handle().
 
-handle() finds the member for the API key or the login token (401
-otherwise; identify() below), refuses a
+handle() finds the member for the API key, the login token or the web
+page's session (identify() below; 401 otherwise), refuses a
 client older than the server supports (426), applies the rate per member
 (429), runs the request, and writes one usage_log row whatever the
 outcome: member, request name, all inputs, the full reply or the error,
@@ -21,7 +21,7 @@ from fastapi.responses import JSONResponse
 from psycopg.types.json import Jsonb
 
 from scriptorium_server import login as member_login
-from scriptorium_server import members
+from scriptorium_server import members, web
 from scriptorium_server.retrieval import BadRequest
 
 CLIENT_HEADER = "x-scriptorium-client"   # the client's version
@@ -86,8 +86,16 @@ def identify(conn: psycopg.Connection, request: Request,
     person not seen before makes a new member, unless the request also
     carries the API key of a member without a login: the login is then
     attached to that member, so a member who moves from a key to the login
-    keeps their collections and history."""
+    keeps their collections and history.
+
+    A request without either, from the web page (the header web.WEB_HEADER),
+    is identified by the page's session cookie instead (web.py)."""
     bearer = _key(request)
+    if not bearer and request.headers.get(web.WEB_HEADER) == "1":
+        member = web.session_member(conn, request.cookies.get(web.SESSION_COOKIE, ""))
+        if member is None:
+            raise Refused(401, "not signed in, or the session has ended: sign in again")
+        return member
     if login is None or not login.issuer or bearer.startswith(members.KEY_PREFIX):
         if login is not None and not login.keys_accepted:
             raise Refused(401, "this server no longer accepts API keys; log in with"

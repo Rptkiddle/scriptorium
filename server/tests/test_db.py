@@ -10,7 +10,7 @@ ITEM = ("INSERT INTO items (key, type, title, title_norm, doi, arxiv_id, provena
 TABLES = {"items", "item_creators", "passages", "venues", "members", "files", "jobs",
           "usage_log", "meta", "pending_files",
           "schema_migrations", "admin_log",
-          "collections", "collection_items"}
+          "collections", "collection_items", "web_logins", "web_sessions"}
 
 
 def vector(*head: float) -> str:

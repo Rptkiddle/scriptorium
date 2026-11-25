@@ -103,7 +103,7 @@ Collaborative implementation for Scriptorium with remote + client split. Server 
 | admin | runs | `/v1/admin/runs` | Admins only. Harvests and backups; start one |
 | admin | jobs | `/v1/admin/jobs` | Admins only. Jobs and failures; retry |
 
-Filters (find tools): author, year, venue, publisher, category, type, has full text, added since, provenance, the member's collections. The two search tools also take an exact phrase (keyword index).
+Filters (find tools): author, year, venue, publisher, category, type, has full text, added since, provenance, the member's collections, keyword text (whole words, "phrases", `or`, -word; in all fields, the title, the abstract, the authors or the venue). The two search tools also take an exact phrase (keyword index).
 
 ## 3. Server
 
@@ -114,6 +114,7 @@ Filters (find tools): author, year, venue, publisher, category, type, has full t
 - **Web service.** FastAPI under Uvicorn, behind the server's HTTPS front door, which admits VU network addresses only.
   - Authentication and usage logging in one place, before any request is handled.
   - API: one request per client tool (Table 1). Nothing is served without an API key. Addresses versioned (`/v1`); an outdated client is told to update.
+  - Web page at `/`: what Scriptorium is, open to all; the collection's contents (items, venues) and a keyword search with filters (journals, years, full text), for members, who sign in through the lab's OIDC provider (everyone in the realm is a member, made at the first sign-in; the browser holds an HttpOnly session cookie, which counts only on requests carrying the page's own header). The page holds no data; it calls the `/v1` requests.
   - The server serves what the client asks for: how many results, which fields, in what order. It keeps no per-member results; a member's collections (below) are the lists they chose to keep.
   - Collections: a member's own lists of items, private to them. History = recorded by a workflow run (workflow, what was asked, the items found with their rank). Active = named by the member; filing an item under a name is how it is labelled. A history can be kept as an active collection; either kind can be deleted by its member. Two tables (`collections`, `collection_items`); a collection is also a filter of the find requests.
   - Two protective limits: a maximum per request and a rate per member. A refused request says which limit it hit.

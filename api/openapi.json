@@ -672,6 +672,30 @@
       ],
       "title": "Publishers"
      },
+     "text": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Words the item must hold, matched as whole words in any case: \"a phrase\" in quotes, `or` between alternatives, -word to exclude.",
+      "title": "Text"
+     },
+     "text_in": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Where the words of `text` are looked for: all (title, abstract, authors, venue; the default), title, abstract, authors or venue.",
+      "title": "Text In"
+     },
      "types": {
       "anyOf": [
        {
@@ -1441,6 +1465,25 @@
      }
     },
     "summary": "Collection Show"
+   }
+  },
+  "/v1/contents": {
+   "get": {
+    "description": "The number of items and of venues with items, for the web page.",
+    "operationId": "contents_v1_contents_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "title": "Response Contents V1 Contents Get"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Contents"
    }
   },
   "/v1/facets": {

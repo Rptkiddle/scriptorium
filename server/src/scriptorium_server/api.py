@@ -1,6 +1,9 @@
 """The API: one request per client tool (Table 1 of the README), under /v1.
 Nothing is served without a member's API key or login, except /v1/login,
-which tells a client where members log in.
+which tells a client where members log in, the web page at /, which holds
+no data, and the page's sign-in under /auth: members sign in there through
+the same login provider and the page then sends its session with each
+request (see web.py).
 
 Every request goes through auth.handle(), which
 authenticates, applies the limits and writes the usage log. The request
@@ -12,13 +15,14 @@ import hashlib
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import FastAPI, Query, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from scriptorium_server import __version__, adminmenu, auth, files, retrieval
+from scriptorium_server import __version__, adminmenu, auth, files, members, oidc, retrieval, web
 from scriptorium_server import login as member_login
 from scriptorium_server import collections as member_collections
 from scriptorium_server.filestore import FileStore
@@ -48,6 +52,12 @@ class Filters(_Body):
     item_keys: list[str] | None = Field(None, description="Only these items (a set sent back).")
     collections: list[str] | None = Field(
         None, description="Only items in any of these collections of the member (number or name).")
+    text: str | None = Field(
+        None, description='Words the item must hold, matched as whole words in any case:'
+                          ' "a phrase" in quotes, `or` between alternatives, -word to exclude.')
+    text_in: str | None = Field(
+        None, description="Where the words of `text` are looked for: all (title, abstract,"
+                          " authors, venue; the default), title, abstract, authors or venue.")
 
 
 class LookupBody(_Body):
@@ -199,12 +209,15 @@ def _logged(reply: dict, ranking: list) -> JSONResponse:
 def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
                registry: retrieval.Registry | None = None,
                current: Callable[[], Settings] | None = None,
-               login_fetch: Callable[[str], dict] | None = None) -> FastAPI:
+               login_fetch: Callable[[str], dict] | None = None,
+               provider: oidc.Provider | None = None) -> FastAPI:
     """The web service. `connect()` gives a database connection as a
     context manager; `registry` is asked for identifiers not held;
     `current()` gives the settings in force now, for the settings that take
     effect while the server runs (without it, those given at the start);
-    `login_fetch(address)` reads the login provider's public pages."""
+    `login_fetch(address)` reads the login provider's public pages;
+    `provider` is the web page's client at that provider (without it, the
+    one login.issuer and the web settings name, if they name one)."""
     app = FastAPI(title="Scriptorium", version=__version__, docs_url=None, redoc_url=None,
                   openapi_url=None)
     data = Path(str(settings["data.folder"]))
@@ -226,6 +239,122 @@ def create_app(connect: auth.Connect, embedder: Embedder, settings: Settings,
 
     def switched_on(name: str) -> bool:
         return live()[name] == "on"
+
+    @app.get("/", response_class=HTMLResponse, include_in_schema=False)
+    def start_page() -> str:
+        """What Scriptorium is; the dashboard once a member signs in."""
+        return web.page()
+
+    # -- the web page's sign-in (oidc.py, web.py) ----------------------------------
+
+    address = str(settings["web.address"]).rstrip("/")
+    secure = not address.startswith("http://")  # cookies over HTTPS only, but on a test address
+    providers: dict[str, oidc.Provider] = {}
+
+    def web_provider() -> oidc.Provider | None:
+        """The web page's client at the login provider in force now (the
+        issuer is login.issuer, shared with the client's login); None when
+        signing in to the page is not set up."""
+        if not login.issuer:
+            return None
+        if provider is not None:
+            return provider
+        if not (address and settings["web.client_id"]):
+            return None
+        if login.issuer not in providers:
+            providers[login.issuer] = oidc.Provider(
+                login.issuer, str(settings["web.client_id"]), str(settings["web.client_secret"]),
+                f"{address}/auth/callback")
+        return providers[login.issuer]
+
+    def signin_failed(message: str) -> RedirectResponse:
+        response = RedirectResponse("/#signin-error=" + quote(message), status_code=303)
+        response.delete_cookie(web.LOGIN_COOKIE, path="/auth")
+        return response
+
+    @app.get("/auth/login", include_in_schema=False)
+    def web_login() -> Any:
+        """Send the browser to the provider's login page."""
+        provider = web_provider()
+        if provider is None:
+            return signin_failed("signing in is not set up on this server yet")
+        verifier, challenge = oidc.pkce_pair()
+        with connect() as conn:
+            state, nonce = web.start_login(conn, verifier)
+            conn.commit()
+        try:
+            url = provider.login_url(state, nonce, challenge)
+        except oidc.SignInFailed as exc:
+            return signin_failed(str(exc))
+        response = RedirectResponse(url, status_code=303)
+        response.set_cookie(web.LOGIN_COOKIE, state, max_age=web.LOGIN_MINUTES * 60, path="/auth",
+                            httponly=True, secure=secure, samesite="lax")
+        return response
+
+    @app.get("/auth/callback", include_in_schema=False)
+    def callback(request: Request, code: str = "", state: str = "", error: str = "",
+                 error_description: str = "") -> Any:
+        """The provider sends the browser back here: exchange the code,
+        find or make the member, start a session."""
+        provider = web_provider()
+        if provider is None:
+            return signin_failed("signing in is not set up on this server yet")
+        if error:
+            return signin_failed(f"the sign-in was refused: {error_description or error}")
+        if not state or request.cookies.get(web.LOGIN_COOKIE) != state:
+            return signin_failed("this sign-in was not started in this browser; try again")
+        with connect() as conn:
+            pending = web.take_login(conn, state)
+            conn.commit()
+        if pending is None:
+            return signin_failed("the sign-in took too long; try again")
+        try:
+            claims = provider.exchange(code, pending["verifier"], pending["nonce"])
+        except oidc.SignInFailed as exc:
+            return signin_failed(str(exc))
+        hours = int(live()["web.session_hours"])
+        with connect() as conn:
+            member = members.for_login(conn, login.issuer, claims["sub"])
+            conn.commit()
+            if member["revoked_at"]:
+                return signin_failed("your Scriptorium membership has been revoked")
+            token = web.start_session(conn, member["id"], hours, web.shown_name(claims))
+            conn.commit()
+        response = RedirectResponse("/", status_code=303)
+        response.delete_cookie(web.LOGIN_COOKIE, path="/auth")
+        response.set_cookie(web.SESSION_COOKIE, token, max_age=hours * 3600, path="/",
+                            httponly=True, secure=secure, samesite="lax")
+        return response
+
+    def signed_in_request(request: Request) -> bool:
+        return request.headers.get(web.WEB_HEADER) == "1"
+
+    @app.get("/auth/me", include_in_schema=False)
+    def me(request: Request) -> Any:
+        """Who is signed in, for the page's header."""
+        member = None
+        if signed_in_request(request):
+            with connect() as conn:
+                member = web.session_member(conn, request.cookies.get(web.SESSION_COOKIE, ""))
+        if member is None:
+            return JSONResponse({"error": "not signed in"}, status_code=401)
+        return {"name": member["shown_name"] or member["name"], "admin": bool(member["admin"])}
+
+    @app.post("/auth/logout", include_in_schema=False)
+    def logout(request: Request) -> Any:
+        if not signed_in_request(request):
+            return JSONResponse({"error": "sign out from the web page"}, status_code=403)
+        with connect() as conn:
+            web.end_session(conn, request.cookies.get(web.SESSION_COOKIE, ""))
+            conn.commit()
+        response = Response(status_code=204)
+        response.delete_cookie(web.SESSION_COOKIE, path="/")
+        return response
+
+    @app.get("/v1/contents")
+    def contents(request: Request) -> Any:
+        """The number of items and of venues with items, for the web page."""
+        return serve(request, "contents", {}, lambda conn, member: web.contents(conn))
 
     @app.get("/v1/health")
     def health(request: Request) -> Any:

@@ -150,6 +150,22 @@ SETTINGS: tuple[Setting, ...] = (
             " variable SCRIPTORIUM_GROBID_ADDRESS, when set, takes its place.",
             lambda v: v.startswith(("http://", "https://")),
             "an address starting with http:// or https://", host=True),
+    Setting("web.address", "",
+            "The server's public address, as members type it in a browser, e.g."
+            " https://scriptorium.example.org. Signing in to the web page sends members back"
+            " to <address>/auth/callback, so the sign-in provider must know that address."
+            " Empty: the web page cannot sign anyone in.",
+            lambda v: v == "" or v.startswith(("https://", "http://")),
+            "empty, or an address starting with https://", host=True),
+    Setting("web.client_id", "",
+            "The web page's client at the login provider (login.issuer): a confidential"
+            " client with the standard flow, apart from the client's public one."
+            " Empty: the web page cannot sign anyone in.", host=True),
+    Setting("web.client_secret", "",
+            "That client's secret.", secret=True),
+    Setting("web.session_hours", 12,
+            "How long a sign-in to the web page lasts, in hours.", _between(1, 720),
+            "a whole number from 1 to 720", effect=AT_ONCE),
     Setting("sources.contact_email", "",
             "Contact address sent to Crossref and OpenAlex with each request, which they"
             " ask of regular users. Empty sends none.", _email_or_empty,
